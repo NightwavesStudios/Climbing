@@ -1,0 +1,307 @@
+[gd_scene load_steps=7 format=3 uid="uid://g10gh1det6h8"]
+
+[ext_resource type="Script" uid="uid://bl2to4omx6gks" path="res://character_body_2d.gd" id="1_wtcfe"]
+[ext_resource type="Texture2D" uid="uid://k8jd38xjth1r" path="res://icon.svg" id="2_0e48y"]
+[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://area_2d.gd" id="3_epypp"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_0e48y"]
+size = Vector2(150, 150)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_0hol4"]
+size = Vector2(49, 50)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_epypp"]
+size = Vector2(150, 150)
+
+[node name="Node2D" type="Node2D"]
+
+[node name="CharacterBody2D" type="CharacterBody2D" parent="."]
+z_index = 1
+script = ExtResource("1_wtcfe")
+
+[node name="RightHand" type="Node2D" parent="CharacterBody2D"]
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D/RightHand"]
+visible = false
+texture = ExtResource("2_0e48y")
+
+[node name="Area2D" type="Area2D" parent="CharacterBody2D/RightHand"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D/RightHand/Area2D"]
+shape = SubResource("RectangleShape2D_0e48y")
+
+[node name="Marker2D" type="Marker2D" parent="CharacterBody2D/RightHand"]
+
+[node name="LeftHand" type="Node2D" parent="CharacterBody2D"]
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D/LeftHand"]
+visible = false
+texture = ExtResource("2_0e48y")
+
+[node name="Area2D" type="Area2D" parent="CharacterBody2D/LeftHand"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D/LeftHand/Area2D"]
+shape = SubResource("RectangleShape2D_0e48y")
+
+[node name="Marker2D" type="Marker2D" parent="CharacterBody2D/LeftHand"]
+
+[node name="RightHandJoint" type="Node2D" parent="CharacterBody2D"]
+visible = false
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D/RightHandJoint"]
+texture = ExtResource("2_0e48y")
+
+[node name="Area2D" type="Area2D" parent="CharacterBody2D/RightHandJoint"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D/RightHandJoint/Area2D"]
+shape = SubResource("RectangleShape2D_0e48y")
+
+[node name="Marker2D" type="Marker2D" parent="CharacterBody2D/RightHandJoint"]
+
+[node name="BodySprite" type="Sprite2D" parent="CharacterBody2D"]
+modulate = Color(1, 1, 1, 0.78431374)
+scale = Vector2(0.5, 0.8)
+texture = ExtResource("2_0e48y")
+
+[node name="LeftHandJoint" type="Node2D" parent="CharacterBody2D"]
+visible = false
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D/LeftHandJoint"]
+texture = ExtResource("2_0e48y")
+
+[node name="Area2D" type="Area2D" parent="CharacterBody2D/LeftHandJoint"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D/LeftHandJoint/Area2D"]
+shape = SubResource("RectangleShape2D_0e48y")
+
+[node name="Marker2D" type="Marker2D" parent="CharacterBody2D/LeftHandJoint"]
+
+[node name="RightFoot" type="Node2D" parent="CharacterBody2D"]
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D/RightFoot"]
+visible = false
+texture = ExtResource("2_0e48y")
+
+[node name="Area2D" type="Area2D" parent="CharacterBody2D/RightFoot"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D/RightFoot/Area2D"]
+shape = SubResource("RectangleShape2D_0e48y")
+
+[node name="Marker2D" type="Marker2D" parent="CharacterBody2D/RightFoot"]
+
+[node name="LeftFoot" type="Node2D" parent="CharacterBody2D"]
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D/LeftFoot"]
+visible = false
+texture = ExtResource("2_0e48y")
+
+[node name="Area2D" type="Area2D" parent="CharacterBody2D/LeftFoot"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D/LeftFoot/Area2D"]
+shape = SubResource("RectangleShape2D_0e48y")
+
+[node name="Marker2D" type="Marker2D" parent="CharacterBody2D/LeftFoot"]
+
+[node name="RightFootJoint" type="Node2D" parent="CharacterBody2D"]
+visible = false
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D/RightFootJoint"]
+texture = ExtResource("2_0e48y")
+
+[node name="Area2D" type="Area2D" parent="CharacterBody2D/RightFootJoint"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D/RightFootJoint/Area2D"]
+shape = SubResource("RectangleShape2D_0e48y")
+
+[node name="Marker2D" type="Marker2D" parent="CharacterBody2D/RightFootJoint"]
+
+[node name="LeftFootJoint" type="Node2D" parent="CharacterBody2D"]
+visible = false
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="CharacterBody2D/LeftFootJoint"]
+texture = ExtResource("2_0e48y")
+
+[node name="Area2D" type="Area2D" parent="CharacterBody2D/LeftFootJoint"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D/LeftFootJoint/Area2D"]
+shape = SubResource("RectangleShape2D_0e48y")
+
+[node name="Marker2D" type="Marker2D" parent="CharacterBody2D/LeftFootJoint"]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CharacterBody2D"]
+position = Vector2(-0.5, 0)
+shape = SubResource("RectangleShape2D_0hol4")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="Hold1" type="Node2D" parent="."]
+position = Vector2(-49.000008, -46.000004)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold1"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold1/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold1/Area2D"]
+
+[node name="Hold2" type="Node2D" parent="."]
+position = Vector2(32.999992, -33)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold2"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold2/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold2/Area2D"]
+
+[node name="Hold3" type="Node2D" parent="."]
+position = Vector2(-59, 54.99999)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold3"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold3/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold3/Area2D"]
+
+[node name="Hold4" type="Node2D" parent="."]
+position = Vector2(54.999992, 55.99999)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold4"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold4/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold4/Area2D"]
+
+[node name="Hold5" type="Node2D" parent="."]
+position = Vector2(-69, -118)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold5"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold5/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold5/Area2D"]
+
+[node name="Hold6" type="Node2D" parent="."]
+position = Vector2(45.999992, -124)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold6"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold6/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold6/Area2D"]
+
+[node name="Hold7" type="Node2D" parent="."]
+position = Vector2(-78, -195.99998)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold7"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold7/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold7/Area2D"]
+
+[node name="Hold8" type="Node2D" parent="."]
+position = Vector2(60.999992, -219.99998)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold8"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold8/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold8/Area2D"]
+
+[node name="Hold9" type="Node2D" parent="."]
+position = Vector2(-91, -301)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold9"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold9/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold9/Area2D"]
+
+[node name="Hold10" type="Node2D" parent="."]
+position = Vector2(69.99999, -319.99997)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold10"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold10/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold10/Area2D"]
+
+[node name="Hold11" type="Node2D" parent="."]
+position = Vector2(-64, 157.99998)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold11"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold11/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold11/Area2D"]
+
+[node name="Hold12" type="Node2D" parent="."]
+position = Vector2(67.99999, 157.99998)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold12"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold12/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold12/Area2D"]
+
+[node name="Hold13" type="Node2D" parent="."]
+position = Vector2(-162, -151)
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="Hold13"]
+script = ExtResource("3_epypp")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hold13/Area2D"]
+shape = SubResource("RectangleShape2D_epypp")
+
+[node name="HoldPoint" type="Marker2D" parent="Hold13/Area2D"]
