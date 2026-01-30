@@ -1,0 +1,126 @@
+[gd_scene load_steps=5 format=3 uid="uid://c5s02ajy6gea3"]
+
+[ext_resource type="Script" uid="uid://bl2to4omx6gks" path="res://scripts/player/character.gd" id="1_pjt0s"]
+[ext_resource type="Texture2D" uid="uid://k8jd38xjth1r" path="res://assets/textures/icon.svg" id="2_wa5vi"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wfnr8"]
+size = Vector2(150, 150)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_px5sl"]
+size = Vector2(49, 50)
+
+[node name="Character" type="CharacterBody2D"]
+script = ExtResource("1_pjt0s")
+
+[node name="RightHand" type="Node2D" parent="."]
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="RightHand"]
+visible = false
+texture = ExtResource("2_wa5vi")
+
+[node name="Area2D" type="Area2D" parent="RightHand"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="RightHand/Area2D"]
+shape = SubResource("RectangleShape2D_wfnr8")
+
+[node name="Marker2D" type="Marker2D" parent="RightHand"]
+
+[node name="LeftHand" type="Node2D" parent="."]
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="LeftHand"]
+visible = false
+texture = ExtResource("2_wa5vi")
+
+[node name="Area2D" type="Area2D" parent="LeftHand"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LeftHand/Area2D"]
+shape = SubResource("RectangleShape2D_wfnr8")
+
+[node name="Marker2D" type="Marker2D" parent="LeftHand"]
+
+[node name="RightHandJoint" type="Node2D" parent="."]
+scale = Vector2(0.4, 0.4)
+
+[node name="Area2D" type="Area2D" parent="RightHandJoint"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="RightHandJoint/Area2D"]
+shape = SubResource("RectangleShape2D_wfnr8")
+
+[node name="Marker2D" type="Marker2D" parent="RightHandJoint"]
+
+[node name="BodySprite" type="Sprite2D" parent="."]
+modulate = Color(1, 1, 1, 0.78431374)
+scale = Vector2(0.5, 0.8)
+texture = ExtResource("2_wa5vi")
+
+[node name="LeftHandJoint" type="Node2D" parent="."]
+scale = Vector2(0.4, 0.4)
+
+[node name="Area2D" type="Area2D" parent="LeftHandJoint"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LeftHandJoint/Area2D"]
+shape = SubResource("RectangleShape2D_wfnr8")
+
+[node name="Marker2D" type="Marker2D" parent="LeftHandJoint"]
+
+[node name="RightFoot" type="Node2D" parent="."]
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="RightFoot"]
+visible = false
+texture = ExtResource("2_wa5vi")
+
+[node name="Area2D" type="Area2D" parent="RightFoot"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="RightFoot/Area2D"]
+shape = SubResource("RectangleShape2D_wfnr8")
+
+[node name="Marker2D" type="Marker2D" parent="RightFoot"]
+
+[node name="LeftFoot" type="Node2D" parent="."]
+scale = Vector2(0.4, 0.4)
+
+[node name="Sprite2D" type="Sprite2D" parent="LeftFoot"]
+visible = false
+texture = ExtResource("2_wa5vi")
+
+[node name="Area2D" type="Area2D" parent="LeftFoot"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LeftFoot/Area2D"]
+shape = SubResource("RectangleShape2D_wfnr8")
+
+[node name="Marker2D" type="Marker2D" parent="LeftFoot"]
+
+[node name="RightFootJoint" type="Node2D" parent="."]
+scale = Vector2(0.4, 0.4)
+
+[node name="Area2D" type="Area2D" parent="RightFootJoint"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="RightFootJoint/Area2D"]
+shape = SubResource("RectangleShape2D_wfnr8")
+
+[node name="Marker2D" type="Marker2D" parent="RightFootJoint"]
+
+[node name="LeftFootJoint" type="Node2D" parent="."]
+scale = Vector2(0.4, 0.4)
+
+[node name="Area2D" type="Area2D" parent="LeftFootJoint"]
+collision_mask = 2
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LeftFootJoint/Area2D"]
+shape = SubResource("RectangleShape2D_wfnr8")
+
+[node name="Marker2D" type="Marker2D" parent="LeftFootJoint"]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(-0.5, 0)
+shape = SubResource("RectangleShape2D_px5sl")

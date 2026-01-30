@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=3 uid="uid://c1im8e5hhobxh"]
+
+[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/jug.gd" id="1_18v5o"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_18v5o"]
+radius = 75.0
+
+[node name="Jug" type="Node2D"]
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="."]
+script = ExtResource("1_18v5o")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+shape = SubResource("CircleShape2D_18v5o")
+
+[node name="HoldPoint" type="Marker2D" parent="Area2D"]

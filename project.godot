@@ -13,7 +13,15 @@ config_version=5
 config/name="Climbing"
 run/main_scene="uid://g10gh1det6h8"
 config/features=PackedStringArray("4.5", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="res://assets/textures/icon.svg"
+
+[file_customization]
+
+folder_colors={
+"res://assets/": "red",
+"res://scenes/": "green",
+"res://scripts/": "blue"
+}
 
 [input]
 
