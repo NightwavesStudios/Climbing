@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3 uid="uid://g10gh1det6h8"]
+[gd_scene load_steps=5 format=3 uid="uid://g10gh1det6h8"]
 
 [ext_resource type="PackedScene" uid="uid://c5s02ajy6gea3" path="res://scenes/player/character.tscn" id="2_hswnt"]
 [ext_resource type="PackedScene" uid="uid://c1im8e5hhobxh" path="res://scenes/holds/jug.tscn" id="2_o0oxx"]
 [ext_resource type="PackedScene" uid="uid://dqhr36thr4xmq" path="res://scenes/holds/top_out.tscn" id="3_hswnt"]
+[ext_resource type="PackedScene" uid="uid://nqivo6mrpyc7" path="res://scenes/holds/start_hold.tscn" id="4_ta2mj"]
 
 [node name="test-level" type="Node2D"]
 
@@ -10,32 +11,34 @@
 
 [node name="Character" parent="." instance=ExtResource("2_hswnt")]
 
-[node name="Jug" parent="." instance=ExtResource("2_o0oxx")]
-position = Vector2(-81.00001, 6.9999924)
+[node name="Holds" type="Node2D" parent="."]
 
-[node name="Jug2" parent="." instance=ExtResource("2_o0oxx")]
+[node name="Jug1" parent="Holds" instance=ExtResource("4_ta2mj")]
+position = Vector2(58, 19)
+
+[node name="Jug2" parent="Holds" instance=ExtResource("2_o0oxx")]
 position = Vector2(62.000008, -86.00001)
 
-[node name="Jug3" parent="." instance=ExtResource("2_o0oxx")]
+[node name="Jug3" parent="Holds" instance=ExtResource("2_o0oxx")]
 position = Vector2(-69, 93.00001)
 
-[node name="Jug4" parent="." instance=ExtResource("2_o0oxx")]
+[node name="Jug4" parent="Holds" instance=ExtResource("2_o0oxx")]
 position = Vector2(57.000008, 107.00001)
 
-[node name="Jug5" parent="." instance=ExtResource("2_o0oxx")]
+[node name="Jug5" parent="Holds" instance=ExtResource("2_o0oxx")]
 position = Vector2(-80.99999, -95.00001)
 
-[node name="Jug6" parent="." instance=ExtResource("2_o0oxx")]
-position = Vector2(58.000008, 17.999998)
+[node name="Jug6" parent="Holds" instance=ExtResource("4_ta2mj")]
+position = Vector2(-77, -0.9999981)
 
-[node name="Jug7" parent="." instance=ExtResource("2_o0oxx")]
+[node name="Jug7" parent="Holds" instance=ExtResource("2_o0oxx")]
 position = Vector2(-92.999985, -192.00002)
 
-[node name="Jug8" parent="." instance=ExtResource("2_o0oxx")]
+[node name="Jug8" parent="Holds" instance=ExtResource("2_o0oxx")]
 position = Vector2(48.000015, -180)
 
-[node name="Jug9" parent="." instance=ExtResource("2_o0oxx")]
+[node name="Jug9" parent="Holds" instance=ExtResource("2_o0oxx")]
 position = Vector2(-64.99997, -276)
 
-[node name="Jug10" parent="." instance=ExtResource("3_hswnt")]
+[node name="Jug10" parent="Holds" instance=ExtResource("3_hswnt")]
 position = Vector2(11, -292)

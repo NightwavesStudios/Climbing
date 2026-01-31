@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3 uid="uid://dqhr36thr4xmq"]
 
-[ext_resource type="Script" uid="uid://djolsd7u13n06" path="res://scripts/holds/top_out.gd" id="1_v3b5j"]
+[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_v3b5j"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_18v5o"]
 radius = 75.0
@@ -10,6 +10,7 @@ scale = Vector2(0.2, 0.2)
 
 [node name="Area2D" type="Area2D" parent="."]
 script = ExtResource("1_v3b5j")
+hold_type = 2
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
 shape = SubResource("CircleShape2D_18v5o")
