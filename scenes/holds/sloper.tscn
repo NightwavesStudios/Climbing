@@ -1,0 +1,29 @@
+[gd_scene load_steps=4 format=3 uid="uid://dbyu6py4a276m"]
+
+[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_6lxc5"]
+[ext_resource type="Texture2D" uid="uid://bu2ve6bewtc4r" path="res://assets/images/holds/sloper.png" id="2_6ows1"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_7irpt"]
+radius = 115.00001
+
+[node name="Sloper" type="Node2D"]
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="."]
+position = Vector2(0, 9.999999)
+script = ExtResource("1_6lxc5")
+hold_type = 4
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+position = Vector2(0, -9.999999)
+scale = Vector2(0.99999994, 0.99999994)
+shape = SubResource("CircleShape2D_7irpt")
+
+[node name="HoldPoint" type="Marker2D" parent="Area2D"]
+position = Vector2(0, -35)
+scale = Vector2(0.99999994, 0.99999994)
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+position = Vector2(-1.9073486e-06, 0)
+scale = Vector2(0.2, 0.2)
+texture = ExtResource("2_6ows1")

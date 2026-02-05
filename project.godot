@@ -15,6 +15,12 @@ run/main_scene="uid://g10gh1det6h8"
 config/features=PackedStringArray("4.5", "Forward Plus")
 config/icon="res://assets/textures/icon.svg"
 
+[autoload]
+
+EditorState="*res://editor_state.gd"
+GameState="*res://game_state.gd"
+LevelManager="*res://level_manager.gd"
+
 [file_customization]
 
 folder_colors={

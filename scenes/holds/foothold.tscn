@@ -1,0 +1,28 @@
+[gd_scene load_steps=4 format=3 uid="uid://b7kp7dqc1jrsy"]
+
+[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_bokhm"]
+[ext_resource type="Texture2D" uid="uid://cils0h573m6g7" path="res://assets/images/holds/foothold.png" id="2_3ech5"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_ne5lj"]
+radius = 30.000002
+
+[node name="Foothold" type="Node2D"]
+scale = Vector2(0.2, 0.2)
+
+[node name="Area2D" type="Area2D" parent="."]
+script = ExtResource("1_bokhm")
+hold_type = 5
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+position = Vector2(0, -5)
+scale = Vector2(0.99999994, 0.99999994)
+shape = SubResource("CircleShape2D_ne5lj")
+
+[node name="HoldPoint" type="Marker2D" parent="Area2D"]
+position = Vector2(0, -5)
+scale = Vector2(0.99999994, 0.99999994)
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+position = Vector2(30.000004, 20)
+scale = Vector2(0.2195833, 0.2195833)
+texture = ExtResource("2_3ech5")
