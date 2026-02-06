@@ -31,16 +31,20 @@ const CAM_LERP := 0.08
 @export var aesthetic: bool = true
 
 # =============================================================================
-# GRIP STATE SYSTEM
+# GRIP STATE SYSTEM (NOW FOR ALL LIMBS)
 # =============================================================================
 
 enum GripState { RELAXED, ENGAGED, PUMPED, FAIL }
 
 var left_hand_state: GripState = GripState.RELAXED
 var right_hand_state: GripState = GripState.RELAXED
+var left_foot_state: GripState = GripState.RELAXED
+var right_foot_state: GripState = GripState.RELAXED
 
 var left_hand_pressure: float = 0.0
 var right_hand_pressure: float = 0.0
+var left_foot_pressure: float = 0.0
+var right_foot_pressure: float = 0.0
 
 const PRESSURE_ENGAGED := 25.0
 const PRESSURE_PUMPED := 60.0
@@ -48,6 +52,8 @@ const PRESSURE_FAIL := 100.0
 
 var left_hand_static_time: float = 0.0
 var right_hand_static_time: float = 0.0
+var left_foot_static_time: float = 0.0
+var right_foot_static_time: float = 0.0
 
 # =============================================================================
 # LIMB STATE & MULTI-SELECTION
@@ -138,6 +144,9 @@ const TWO_ARM_PRESSURE_MULTIPLIER := 1.0
 const THREE_LIMB_PRESSURE_MULTIPLIER := 0.6
 const FOUR_LIMB_PRESSURE_MULTIPLIER := 0.4
 
+# Feet are much stronger than hands
+const FOOT_PRESSURE_REDUCTION := 0.15  # Feet accumulate 15% of hand pressure
+
 # Make easy holds less restful - you still accumulate fatigue slowly
 const EASY_HOLD_BASE_PRESSURE := 0.5  # Even jugs cost energy over time
 const REST_EFFECTIVENESS_REDUCTION := 0.6  # Resting is less effective
@@ -145,6 +154,7 @@ const REST_EFFECTIVENESS_REDUCTION := 0.6  # Resting is less effective
 # Dynamic loading based on body position
 const POOR_POSITION_PRESSURE_MULT := 2.0
 const LOCK_OFF_PRESSURE_MULT := 1.8  # Bent arms = harder
+const LOCK_OFF_THRESHOLD := 0.7  # Arm extension below this counts as lock-off
 
 # =============================================================================
 # ENHANCED MOMENTUM & SWINGING SYSTEM
@@ -296,12 +306,14 @@ func _process(delta):
 
 
 # =============================================================================
-# ENHANCED GRIP STATE SYSTEM WITH REALISTIC ENDURANCE
+# ENHANCED GRIP STATE SYSTEM WITH REALISTIC ENDURANCE (ALL LIMBS)
 # =============================================================================
 
 func update_grip_states(delta: float):
 	update_hand_grip_state(Limb.LEFT_HAND, delta)
 	update_hand_grip_state(Limb.RIGHT_HAND, delta)
+	update_foot_grip_state(Limb.LEFT_FOOT, delta)
+	update_foot_grip_state(Limb.RIGHT_FOOT, delta)
 
 func update_hand_grip_state(hand: Limb, delta: float):
 	var hold: Area2D
@@ -342,7 +354,7 @@ func update_hand_grip_state(hand: Limb, delta: float):
 		# Calculate arm extension (lock-off = harder)
 		var arm_extension = calculate_arm_extension(hand)
 		var lock_off_mult = 1.0
-		if arm_extension < 0.7:  # Bent arm = lock-off
+		if arm_extension < LOCK_OFF_THRESHOLD:  # Bent arm = lock-off
 			lock_off_mult = LOCK_OFF_PRESSURE_MULT
 		
 		# Get hold-specific pressure
@@ -394,9 +406,94 @@ func update_hand_grip_state(hand: Limb, delta: float):
 		right_hand_state = state
 		right_hand_static_time = static_time
 
+func update_foot_grip_state(foot: Limb, delta: float):
+	var hold: Area2D
+	var pressure: float
+	var state: GripState
+	var static_time: float
+	var limb_node: Node2D
+	
+	if foot == Limb.LEFT_FOOT:
+		hold = left_foot_hold
+		pressure = left_foot_pressure
+		state = left_foot_state
+		static_time = left_foot_static_time
+		limb_node = left_foot
+	else:
+		hold = right_foot_hold
+		pressure = right_foot_pressure
+		state = right_foot_state
+		static_time = right_foot_static_time
+		limb_node = right_foot
+	
+	# Update static time
+	if hold != null and foot not in selected_limbs:
+		static_time += delta
+	else:
+		static_time = 0.0
+	
+	# Calculate pressure change (feet are much stronger)
+	if hold != null:
+		var body_offset = calculate_body_offset(foot)
+		var body_balance = calculate_body_balance()
+		var foot_support = calculate_foot_support_ratio()
+		
+		# Count held limbs for loading calculation
+		var held_limb_count = count_held_limbs()
+		var loading_multiplier = get_loading_multiplier(held_limb_count)
+		
+		# Get hold-specific pressure (same as hands)
+		var hold_pressure = hold.get_state_pressure(delta, body_offset, static_time, foot_support, limb_node)
+		
+		# FEET ARE MUCH STRONGER - reduce pressure significantly
+		hold_pressure *= FOOT_PRESSURE_REDUCTION
+		
+		# Apply loading multiplier
+		hold_pressure *= loading_multiplier
+		
+		# Even easy holds accumulate fatigue (but much less for feet)
+		if hold_pressure < EASY_HOLD_BASE_PRESSURE * FOOT_PRESSURE_REDUCTION:
+			hold_pressure = EASY_HOLD_BASE_PRESSURE * FOOT_PRESSURE_REDUCTION * delta
+		
+		# Poor body position matters less for feet
+		if body_offset > 0.5:
+			hold_pressure *= 1.2  # Much less penalty than hands
+		
+		# Calculate recovery
+		var hold_recovery = hold.get_recovery_rate(delta, body_balance, foot_support)
+		hold_recovery *= REST_EFFECTIVENESS_REDUCTION
+		
+		pressure += hold_pressure - hold_recovery
+	else:
+		# Recover when not on wall
+		pressure -= 15.0 * delta
+	
+	pressure = clamp(pressure, 0.0, PRESSURE_FAIL)
+	
+	# Update state
+	if pressure >= PRESSURE_FAIL:
+		state = GripState.FAIL
+		release_limb(foot)
+	elif pressure >= PRESSURE_PUMPED:
+		state = GripState.PUMPED
+	elif pressure >= PRESSURE_ENGAGED:
+		state = GripState.ENGAGED
+	else:
+		state = GripState.RELAXED
+	
+	# Write back
+	if foot == Limb.LEFT_FOOT:
+		left_foot_pressure = pressure
+		left_foot_state = state
+		left_foot_static_time = static_time
+	else:
+		right_foot_pressure = pressure
+		right_foot_state = state
+		right_foot_static_time = static_time
+
 func count_held_limbs() -> int:
 	var count = 0
-	# Only count hands that are actually gripping (not grabbing animation or selected)
+	# Only count limbs that are actually gripping (not grabbing animation or selected)
 	if left_hand_hold and not left_hand_grabbing and Limb.LEFT_HAND not in selected_limbs:
 		count += 1
 	if right_hand_hold and not right_hand_grabbing and Limb.RIGHT_HAND not in selected_limbs:
@@ -436,8 +533,21 @@ func calculate_arm_extension(hand: Limb) -> float:
 	
 	return clamp(current_dist / max_dist, 0.0, 1.0)
 
-func calculate_body_offset(hand: Limb) -> float:
-	var anchor = left_hand_anchor if hand == Limb.LEFT_HAND else right_hand_anchor
+func calculate_body_offset(limb: Limb) -> float:
+	var anchor: Vector2
+	
+	match limb:
+		Limb.LEFT_HAND:
+			anchor = left_hand_anchor if left_hand_anchor != Vector2.ZERO else left_hand.global_position
+		Limb.RIGHT_HAND:
+			anchor = right_hand_anchor if right_hand_anchor != Vector2.ZERO else right_hand.global_position
+		Limb.LEFT_FOOT:
+			anchor = left_foot_anchor if left_foot_anchor != Vector2.ZERO else left_foot.global_position
+		Limb.RIGHT_FOOT:
+			anchor = right_foot_anchor if right_foot_anchor != Vector2.ZERO else right_foot.global_position
+		_:
+			return 0.0
+	
 	if anchor == Vector2.ZERO:
 		return 0.0
 	
@@ -729,10 +839,16 @@ func reset_climb():
 	
 	left_hand_state = GripState.RELAXED
 	right_hand_state = GripState.RELAXED
+	left_foot_state = GripState.RELAXED
+	right_foot_state = GripState.RELAXED
 	left_hand_pressure = 0.0
 	right_hand_pressure = 0.0
+	left_foot_pressure = 0.0
+	right_foot_pressure = 0.0
 	left_hand_static_time = 0.0
 	right_hand_static_time = 0.0
+	left_foot_static_time = 0.0
+	right_foot_static_time = 0.0
 	
 	await get_tree().process_frame
 	initial_grab()
@@ -814,8 +930,6 @@ func simulate_physics(delta):
 	
 	apply_limb_velocities(delta)
 	
-	# Removed upside-down prevention for full freedom
-	
 	check_limb_overload(held_hand_count, held_foot_count)
 	
 	for i in range(5):
@@ -823,8 +937,6 @@ func simulate_physics(delta):
 	
 	update_grab_animations()
 	pin_held_limbs()
-	
-	# Removed crossing prevention for full freedom
 	
 	com_velocity *= BODY_DRAG
 	apply_limb_drag()
@@ -942,8 +1054,6 @@ func apply_hand_control(hand: Node2D, state: GripState, shoulder_offset: Vector2
 	var mods = get_hand_modifiers(state)
 	var attachment = global_position + shoulder_offset
 	
-	# Removed crossing prevention
-	
 	var max_reach = (ARM_UPPER_LENGTH + ARM_LOWER_LENGTH) * mods.reach_mult
 	var dist = attachment.distance_to(target)
 	if dist > max_reach:
@@ -965,10 +1075,6 @@ func apply_foot_control(foot: Node2D, hip_offset: Vector2, target: Vector2,
 						is_left: bool, delta: float):
 	var foot_speed = get_foot_move_speed(Limb.LEFT_FOOT if is_left else Limb.RIGHT_FOOT)
 	var attachment = global_position + hip_offset
-	
-	# Removed upside-down check for full freedom
-	
-	# Removed crossing prevention
 	
 	var max_reach = LEG_UPPER_LENGTH + LEG_LOWER_LENGTH
 	var dist = attachment.distance_to(target)
@@ -1612,8 +1718,6 @@ func attempt_grab(limb: Limb):
 		# Far from center - move 70% toward hold point
 		grab_pos = limb_pos + to_hold * 0.7
 	
-	# Removed upside-down check for full freedom
-	
 	if not closest_hold.try_claim(limb_node, is_foot, grab_pos):
 		return
 	
@@ -1756,12 +1860,17 @@ func draw_stick_figure():
 		draw_arc(mouse_local, 10, 0, TAU, 12, Color(1, 1, 0, 0.7), 1.5)
 
 func get_grip_state_color(state: GripState, limb: Limb) -> Color:
-	# Check if hand is on hold AND not in grabbing animation
+	# Check if limb is on hold AND not in grabbing animation
 	var on_hold_settled = false
-	if limb == Limb.LEFT_HAND:
-		on_hold_settled = left_hand_hold != null and not left_hand_grabbing
-	elif limb == Limb.RIGHT_HAND:
-		on_hold_settled = right_hand_hold != null and not right_hand_grabbing
+	match limb:
+		Limb.LEFT_HAND:
+			on_hold_settled = left_hand_hold != null and not left_hand_grabbing
+		Limb.RIGHT_HAND:
+			on_hold_settled = right_hand_hold != null and not right_hand_grabbing
+		Limb.LEFT_FOOT:
+			on_hold_settled = left_foot_hold != null and not left_foot_grabbing
+		Limb.RIGHT_FOOT:
+			on_hold_settled = right_foot_hold != null and not right_foot_grabbing
 	
 	if not on_hold_settled:
 		return Color.BLACK  # Black when not gripping or still grabbing

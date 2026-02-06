@@ -6,7 +6,7 @@
 [sub_resource type="CircleShape2D" id="CircleShape2D_e3qun"]
 radius = 96.17692
 
-[node name="StartHold" type="Node2D"]
+[node name="Start" type="Node2D"]
 scale = Vector2(0.2, 0.2)
 
 [node name="Area2D" type="Area2D" parent="."]

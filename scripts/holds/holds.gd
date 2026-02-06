@@ -21,6 +21,9 @@ var limb_placements: Dictionary = {}  # Node2D -> Vector2 (local position)
 
 @onready var hold_point: Marker2D = $HoldPoint
 
+# Flag to prevent auto-detection if type was set manually
+var _type_was_set_manually: bool = false
+
 # =============================================================================
 # INITIALIZATION
 # =============================================================================
@@ -30,7 +33,43 @@ func _ready():
 	collision_mask = 0
 	monitoring = true
 	
-	_configure_hold_properties()
+	# Only auto-detect if type wasn't set manually by level loader
+	# AND only if properties haven't been configured yet
+	if not _type_was_set_manually:
+		_auto_detect_type_from_name()
+		_configure_hold_properties()
+	
+	# Add to holds group
+	add_to_group("holds")
+	
+	# Debug output
+	var type_name = HoldType.keys()[hold_type]
+	print("Hold initialized: ", name, " type=", type_name, " at ", global_position)
+
+func _auto_detect_type_from_name():
+	"""Auto-detect hold type from scene filename"""
+	var scene_path = scene_file_path
+	if scene_path == "":
+		return
+	
+	var filename = scene_path.get_file().to_lower()
+	
+	# Only auto-detect if type is still JUG (default)
+	if hold_type != HoldType.JUG:
+		return
+	
+	if "start" in filename:
+		hold_type = HoldType.START
+	elif "top" in filename:
+		hold_type = HoldType.TOP_OUT
+	elif "crimp" in filename:
+		hold_type = HoldType.CRIMP
+	elif "sloper" in filename:
+		hold_type = HoldType.SLOPER
+	elif "pocket" in filename:
+		hold_type = HoldType.POCKET
+	elif "foot" in filename:
+		hold_type = HoldType.FOOTHOLD
 
 func _configure_hold_properties():
 	match hold_type:
@@ -57,14 +96,46 @@ func _configure_hold_properties():
 			rest_value = 0.0
 
 # =============================================================================
+# PUBLIC API - TYPE ASSIGNMENT (Called by LevelLoader)
+# =============================================================================
+
+func set_hold_type_from_string(type_str: String):
+	"""Set hold type from string (called by level loader BEFORE _ready)"""
+	_type_was_set_manually = true
+	
+	match type_str.to_upper():
+		"START":
+			hold_type = HoldType.START
+		"TOP":
+			hold_type = HoldType.TOP_OUT
+		"JUG":
+			hold_type = HoldType.JUG
+		"CRIMP":
+			hold_type = HoldType.CRIMP
+		"SLOPER":
+			hold_type = HoldType.SLOPER
+		"FOOT":
+			hold_type = HoldType.FOOTHOLD
+		"POCKET":
+			hold_type = HoldType.POCKET
+		_:
+			print("WARNING: Unknown hold type string: ", type_str)
+	
+	# Configure properties immediately when type is set manually
+	# This ensures the properties are correct even if called before _ready()
+	_configure_hold_properties()
+
+# =============================================================================
 # PUBLIC API - TYPE CHECKING
 # =============================================================================
 
 func is_start_hold() -> bool:
-	return hold_type == HoldType.START
+	var result = hold_type == HoldType.START
+	return result
 
 func is_top_out() -> bool:
-	return hold_type == HoldType.TOP_OUT
+	var result = hold_type == HoldType.TOP_OUT
+	return result
 
 func is_jug() -> bool:
 	return hold_type == HoldType.JUG

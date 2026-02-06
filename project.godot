@@ -11,15 +11,15 @@ config_version=5
 [application]
 
 config/name="Climbing"
-run/main_scene="uid://g10gh1det6h8"
+run/main_scene="uid://dobbv2ep5jfco"
 config/features=PackedStringArray("4.5", "Forward Plus")
 config/icon="res://assets/textures/icon.svg"
 
 [autoload]
 
-EditorState="*res://editor_state.gd"
-GameState="*res://game_state.gd"
-LevelManager="*res://level_manager.gd"
+EditorState="*res://scripts/editor/editor_state.gd"
+GameState="*res://scripts/levels/game_state.gd"
+LevelManager="*res://scripts/levels/level_manager.gd"
 
 [file_customization]
 

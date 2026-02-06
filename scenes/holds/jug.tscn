@@ -10,6 +10,7 @@ radius = 75.66373
 scale = Vector2(0.2, 0.2)
 
 [node name="Area2D" type="Area2D" parent="."]
+gravity_space_override = 1
 script = ExtResource("1_18v5o")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
