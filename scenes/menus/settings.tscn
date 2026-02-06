@@ -1,0 +1,94 @@
+[gd_scene load_steps=2 format=3 uid="uid://yajtbkqrwd1m"]
+
+[ext_resource type="Script" uid="uid://bkpjoeawvlf41" path="res://scripts/menus/settings.gd" id="1_del6v"]
+
+[node name="Settings" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_del6v")
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -99.0
+offset_top = -169.5
+offset_right = 99.0
+offset_bottom = 169.5
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+layout_mode = 2
+
+[node name="VolumeLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Volume"
+
+[node name="Volume" type="HSlider" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="WindowModeLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Window Mode"
+
+[node name="WindowMode" type="OptionButton" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+selected = 0
+item_count = 3
+popup/item_0/text = "Windowed"
+popup/item_0/id = 0
+popup/item_1/text = "Fullscreen"
+popup/item_1/id = 1
+popup/item_2/text = "Borderless Fullscreen"
+popup/item_2/id = 2
+
+[node name="VSyncLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Toggle VSync"
+
+[node name="VSync" type="CheckBox" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="FPSCapLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Set FPS Cap"
+
+[node name="FPSCap" type="OptionButton" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+selected = 0
+item_count = 4
+popup/item_0/text = "None"
+popup/item_0/id = 0
+popup/item_1/text = "60fps"
+popup/item_1/id = 1
+popup/item_2/text = "120fps"
+popup/item_2/id = 2
+popup/item_3/text = "<null>"
+popup/item_3/id = 3
+
+[node name="MarginContainer" type="MarginContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Save" type="Button" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Save"
+
+[node name="Back" type="Button" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Back"
+
+[connection signal="value_changed" from="MarginContainer/VBoxContainer/Volume" to="." method="_on_volume_value_changed"]
+[connection signal="item_selected" from="MarginContainer/VBoxContainer/WindowMode" to="." method="_on_window_mode_item_selected"]
+[connection signal="toggled" from="MarginContainer/VBoxContainer/VSync" to="." method="_on_vsync_toggled"]
+[connection signal="item_selected" from="MarginContainer/VBoxContainer/FPSCap" to="." method="_on_fps_cap_item_selected"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/Save" to="." method="_on_save_pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/Back" to="." method="_on_back_pressed"]

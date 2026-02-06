@@ -585,9 +585,9 @@ func _on_preview():
 			show_notification("Warning: START holds should be further apart (currently " + str(int(distance)) + "px)", true)
 	
 	# Load player
-	var player_scene_path = "res://scenes/player.tscn"
+	var player_scene_path = "res://scenes/player/character.tscn"
 	if not ResourceLoader.exists(player_scene_path):
-		player_scene_path = "res://player.tscn"
+		player_scene_path = "res://scenes/player/character.tscn"
 		if not ResourceLoader.exists(player_scene_path):
 			print("Player scene not found")
 			show_notification("Player scene not found!", true)
