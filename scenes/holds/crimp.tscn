@@ -1,9 +1,18 @@
-[gd_scene load_steps=3 format=3 uid="uid://dk5b2diiuw66b"]
+[gd_scene load_steps=7 format=3 uid="uid://dk5b2diiuw66b"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_r3qd0"]
+[ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_gdk8g"]
+[ext_resource type="Texture2D" uid="uid://dy8pu12a3tj7a" path="res://assets/images/holds/crimp.png" id="2_xpqss"]
+[ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_x313x"]
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_18v5o"]
-radius = 75.0
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_xpqss"]
+size = Vector2(185, 80)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_n1s20"]
+shader = ExtResource("2_gdk8g")
+shader_parameter/grunge_mask = ExtResource("3_x313x")
+shader_parameter/wear_strength = 0.30000001425
+shader_parameter/grunge_scale = 1.00000004424012
 
 [node name="Crimp" type="Node2D"]
 scale = Vector2(0.2, 0.2)
@@ -13,6 +22,14 @@ script = ExtResource("1_r3qd0")
 hold_type = 3
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
-shape = SubResource("CircleShape2D_18v5o")
+position = Vector2(2.5000126, 4.321336e-06)
+scale = Vector2(0.99999976, 0.99999976)
+shape = SubResource("RectangleShape2D_xpqss")
 
 [node name="HoldPoint" type="Marker2D" parent="Area2D"]
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_n1s20")
+position = Vector2(10, 30)
+scale = Vector2(0.14645831, 0.14645831)
+texture = ExtResource("2_xpqss")

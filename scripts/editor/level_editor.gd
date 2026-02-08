@@ -1,10 +1,5 @@
 extends Node2D
 
-# =============================================================================
-# LEVEL EDITOR - Export-only workflow for developers
-# FIXES: Start hold distance, canvas size, auto-reset, hold limits, overlap prevention
-# =============================================================================
-
 var camera: Camera2D
 var holds_container: Node2D
 var preview_container: Node2D
@@ -175,6 +170,13 @@ func setup_ui():
 	clear_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	clear_btn.pressed.connect(_on_clear)
 	hbox.add_child(clear_btn)
+	
+	var back_btn = Button.new()
+	back_btn.text = "BACK"
+	back_btn.custom_minimum_size = Vector2(60, 30)
+	back_btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	back_btn.pressed.connect(_on_back_pressed)
+	hbox.add_child(back_btn)
 	
 	# Info label at bottom
 	info_label = Label.new()
@@ -648,6 +650,18 @@ func _on_clear():
 		hold.queue_free()
 	print("Cleared all holds")
 	idle_timer = 0.0  # Reset idle timer
+
+func _on_back_pressed():
+	# Exit preview mode if active
+	var preview_player = get_node_or_null("PreviewPlayer")
+	if preview_player:
+		preview_player.queue_free()
+
+	selected_hold_type = ""
+	clear_preview()
+
+	# Use global transition system
+	Transition.to("res://scenes/menus/main_menu.tscn")
 
 # =============================================================================
 # NOTIFICATIONS

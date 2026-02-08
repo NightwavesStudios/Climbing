@@ -5,6 +5,7 @@ extends Node
 var _fade_instance: CanvasLayer
 var _next_scene_path: String = ""
 
+
 func _ready() -> void:
 	_fade_instance = load(fade_scene_path).instantiate()
 	add_child(_fade_instance)
@@ -18,6 +19,11 @@ func to(scene_path: String) -> void:
 		get_tree().quit()
 		return
 	_next_scene_path = scene_path
+	
+	if _fade_instance.has_node("AnimationPlayer"):
+		var anim_player = _fade_instance.get_node("AnimationPlayer")
+		anim_player.speed_scale = 1.0
+	
 	_fade_instance.fade_out()
 	_fade_instance.fade_out_finished.connect(_on_fade_out_finished)
 

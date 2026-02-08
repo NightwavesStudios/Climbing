@@ -1,10 +1,6 @@
 extends Area2D
 class_name ClimbingHold
 
-# =============================================================================
-# HOLD TYPES & PROPERTIES
-# =============================================================================
-
 enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET }
 
 @export var hold_type: HoldType = HoldType.JUG
@@ -23,10 +19,6 @@ var limb_placements: Dictionary = {}  # Node2D -> Vector2 (local position)
 
 # Flag to prevent auto-detection if type was set manually
 var _type_was_set_manually: bool = false
-
-# =============================================================================
-# INITIALIZATION
-# =============================================================================
 
 func _ready():
 	collision_layer = 2
@@ -74,14 +66,14 @@ func _auto_detect_type_from_name():
 func _configure_hold_properties():
 	match hold_type:
 		HoldType.JUG:
-			difficulty = 0.1
-			rest_value = 3.0
+			difficulty = 0.0
+			rest_value = 50.0
 		HoldType.START:
-			difficulty = 0.1
-			rest_value = 2.5
+			difficulty = 0.0
+			rest_value = 50.0
 		HoldType.TOP_OUT:
-			difficulty = 0.2
-			rest_value = 2.5
+			difficulty = 0.0
+			rest_value = 10.0
 		HoldType.CRIMP:
 			difficulty = 3.0
 			rest_value = 0.0
@@ -89,15 +81,11 @@ func _configure_hold_properties():
 			difficulty = 2.5
 			rest_value = 0.0
 		HoldType.FOOTHOLD:
-			difficulty = 0.0
+			difficulty = 1.0
 			rest_value = 0.0
 		HoldType.POCKET:
 			difficulty = 1.2
 			rest_value = 0.0
-
-# =============================================================================
-# PUBLIC API - TYPE ASSIGNMENT (Called by LevelLoader)
-# =============================================================================
 
 func set_hold_type_from_string(type_str: String):
 	"""Set hold type from string (called by level loader BEFORE _ready)"""
@@ -125,10 +113,6 @@ func set_hold_type_from_string(type_str: String):
 	# This ensures the properties are correct even if called before _ready()
 	_configure_hold_properties()
 
-# =============================================================================
-# PUBLIC API - TYPE CHECKING
-# =============================================================================
-
 func is_start_hold() -> bool:
 	var result = hold_type == HoldType.START
 	return result
@@ -151,10 +135,6 @@ func is_foothold() -> bool:
 
 func is_pocket() -> bool:
 	return hold_type == HoldType.POCKET
-
-# =============================================================================
-# LIMB OCCUPATION & PLACEMENT
-# =============================================================================
 
 # Attempt to claim this hold for a specific limb at a specific position
 func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
@@ -210,10 +190,6 @@ func get_limb_anchor(limb: Node2D) -> Vector2:
 	# Fallback to center point
 	return hold_point.global_position
 
-# =============================================================================
-# PLACEMENT-BASED PHYSICS
-# =============================================================================
-
 # Calculate how off-center a placement is (0 = center, 1 = edge)
 func get_placement_offset(limb: Node2D) -> float:
 	if limb not in limb_placements:
@@ -256,10 +232,6 @@ func get_placement_difficulty_modifier(limb: Node2D) -> float:
 		_:
 			# Other holds don't care much
 			return 1.0 + (offset * 0.5)
-
-# =============================================================================
-# GRIP STATE PRESSURE
-# =============================================================================
 
 func get_state_pressure(delta: float, body_offset: float, time_static: float, foot_support_ratio: float, limb: Node2D) -> float:
 	var pressure = difficulty * delta

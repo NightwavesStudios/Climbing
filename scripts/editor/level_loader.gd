@@ -1,10 +1,6 @@
 extends Node2D
 class_name LevelLoader
 
-# =============================================================================
-# LEVEL LOADER - Loads .json files with FIXED hold type assignment
-# =============================================================================
-
 # Hold scenes mapping
 const HOLD_SCENES = {
 	"START": "res://scenes/holds/start.tscn",

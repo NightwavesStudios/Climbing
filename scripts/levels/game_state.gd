@@ -1,57 +1,53 @@
 extends Node
+## Autoload singleton for managing game state across scenes
 
-# =============================================================================
-# GAME STATE - Global state management
-# Autoload singleton to track current level, player progress, etc.
-# =============================================================================
+var current_level: String = ""
+var completed_levels: Array[String] = []
 
-var current_level_path: String = ""
-var player_stats: Dictionary = {}
+# Level progression mapping - UPDATED PATHS
+const LEVEL_PROGRESSION = {
+	"res://scenes/levels/tutorial.json": "res://scenes/levels/level_1.json",
+	"res://scenes/levels/level_1.json": "res://scenes/levels/level_2.json",
+	"res://scenes/levels/level_2.json": "res://scenes/levels/level_3.json",
+	# Add more levels as needed
+}
 
 func _ready():
-	# Load player stats if they exist
-	load_player_stats()
+	# Default starting level - UPDATED PATH
+	current_level = "res://scenes/levels/tutorial.json"
 
-func set_current_level(path: String):
-	current_level_path = path
+## Set which level should be loaded when entering game scene
+func set_current_level(level_path: String) -> void:
+	current_level = level_path
+	print("GameState: Level set to " + level_path)
 
+## Get the level that should be loaded
 func get_current_level() -> String:
-	return current_level_path
+	return current_level
 
-func load_player_stats():
-	var file = FileAccess.open("user://player_stats.json", FileAccess.READ)
-	if file:
-		var json = JSON.new()
-		var error = json.parse(file.get_as_text())
-		file.close()
-		
-		if error == OK:
-			player_stats = json.data
-		else:
-			player_stats = {}
-	else:
-		player_stats = {}
-
-func save_player_stats():
-	var file = FileAccess.open("user://player_stats.json", FileAccess.WRITE)
-	if file:
-		file.store_string(JSON.stringify(player_stats, "\t"))
-		file.close()
-
-func record_level_completion(level_path: String, time: float):
-	if not "completed_levels" in player_stats:
-		player_stats["completed_levels"] = {}
+## Record when a level is completed
+func record_level_completion(level_path: String, completion_time: float) -> void:
+	if level_path not in completed_levels:
+		completed_levels.append(level_path)
+		print("GameState: Completed " + level_path + " in " + str(completion_time) + "s")
 	
-	if not level_path in player_stats.completed_levels:
-		player_stats.completed_levels[level_path] = {
-			"best_time": time,
-			"attempts": 1,
-			"first_completed": Time.get_datetime_string_from_system()
-		}
-	else:
-		var stats = player_stats.completed_levels[level_path]
-		stats.attempts += 1
-		if time < stats.best_time:
-			stats.best_time = time
-	
-	save_player_stats()
+	# Auto-progress to next level
+	if level_path in LEVEL_PROGRESSION:
+		current_level = LEVEL_PROGRESSION[level_path]
+		print("GameState: Next level set to " + current_level)
+
+## Check if a level has been completed
+func is_level_completed(level_path: String) -> bool:
+	return level_path in completed_levels
+
+## Get the next level after the given one
+func get_next_level(level_path: String) -> String:
+	if level_path in LEVEL_PROGRESSION:
+		return LEVEL_PROGRESSION[level_path]
+	return ""
+
+## Reset progress (for testing or new game)
+func reset_progress() -> void:
+	completed_levels.clear()
+	current_level = "res://scenes/levels/tutorial.json"
+	print("GameState: Progress reset")

@@ -1,10 +1,18 @@
-[gd_scene load_steps=4 format=3 uid="uid://bhukrttjvmmea"]
+[gd_scene load_steps=7 format=3 uid="uid://bhukrttjvmmea"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_kgg18"]
 [ext_resource type="Texture2D" uid="uid://dtd5bvp11o22" path="res://assets/images/holds/pocket.png" id="2_46eoo"]
+[ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_evwfu"]
+[ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_30vy3"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_46eoo"]
 size = Vector2(80.625015, 73.125015)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_rwcnj"]
+shader = ExtResource("2_evwfu")
+shader_parameter/grunge_mask = ExtResource("3_30vy3")
+shader_parameter/wear_strength = 0.30000001425
+shader_parameter/grunge_scale = 1.00000004424012
 
 [node name="Pocket" type="Node2D"]
 scale = Vector2(0.2, 0.2)
@@ -24,6 +32,7 @@ position = Vector2(-13.749979, 11.249999)
 scale = Vector2(0.99999994, 0.99999994)
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_rwcnj")
 position = Vector2(9.999999, 34.999992)
 scale = Vector2(0.16249996, 0.16249996)
 texture = ExtResource("2_46eoo")
