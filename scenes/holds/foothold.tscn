@@ -1,14 +1,21 @@
-[gd_scene load_steps=7 format=3 uid="uid://b7kp7dqc1jrsy"]
+[gd_scene load_steps=9 format=3 uid="uid://b7kp7dqc1jrsy"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_bokhm"]
-[ext_resource type="Texture2D" uid="uid://cils0h573m6g7" path="res://assets/images/holds/foothold.png" id="2_3ech5"]
+[ext_resource type="Texture2D" uid="uid://cils0h573m6g7" path="res://assets/images/holds/gym/foothold.png" id="2_3ech5"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_h371p"]
 [ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_qsf00"]
+[ext_resource type="Texture2D" uid="uid://hqdm2hg1mgb8" path="res://assets/images/holds/granite/granite-jug.png" id="5_qsf00"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_ne5lj"]
 radius = 30.000002
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_aaidd"]
+shader = ExtResource("2_h371p")
+shader_parameter/grunge_mask = ExtResource("3_qsf00")
+shader_parameter/wear_strength = 0.30000001425
+shader_parameter/grunge_scale = 1.00000004424012
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_olmkf"]
 shader = ExtResource("2_h371p")
 shader_parameter/grunge_mask = ExtResource("3_qsf00")
 shader_parameter/wear_strength = 0.30000001425
@@ -30,8 +37,14 @@ shape = SubResource("CircleShape2D_ne5lj")
 position = Vector2(0, -5)
 scale = Vector2(0.99999994, 0.99999994)
 
-[node name="Sprite2D" type="Sprite2D" parent="."]
+[node name="GymHold" type="Sprite2D" parent="."]
 material = SubResource("ShaderMaterial_aaidd")
 position = Vector2(30.000004, 20)
 scale = Vector2(0.2195833, 0.2195833)
 texture = ExtResource("2_3ech5")
+
+[node name="GraniteHold" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_olmkf")
+position = Vector2(-5.0000153, -10.0000305)
+scale = Vector2(0.1625, 0.1625)
+texture = ExtResource("5_qsf00")

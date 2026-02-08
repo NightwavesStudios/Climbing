@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dtltrw7gwrdk1"
-path="res://.godot/imported/finish_hold.png-580a95ae590a6e6d324d2770251778d1.ctex"
+uid="uid://dtd5bvp11o22"
+path="res://.godot/imported/pocket.png-f69583ff56b7df1862ce2e9c48ad7d6f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/holds/finish_hold.png"
-dest_files=["res://.godot/imported/finish_hold.png-580a95ae590a6e6d324d2770251778d1.ctex"]
+source_file="res://assets/images/holds/gym/pocket.png"
+dest_files=["res://.godot/imported/pocket.png-f69583ff56b7df1862ce2e9c48ad7d6f.ctex"]
 
 [params]
 

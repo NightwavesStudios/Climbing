@@ -16,9 +16,8 @@ func _ready() -> void:
 # --------------------------
 
 func _on_play_pressed() -> void:
-	# Set the level in GameState, then load the game scene
-	GameState.set_current_level("res://scenes/levels/tutorial.json")
-	Transition.to("res://scenes/main/main_scene.tscn")
+	# Go to collection select instead of directly loading a level
+	Transition.to("res://scenes/menus/collections_select.tscn")
 
 func _on_level_maker_pressed() -> void:
 	Transition.to("res://scenes/editor/level_editor.tscn")

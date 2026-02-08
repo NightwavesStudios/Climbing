@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dtd5bvp11o22"
-path="res://.godot/imported/pocket.png-0cc4ca2224a4f261c0ea0ad2e2871d62.ctex"
+uid="uid://cils0h573m6g7"
+path="res://.godot/imported/foothold.png-16c64d44090d66d1253e02e99d46ae2b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/holds/pocket.png"
-dest_files=["res://.godot/imported/pocket.png-0cc4ca2224a4f261c0ea0ad2e2871d62.ctex"]
+source_file="res://assets/images/holds/gym/foothold.png"
+dest_files=["res://.godot/imported/foothold.png-16c64d44090d66d1253e02e99d46ae2b.ctex"]
 
 [params]
 

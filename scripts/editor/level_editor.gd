@@ -3,17 +3,25 @@ extends Node2D
 var camera: Camera2D
 var holds_container: Node2D
 var preview_container: Node2D
+var wall: Node2D  # Reference to wall script (if it exists)
 
 # UI
 var ui_layer: CanvasLayer
 var info_label: Label
 var hold_buttons: Array[Button] = []
+var environment_dropdown: OptionButton
+var climb_name_input: LineEdit
+var grade_dropdown: OptionButton
 
 # State
 var selected_hold_type: String = ""
 var preview_hold: Node2D = null
 var dragging_hold: Node2D = null
 var drag_offset: Vector2 = Vector2.ZERO
+
+# Climb metadata
+var climb_name: String = ""
+var climb_grade: String = "VB"
 
 # Grid
 var grid_enabled: bool = true
@@ -27,6 +35,11 @@ const IDLE_RESET_TIME: float = 30.0  # Auto-reset after 30 seconds of no input
 const MAX_START_HOLDS: int = 2
 const MAX_TOP_HOLDS: int = 1
 const MIN_HOLD_DISTANCE: float = 40.0  # Minimum distance between holds
+
+# Difficulty grades (V-scale and YDS)
+const V_GRADES = ["VB", "V0", "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10"]
+const YDS_GRADES = ["5.5", "5.6", "5.7", "5.8", "5.9", "5.10a", "5.10b", "5.10c", "5.10d", 
+					"5.11a", "5.11b", "5.11c", "5.11d", "5.12a", "5.12b", "5.12c", "5.12d", "5.13"]
 
 # Hold scenes
 const HOLD_SCENES = {
@@ -55,6 +68,11 @@ const CANVAS_MIN_Y = -500.0
 const CANVAS_MAX_Y = 2000.0
 
 func _ready():
+	# Get reference to wall (if it exists in scene)
+	wall = get_node_or_null("Wall")
+	if wall:
+		print("Level Editor: Found wall node")
+	
 	# Get or create camera
 	if has_node("Camera2D"):
 		camera = get_node("Camera2D")
@@ -88,6 +106,9 @@ func _ready():
 			loaded_scenes[type_name] = load(HOLD_SCENES[type_name])
 	
 	setup_ui()
+	
+	# Set initial wall appearance
+	update_wall_color()
 
 func _process(delta):
 	update_camera(delta)
@@ -95,6 +116,33 @@ func _process(delta):
 	update_info_label()
 	update_idle_timer(delta)
 	queue_redraw()
+
+# =============================================================================
+# ENVIRONMENT
+# =============================================================================
+
+func update_wall_color():
+	"""Update wall appearance based on current environment"""
+	if wall and wall.has_method("update_environment_settings"):
+		wall.update_environment_settings()
+
+func on_environment_changed(index: int):
+	"""Called when environment dropdown changes"""
+	reset_idle_timer()
+	
+	var env_config = get_node_or_null("/root/EnvironmentConfig")
+	if not env_config:
+		print("WARNING: EnvironmentConfig not found")
+		return
+	
+	# Index 0 = GYM, Index 1 = GRANITE
+	env_config.set_environment(index)
+	update_wall_color()
+	
+	# Force all existing holds to update their sprites
+	for hold in holds_container.get_children():
+		if hold.has_method("_update_sprite_for_environment"):
+			hold._update_sprite_for_environment()
 
 # =============================================================================
 # AUTO-RESET TIMER
@@ -126,57 +174,123 @@ func setup_ui():
 	toolbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_layer.add_child(toolbar)
 	
-	var hbox = HBoxContainer.new()
-	hbox.mouse_filter = Control.MOUSE_FILTER_PASS
-	toolbar.add_child(hbox)
+	var vbox_main = VBoxContainer.new()
+	vbox_main.mouse_filter = Control.MOUSE_FILTER_PASS
+	toolbar.add_child(vbox_main)
 	
-	# Hold type buttons
+	# === ROW 1: Climb Info ===
+	var info_row = HBoxContainer.new()
+	vbox_main.add_child(info_row)
+	
+	var name_label = Label.new()
+	name_label.text = "Climb Name:"
+	info_row.add_child(name_label)
+	
+	climb_name_input = LineEdit.new()
+	climb_name_input.placeholder_text = "Enter climb name..."
+	climb_name_input.custom_minimum_size = Vector2(200, 30)
+	climb_name_input.text_changed.connect(_on_climb_name_changed)
+	info_row.add_child(climb_name_input)
+	
+	info_row.add_child(VSeparator.new())
+	
+	var grade_label = Label.new()
+	grade_label.text = "Grade:"
+	info_row.add_child(grade_label)
+	
+	grade_dropdown = OptionButton.new()
+	grade_dropdown.custom_minimum_size = Vector2(80, 30)
+	
+	# Add V grades
+	for grade in V_GRADES:
+		grade_dropdown.add_item(grade)
+	
+	grade_dropdown.add_separator("YDS Scale")
+	
+	# Add YDS grades
+	for grade in YDS_GRADES:
+		grade_dropdown.add_item(grade)
+	
+	grade_dropdown.item_selected.connect(_on_grade_changed)
+	info_row.add_child(grade_dropdown)
+	
+	info_row.add_child(VSeparator.new())
+	
+	var env_label = Label.new()
+	env_label.text = "Environment:"
+	info_row.add_child(env_label)
+	
+	environment_dropdown = OptionButton.new()
+	environment_dropdown.custom_minimum_size = Vector2(100, 30)
+	
+	# Populate dropdown with environment options
+	var env_config = get_node_or_null("/root/EnvironmentConfig")
+	if env_config:
+		environment_dropdown.add_item("Gym")
+		environment_dropdown.add_item("Granite")
+		# Select current environment
+		var current_env = env_config.get_current_environment()
+		environment_dropdown.select(current_env)
+	else:
+		# Fallback if EnvironmentConfig not available
+		environment_dropdown.add_item("Gym")
+		environment_dropdown.add_item("Granite")
+		environment_dropdown.select(0)
+	
+	environment_dropdown.item_selected.connect(on_environment_changed)
+	info_row.add_child(environment_dropdown)
+	
+	# === ROW 2: Hold Types ===
+	var holds_row = HBoxContainer.new()
+	vbox_main.add_child(holds_row)
+	
 	for type_name in ["START", "TOP", "JUG", "CRIMP", "SLOPER", "POCKET", "FOOT"]:
 		var btn = Button.new()
 		btn.text = type_name
 		btn.custom_minimum_size = Vector2(70, 30)
 		btn.mouse_filter = Control.MOUSE_FILTER_STOP
 		btn.pressed.connect(_on_hold_selected.bind(type_name))
-		hbox.add_child(btn)
+		holds_row.add_child(btn)
 		hold_buttons.append(btn)
 	
-	hbox.add_child(VSeparator.new())
+	# === ROW 3: Actions ===
+	var actions_row = HBoxContainer.new()
+	vbox_main.add_child(actions_row)
 	
-	# Action buttons
 	var copy_btn = Button.new()
 	copy_btn.text = "COPY JSON"
 	copy_btn.custom_minimum_size = Vector2(90, 30)
 	copy_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	copy_btn.pressed.connect(_on_copy_json)
-	hbox.add_child(copy_btn)
+	actions_row.add_child(copy_btn)
 	
 	var paste_btn = Button.new()
 	paste_btn.text = "PASTE JSON"
 	paste_btn.custom_minimum_size = Vector2(90, 30)
 	paste_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	paste_btn.pressed.connect(_on_paste_json)
-	hbox.add_child(paste_btn)
+	actions_row.add_child(paste_btn)
 	
 	var preview_btn = Button.new()
 	preview_btn.text = "PREVIEW"
 	preview_btn.custom_minimum_size = Vector2(70, 30)
 	preview_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	preview_btn.pressed.connect(_on_preview)
-	hbox.add_child(preview_btn)
+	actions_row.add_child(preview_btn)
 	
 	var clear_btn = Button.new()
 	clear_btn.text = "CLEAR"
 	clear_btn.custom_minimum_size = Vector2(60, 30)
 	clear_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	clear_btn.pressed.connect(_on_clear)
-	hbox.add_child(clear_btn)
+	actions_row.add_child(clear_btn)
 	
 	var back_btn = Button.new()
 	back_btn.text = "BACK"
 	back_btn.custom_minimum_size = Vector2(60, 30)
 	back_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	back_btn.pressed.connect(_on_back_pressed)
-	hbox.add_child(back_btn)
+	actions_row.add_child(back_btn)
 	
 	# Info label at bottom
 	info_label = Label.new()
@@ -186,6 +300,21 @@ func setup_ui():
 	info_label.add_theme_constant_override("outline_size", 2)
 	info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_layer.add_child(info_label)
+
+func _on_climb_name_changed(new_text: String):
+	reset_idle_timer()
+	climb_name = new_text
+
+func _on_grade_changed(index: int):
+	reset_idle_timer()
+	
+	if index < V_GRADES.size():
+		climb_grade = V_GRADES[index]
+	else:
+		# Account for separator
+		var yds_index = index - V_GRADES.size() - 1
+		if yds_index >= 0 and yds_index < YDS_GRADES.size():
+			climb_grade = YDS_GRADES[yds_index]
 
 # =============================================================================
 # INPUT HANDLING
@@ -350,15 +479,9 @@ func place_hold(pos: Vector2) -> bool:
 	
 	var hold = loaded_scenes[selected_hold_type].instantiate()
 	
-	# SET TYPE BEFORE ADDING TO TREE - with debug
-	print("DEBUG: Placing hold type: ", selected_hold_type)
+	# SET TYPE BEFORE ADDING TO TREE
 	if hold.has_method("set_hold_type_from_string"):
 		hold.set_hold_type_from_string(selected_hold_type)
-		print("DEBUG: After set_hold_type_from_string:")
-		print("  hold.hold_type = ", hold.hold_type)
-		print("  _type_was_set_manually = ", hold.get("_type_was_set_manually"))
-	else:
-		print("ERROR: Hold doesn't have set_hold_type_from_string method!")
 	
 	hold.global_position = pos
 	holds_container.add_child(hold)
@@ -424,7 +547,17 @@ func snap_to_grid(pos: Vector2) -> Vector2:
 
 func _on_copy_json():
 	"""Copy level JSON to clipboard - paste into your .json file"""
-	var level_data = {"holds": []}
+	var env_config = get_node_or_null("/root/EnvironmentConfig")
+	var environment_name = "gym"
+	if env_config:
+		environment_name = env_config.get_current_environment_name().to_lower()
+	
+	var level_data = {
+		"name": climb_name if climb_name != "" else "Unnamed Climb",
+		"grade": climb_grade,
+		"environment": environment_name,
+		"holds": []
+	}
 	
 	for hold in holds_container.get_children():
 		var hold_type_str = get_hold_type(hold)
@@ -439,17 +572,18 @@ func _on_copy_json():
 	
 	print("═══════════════════════════════════════")
 	print("JSON COPIED TO CLIPBOARD!")
+	print("Climb: " + level_data.name + " (" + level_data.grade + ")")
+	print("Environment: " + level_data.environment)
 	print("Hold count: " + str(level_data.holds.size()))
 	print("───────────────────────────────────────")
 	print("NEXT STEPS:")
 	print("1. Create a new file: res://levels/my_level.json")
 	print("2. Paste the JSON from clipboard")
 	print("3. Save the file")
-	print("4. Load it in game with:")
-	print("   level_loader.load_level('res://levels/my_level.json')")
+	print("4. Load it in game")
 	print("═══════════════════════════════════════")
 	
-	show_notification("JSON copied to clipboard! (" + str(level_data.holds.size()) + " holds)")
+	show_notification("JSON copied! " + level_data.name + " (" + level_data.grade + ") - " + str(level_data.holds.size()) + " holds")
 
 func _on_paste_json():
 	"""Load level from clipboard JSON"""
@@ -478,6 +612,35 @@ func _on_paste_json():
 	# Clear existing
 	_on_clear()
 	
+	# Load metadata
+	climb_name = data.get("name", "")
+	climb_grade = data.get("grade", "VB")
+	
+	# Update UI
+	if climb_name_input:
+		climb_name_input.text = climb_name
+	
+	if grade_dropdown:
+		# Find index of grade
+		var grade_index = 0
+		if climb_grade in V_GRADES:
+			grade_index = V_GRADES.find(climb_grade)
+		elif climb_grade in YDS_GRADES:
+			grade_index = V_GRADES.size() + 1 + YDS_GRADES.find(climb_grade)
+		grade_dropdown.select(grade_index)
+	
+	# Load environment
+	var environment_name = data.get("environment", "gym")
+	var env_config = get_node_or_null("/root/EnvironmentConfig")
+	if env_config:
+		if environment_name == "granite":
+			env_config.set_environment(1)  # GRANITE
+			environment_dropdown.select(1)
+		else:
+			env_config.set_environment(0)  # GYM
+			environment_dropdown.select(0)
+		update_wall_color()
+	
 	# Load holds
 	for hold_data in data.holds:
 		var type_name = hold_data.get("type", "JUG")
@@ -497,8 +660,8 @@ func _on_paste_json():
 		# Store the type in metadata
 		hold.set_meta("editor_type", type_name)
 	
-	print("Loaded " + str(data.holds.size()) + " holds from clipboard")
-	show_notification("Loaded " + str(data.holds.size()) + " holds from clipboard")
+	print("Loaded: " + climb_name + " (" + climb_grade + ") - " + str(data.holds.size()) + " holds")
+	show_notification("Loaded: " + climb_name + " (" + climb_grade + ")")
 
 func get_hold_type(hold: Node2D) -> String:
 	"""Get the hold type - tries multiple methods to be robust"""
@@ -648,6 +811,15 @@ func _input(event):
 func _on_clear():
 	for hold in holds_container.get_children():
 		hold.queue_free()
+	
+	# Reset metadata
+	climb_name = ""
+	climb_grade = "VB"
+	if climb_name_input:
+		climb_name_input.text = ""
+	if grade_dropdown:
+		grade_dropdown.select(0)
+	
 	print("Cleared all holds")
 	idle_timer = 0.0  # Reset idle timer
 
@@ -677,7 +849,7 @@ func show_notification(text: String, is_error: bool = false):
 	var label = Label.new()
 	label.name = "NotificationLabel"
 	label.text = text
-	label.position = Vector2(10, 50)
+	label.position = Vector2(10, 130)
 	label.add_theme_color_override("font_color", Color.RED if is_error else Color.YELLOW)
 	label.add_theme_color_override("font_outline_color", Color.BLACK)
 	label.add_theme_constant_override("outline_size", 3)
@@ -701,8 +873,11 @@ func update_info_label():
 	var top_count = count_holds_of_type("TOP")
 	var auto_reset_remaining = int(IDLE_RESET_TIME - idle_timer)
 	
-	info_label.text = "Holds: %d (START:%d/%d, TOP:%d/%d) | Selected: %s | Grid: %s | Zoom: %.1fx | Auto-reset: %ds | Ctrl+C=Copy, Ctrl+V=Paste, G=Grid" % [
-		count, start_count, MAX_START_HOLDS, top_count, MAX_TOP_HOLDS, selected, grid_status, camera.zoom.x, auto_reset_remaining
+	var climb_info = climb_name if climb_name != "" else "Unnamed"
+	climb_info += " (" + climb_grade + ")"
+	
+	info_label.text = "%s | Holds: %d (START:%d/%d, TOP:%d/%d) | Selected: %s | Grid: %s | Zoom: %.1fx | Auto-reset: %ds" % [
+		climb_info, count, start_count, MAX_START_HOLDS, top_count, MAX_TOP_HOLDS, selected, grid_status, camera.zoom.x, auto_reset_remaining
 	]
 
 # =============================================================================

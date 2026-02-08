@@ -1,0 +1,45 @@
+[gd_scene load_steps=2 format=3 uid="uid://phva7vynr56p"]
+
+[ext_resource type="Script" uid="uid://3c1r06go1w6k" path="res://scripts/menus/collections_select.gd" id="1_ns5ma"]
+
+[node name="CollectionsSelect" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_ns5ma")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TutorialCollection" type="Button" parent="HBoxContainer"]
+layout_mode = 2
+text = "Tutorial"
+
+[node name="FlowCollection" type="Button" parent="HBoxContainer"]
+layout_mode = 2
+text = "Flow"
+
+[node name="PrecisionCollection" type="Button" parent="HBoxContainer"]
+layout_mode = 2
+text = "Precision"
+
+[node name="InstabilityCollection" type="Button" parent="HBoxContainer"]
+layout_mode = 2
+text = "Instability"
+
+[node name="LongHaulCollection" type="Button" parent="HBoxContainer"]
+layout_mode = 2
+text = "Long-Haul"
+
+[connection signal="pressed" from="HBoxContainer/TutorialCollection" to="." method="_on_tutorial_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/FlowCollection" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/PrecisionCollection" to="." method="_on_precision_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/InstabilityCollection" to="." method="_on_instability_collection_pressed"]

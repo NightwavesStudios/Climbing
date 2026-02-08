@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dy8pu12a3tj7a"
-path="res://.godot/imported/crimp.png-f11c1a0da7b220fc923ab119a64bcf42.ctex"
+uid="uid://bu2ve6bewtc4r"
+path="res://.godot/imported/sloper.png-9c2b504f7cd7893455c8d42a23681a44.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/holds/crimp.png"
-dest_files=["res://.godot/imported/crimp.png-f11c1a0da7b220fc923ab119a64bcf42.ctex"]
+source_file="res://assets/images/holds/gym/sloper.png"
+dest_files=["res://.godot/imported/sloper.png-9c2b504f7cd7893455c8d42a23681a44.ctex"]
 
 [params]
 

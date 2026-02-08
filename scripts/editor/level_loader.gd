@@ -15,6 +15,11 @@ const HOLD_SCENES = {
 var loaded_scenes: Dictionary = {}
 var holds_container: Node2D
 
+# Current level metadata
+var current_level_name: String = ""
+var current_level_grade: String = ""
+var current_level_environment: String = "gym"
+
 func _ready():
 	# Load all hold scenes
 	for type_name in HOLD_SCENES:
@@ -65,15 +70,66 @@ func load_level(path: String) -> bool:
 		print("ERROR: No 'holds' array in: " + path)
 		return false
 	
-	# Spawn holds
+	# Load metadata
+	current_level_name = level_data.get("name", "")
+	current_level_grade = level_data.get("grade", "")
+	current_level_environment = level_data.get("environment", "gym")
+	
+	# CRITICAL: Set environment FIRST
+	print("Setting environment to: " + current_level_environment)
+	set_environment_from_string(current_level_environment)
+	
+	# Wait for environment to propagate
+	await get_tree().process_frame
+	
+	# Store metadata in GameState
+	var game_state = get_node_or_null("/root/GameState")
+	if game_state and game_state.has_method("set_climb_metadata"):
+		game_state.set_climb_metadata(path, current_level_name, current_level_grade)
+	
+	# Spawn holds AFTER environment is set
 	for hold_data in level_data.holds:
 		spawn_hold(hold_data)
 	
-	print("✓ Loaded: " + path + " (" + str(level_data.holds.size()) + " holds)")
+	# CRITICAL: Wait for holds' deferred sprite updates to complete
+	await get_tree().process_frame
+	await get_tree().process_frame
+	
+	# Force update all holds (just to be sure)
+	print("Forcing all holds to update sprites...")
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold.has_method("_update_sprite_for_environment"):
+			hold._update_sprite_for_environment()
+	
+	print("✓ Loaded: " + path)
+	if current_level_name != "":
+		print("  Name: " + current_level_name + " (" + current_level_grade + ")")
+	print("  Environment: " + current_level_environment)
+	print("  Holds: " + str(level_data.holds.size()))
+	
 	return true
 
+func set_environment_from_string(env_name: String):
+	"""Set the environment based on string from JSON"""
+	if not has_node("/root/EnvironmentConfig"):
+		print("WARNING: EnvironmentConfig not available")
+		return
+	
+	var env_config = get_node("/root/EnvironmentConfig")
+	
+	match env_name.to_lower():
+		"gym":
+			env_config.set_environment(0)  # EnvironmentType.GYM
+			print("Level environment set to: GYM")
+		"granite":
+			env_config.set_environment(1)  # EnvironmentType.GRANITE
+			print("Level environment set to: GRANITE")
+		_:
+			print("WARNING: Unknown environment: " + env_name + ", defaulting to gym")
+			env_config.set_environment(0)
+
 # =============================================================================
-# HOLD SPAWNING - FIXED!
+# HOLD SPAWNING
 # =============================================================================
 
 func spawn_hold(hold_data: Dictionary) -> Node2D:
@@ -85,7 +141,7 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 	var hold = loaded_scenes[type_name].instantiate()
 	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
 	
-	# CRITICAL FIX: Set the hold type BEFORE adding to tree
+	# CRITICAL: Set the hold type BEFORE adding to tree
 	# This way _ready() will see _type_was_set_manually = true
 	if hold.has_method("set_hold_type_from_string"):
 		hold.set_hold_type_from_string(type_name)
@@ -95,10 +151,24 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 	hold.add_to_group("holds")
 	
 	return hold
+
+# =============================================================================
+# METADATA GETTERS
+# =============================================================================
+
+func get_current_level_name() -> String:
+	return current_level_name
+
+func get_current_level_grade() -> String:
+	return current_level_grade
+
+func get_current_level_environment() -> String:
+	return current_level_environment
 	
 # =============================================================================
 # UTILITY
 # =============================================================================
+
 func clear_holds():
 	if holds_container:
 		for child in holds_container.get_children():

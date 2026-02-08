@@ -1731,6 +1731,9 @@ func check_climb_completion():
 	if left_on_top and right_on_top:
 		climb_completed = true
 		print("Climb completed!")
+		var game_scene = get_parent()
+		if game_scene.has_method("on_level_complete"):
+			game_scene.on_level_complete()
 
 func update_camera():
 	if cam:

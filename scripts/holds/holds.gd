@@ -20,6 +20,9 @@ var limb_placements: Dictionary = {}  # Node2D -> Vector2 (local position)
 # Flag to prevent auto-detection if type was set manually
 var _type_was_set_manually: bool = false
 
+# Sprite nodes for different environments
+var sprite_nodes: Dictionary = {}
+
 func _ready():
 	collision_layer = 2
 	collision_mask = 0
@@ -34,9 +37,72 @@ func _ready():
 	# Add to holds group
 	add_to_group("holds")
 	
+	# Cache sprite nodes
+	_cache_sprite_nodes()
+	
+	# Set initial sprite based on current environment
+	_update_sprite_for_environment()
+	
 	# Debug output
 	var type_name = HoldType.keys()[hold_type]
 	print("Hold initialized: ", name, " type=", type_name, " at ", global_position)
+
+func _cache_sprite_nodes():
+	"""Find and cache all sprite nodes for different environments"""
+	sprite_nodes.clear()
+	
+	# Try to find sprites as direct children first
+	for child in get_children():
+		if child is Sprite2D:
+			var node_name = child.name
+			if "Gym" in node_name:
+				sprite_nodes["Gym"] = child
+				print("  Found Gym sprite (child): " + node_name)
+			elif "Granite" in node_name:
+				sprite_nodes["Granite"] = child
+				print("  Found Granite sprite (child): " + node_name)
+			elif "Sandstone" in node_name:
+				sprite_nodes["Sandstone"] = child
+				print("  Found Sandstone sprite (child): " + node_name)
+	
+	# If not found as children, try as siblings (common in hold scenes)
+	if sprite_nodes.size() == 0 and get_parent():
+		for sibling in get_parent().get_children():
+			if sibling is Sprite2D and sibling != self:
+				var node_name = sibling.name
+				if "Gym" in node_name:
+					sprite_nodes["Gym"] = sibling
+					print("  Found Gym sprite (sibling): " + node_name)
+				elif "Granite" in node_name:
+					sprite_nodes["Granite"] = sibling
+					print("  Found Granite sprite (sibling): " + node_name)
+				elif "Sandstone" in node_name:
+					sprite_nodes["Sandstone"] = sibling
+					print("  Found Sandstone sprite (sibling): " + node_name)
+	
+	if sprite_nodes.size() == 0:
+		print("  WARNING: No environment sprites found for " + name)
+
+func _update_sprite_for_environment():
+	"""Show only the sprite for the current environment"""
+	var env_config = get_node_or_null("/root/EnvironmentConfig")
+	if not env_config:
+		print("  WARNING: EnvironmentConfig not found for " + name)
+		return
+	
+	var sprite_suffix = env_config.get_sprite_suffix()
+	
+	# Hide all sprites first
+	for suffix in sprite_nodes:
+		if sprite_nodes[suffix]:
+			sprite_nodes[suffix].visible = false
+	
+	# Show only the sprite for current environment
+	if sprite_suffix in sprite_nodes and sprite_nodes[sprite_suffix]:
+		sprite_nodes[sprite_suffix].visible = true
+		print("  " + name + ": Showing " + sprite_suffix + " sprite")
+	else:
+		print("  WARNING: " + name + " has no sprite for environment: " + sprite_suffix)
 
 func _auto_detect_type_from_name():
 	"""Auto-detect hold type from scene filename"""

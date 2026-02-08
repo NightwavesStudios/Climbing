@@ -22,6 +22,7 @@ GameState="*res://scripts/levels/game_state.gd"
 LevelManager="*res://scripts/levels/level_manager.gd"
 Transition="*res://scripts/menus/transition.gd"
 LevelTransition="*res://scripts/levels/level_transition.gd"
+EnvironmentConfig="*res://scripts/levels/enviornment_config.gd"
 
 [display]
 
