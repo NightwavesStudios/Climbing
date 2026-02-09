@@ -14,6 +14,7 @@ const HOLD_SCENES = {
 
 var loaded_scenes: Dictionary = {}
 var holds_container: Node2D
+var dynamic_wall: Node2D = null
 
 # Current level metadata
 var current_level_name: String = ""
@@ -35,6 +36,17 @@ func _ready():
 		add_child(holds_container)
 	else:
 		holds_container = get_node("Holds")
+	
+	# Create dynamic wall
+	_create_dynamic_wall()
+
+func _create_dynamic_wall():
+	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
+	dynamic_wall = wall_script.new()
+	dynamic_wall.name = "DynamicWall"
+	dynamic_wall.z_index = -10
+	get_parent().add_child(dynamic_wall)
+
 
 # =============================================================================
 # LOAD LEVEL
@@ -101,6 +113,9 @@ func load_level(path: String) -> bool:
 		if hold.has_method("_update_sprite_for_environment"):
 			hold._update_sprite_for_environment()
 	
+	# UPDATE DYNAMIC WALL BOUNDS
+	update_wall_bounds()
+	
 	print("✓ Loaded: " + path)
 	if current_level_name != "":
 		print("  Name: " + current_level_name + " (" + current_level_grade + ")")
@@ -127,6 +142,26 @@ func set_environment_from_string(env_name: String):
 		_:
 			print("WARNING: Unknown environment: " + env_name + ", defaulting to gym")
 			env_config.set_environment(0)
+	
+	# Update wall appearance based on environment
+	if dynamic_wall and dynamic_wall.has_method("update_environment"):
+		dynamic_wall.update_environment()
+
+# =============================================================================
+# DYNAMIC WALL BOUNDS
+# =============================================================================
+func update_wall_bounds():
+	dynamic_wall.calculate_bounds_from_holds(holds_container)
+
+func get_wall_bounds() -> Dictionary:
+	"""Get the current wall bounds (for camera positioning, etc.)"""
+	if dynamic_wall and dynamic_wall.has_method("get_bounds"):
+		return dynamic_wall.get_bounds()
+	return {"min": Vector2.ZERO, "max": Vector2.ZERO, "valid": false}
+
+func get_dynamic_wall() -> Node2D:
+	"""Get reference to the dynamic wall"""
+	return dynamic_wall
 
 # =============================================================================
 # HOLD SPAWNING

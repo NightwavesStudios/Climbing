@@ -1,5 +1,7 @@
 extends CharacterBody2D
 
+@onready var main_scene: Node = get_tree().current_scene
+
 @onready var left_hand: Node2D = $LeftHand
 @onready var right_hand: Node2D = $RightHand
 @onready var left_foot: Node2D = $LeftFoot
@@ -1720,21 +1722,33 @@ func check_climb_completion():
 	if climb_completed:
 		return
 	
+	# Check for top-out: both hands on top-out holds
 	var left_on_top = false
 	var right_on_top = false
 	
-	if left_hand_hold and left_hand_hold.is_top_out():
+	if left_hand_hold and left_hand_hold.has_method("is_top_out") and left_hand_hold.is_top_out():
 		left_on_top = true
-	if right_hand_hold and right_hand_hold.is_top_out():
+	if right_hand_hold and right_hand_hold.has_method("is_top_out") and right_hand_hold.is_top_out():
 		right_on_top = true
 	
+	# Complete if both hands are on top-out holds (works for both gym and granite)
 	if left_on_top and right_on_top:
 		climb_completed = true
-		print("Climb completed!")
+		
+		# Check if it's a granite route
+		var env_config = get_node_or_null("/root/EnvironmentConfig")
+		var is_granite = false
+		if env_config and env_config.has_method("get_current_environment"):
+			is_granite = env_config.get_current_environment() == 1
+		
+		if is_granite:
+			print("Climb completed via granite top-out!")
+		else:
+			print("Climb completed via top hold!")
+		
 		var game_scene = get_parent()
 		if game_scene.has_method("on_level_complete"):
 			game_scene.on_level_complete()
-
 func update_camera():
 	if cam:
 		cam.global_position = cam.global_position.lerp(global_position, CAM_LERP)

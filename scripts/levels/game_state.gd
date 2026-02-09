@@ -21,9 +21,9 @@ const COLLECTIONS = {
 		"unlock_requirement": {"type": "always"},  # Always unlocked
 		"levels": [
 			"res://scenes/levels/tutorial/ladder.json",
-			"res://scenes/levels/tutorial/movement.json",
-			"res://scenes/levels/tutorial/holds.json",
-			"res://scenes/levels/tutorial/stamina.json",
+			"res://scenes/levels/tutorial/granite.json",
+			"res://scenes/levels/tutorial/pocket-galore.json",
+			"res://scenes/levels/tutorial/longer-ascent.json",
 			"res://scenes/levels/tutorial/far-reach.json",
 		]
 	},
@@ -96,6 +96,8 @@ func _ready():
 
 func set_current_level(level_path: String) -> void:
 	current_level = level_path
+	# Also update current_collection when setting a level
+	_update_current_collection_from_level(level_path)
 	print("GameState: Level set to " + level_path)
 
 func get_current_level() -> String:
@@ -106,6 +108,9 @@ func get_last_completed_level() -> String:
 
 func record_level_completion(level_path: String, completion_time: float) -> void:
 	last_completed_level = level_path
+	
+	# Make sure we track which collection this level belongs to
+	_update_current_collection_from_level(level_path)
 	
 	if level_path not in completed_levels:
 		completed_levels[level_path] = completion_time
@@ -239,6 +244,15 @@ func _check_collection_completion(level_path: String):
 				completed_collections.append(collection_id)
 				print("🎉 COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
 
+func _update_current_collection_from_level(level_path: String) -> void:
+	"""Find and set which collection this level belongs to"""
+	for collection_id in COLLECTIONS:
+		var levels = COLLECTIONS[collection_id].levels
+		if level_path in levels:
+			current_collection = collection_id
+			print("GameState: Current collection set to " + collection_id)
+			return
+
 # =============================================================================
 # LEVEL LOCKING (Within Collections)
 # =============================================================================
@@ -279,7 +293,24 @@ func get_next_unlocked_level_in_collection(collection_id: String) -> String:
 
 func get_next_level(level_path: String) -> String:
 	"""Get next level in the same collection"""
-	# Find which collection this level belongs to
+	# First try to find in current collection (if set)
+	if current_collection != "":
+		var data = get_collection_data(current_collection)
+		if not data.is_empty():
+			var levels = data.levels
+			var index = levels.find(level_path)
+			
+			if index != -1:
+				# Found the level in current collection
+				if index + 1 < levels.size():
+					var next_level = levels[index + 1]
+					print("GameState: Next level is " + next_level)
+					return next_level
+				else:
+					print("GameState: Last level in collection '" + current_collection + "'")
+					return ""
+	
+	# Fallback: search all collections
 	for collection_id in COLLECTIONS:
 		var levels = COLLECTIONS[collection_id].levels
 		var index = levels.find(level_path)
@@ -287,10 +318,14 @@ func get_next_level(level_path: String) -> String:
 		if index != -1:
 			# Found the level, check if there's a next one
 			if index + 1 < levels.size():
-				return levels[index + 1]
+				var next_level = levels[index + 1]
+				print("GameState: Next level is " + next_level)
+				return next_level
 			else:
+				print("GameState: Last level in collection '" + collection_id + "'")
 				return ""  # Last level in collection
 	
+	print("GameState: Level not found in any collection: " + level_path)
 	return ""  # Level not found
 
 func has_next_level(level_path: String) -> bool:

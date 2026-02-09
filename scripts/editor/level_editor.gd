@@ -35,6 +35,7 @@ const IDLE_RESET_TIME: float = 30.0  # Auto-reset after 30 seconds of no input
 const MAX_START_HOLDS: int = 2
 const MAX_TOP_HOLDS: int = 1
 const MIN_HOLD_DISTANCE: float = 40.0  # Minimum distance between holds
+const MAX_REACH_DISTANCE: float = 250.0  # Maximum reach distance from nearest hold
 
 # Difficulty grades (V-scale and YDS)
 const V_GRADES = ["VB", "V0", "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10"]
@@ -54,18 +55,24 @@ const HOLD_SCENES = {
 
 var loaded_scenes: Dictionary = {}
 
-# Camera - INCREASED CANVAS AREA
+# Camera - EXPANDED FOR ENDURANCE CLIMBS
 const ZOOM_SPEED = 0.15
 const TRACKPAD_ZOOM_SPEED = 0.2
-const PAN_SPEED = 1000.0  # Increased for larger canvas
-const MIN_ZOOM = 0.3  # Zoom out more for larger canvas
+const PAN_SPEED = 1000.0
+const MIN_ZOOM = 0.2  # Zoom out more for taller walls
 const MAX_ZOOM = 3.0
 
-# Canvas boundaries (large climbing wall)
-const CANVAS_MIN_X = -1000.0
-const CANVAS_MAX_X = 2000.0
-const CANVAS_MIN_Y = -500.0
+# Canvas boundaries (expanded for endurance climbs)
+const CANVAS_MIN_X = -1500.0
+const CANVAS_MAX_X = 2500.0
+const CANVAS_MIN_Y = -3000.0  # Much taller for long routes
 const CANVAS_MAX_Y = 2000.0
+
+# Wall padding (tight margin around holds)
+const WALL_PADDING_X = 80.0  # Minimal horizontal padding
+const WALL_PADDING_TOP = 100.0  # Space above top hold
+const WALL_PADDING_BOTTOM = 150.0  # Space below start holds
+const WALL_PADDING_SIDES = 100.0  # Space on left/right edges
 
 func _ready():
 	# Get reference to wall (if it exists in scene)
@@ -79,8 +86,8 @@ func _ready():
 	else:
 		camera = Camera2D.new()
 		camera.name = "Camera2D"
-		camera.zoom = Vector2(0.8, 0.8)  # Start zoomed out
-		camera.position = Vector2(500, 750)  # Center on canvas
+		camera.zoom = Vector2(0.5, 0.5)  # Start more zoomed out
+		camera.position = Vector2(500, 0)  # Center on canvas
 		add_child(camera)
 	
 	# Get or create holds container
@@ -108,7 +115,7 @@ func _ready():
 	setup_ui()
 	
 	# Set initial wall appearance
-	update_wall_color()
+	update_wall_bounds()
 
 func _process(delta):
 	update_camera(delta)
@@ -118,13 +125,49 @@ func _process(delta):
 	queue_redraw()
 
 # =============================================================================
-# ENVIRONMENT
+# DYNAMIC WALL BOUNDS
 # =============================================================================
 
-func update_wall_color():
-	"""Update wall appearance based on current environment"""
+func get_route_bounds() -> Dictionary:
+	"""Calculate the bounding box of all placed holds with tight margins"""
+	if holds_container.get_child_count() == 0:
+		return {"min": Vector2.ZERO, "max": Vector2.ZERO, "valid": false}
+	
+	var min_x = INF
+	var max_x = -INF
+	var min_y = INF
+	var max_y = -INF
+	
+	for hold in holds_container.get_children():
+		var pos = hold.global_position
+		min_x = min(min_x, pos.x)
+		max_x = max(max_x, pos.x)
+		min_y = min(min_y, pos.y)
+		max_y = max(max_y, pos.y)
+	
+	# Apply tight padding
+	var wall_min = Vector2(min_x - WALL_PADDING_SIDES, min_y - WALL_PADDING_TOP)
+	var wall_max = Vector2(max_x + WALL_PADDING_SIDES, max_y + WALL_PADDING_BOTTOM)
+	
+	return {
+		"min": wall_min,
+		"max": wall_max,
+		"center": (wall_min + wall_max) / 2.0,
+		"size": wall_max - wall_min,
+		"valid": true
+	}
+
+func update_wall_bounds():
+	"""Update wall appearance based on current environment and route bounds"""
 	if wall and wall.has_method("update_environment_settings"):
 		wall.update_environment_settings()
+	
+	# Additional wall sizing logic can go here
+	queue_redraw()
+
+# =============================================================================
+# ENVIRONMENT
+# =============================================================================
 
 func on_environment_changed(index: int):
 	"""Called when environment dropdown changes"""
@@ -137,12 +180,53 @@ func on_environment_changed(index: int):
 	
 	# Index 0 = GYM, Index 1 = GRANITE
 	env_config.set_environment(index)
-	update_wall_color()
+	update_wall_bounds()
 	
 	# Force all existing holds to update their sprites
 	for hold in holds_container.get_children():
 		if hold.has_method("_update_sprite_for_environment"):
 			hold._update_sprite_for_environment()
+
+# =============================================================================
+# REACH DISTANCE VALIDATION
+# =============================================================================
+
+func get_nearest_hold_distance(pos: Vector2, exclude_hold: Node2D = null) -> float:
+	"""Get distance to nearest hold (excluding START holds for the check)"""
+	var nearest_dist = INF
+	
+	for hold in holds_container.get_children():
+		if hold == exclude_hold:
+			continue
+		
+		var hold_type = get_hold_type(hold)
+		# START holds don't count for reach distance
+		if hold_type == "START":
+			continue
+		
+		var dist = hold.global_position.distance_to(pos)
+		nearest_dist = min(nearest_dist, dist)
+	
+	return nearest_dist
+
+func is_position_reachable(pos: Vector2, exclude_hold: Node2D = null) -> bool:
+	"""Check if position is within reach of at least one hold"""
+	# START and FOOT holds can be placed anywhere
+	if selected_hold_type == "START" or selected_hold_type == "FOOT":
+		return true
+	
+	# If there are no holds yet (besides starts), allow placement
+	var non_start_count = 0
+	for hold in holds_container.get_children():
+		if hold != exclude_hold and get_hold_type(hold) != "START":
+			non_start_count += 1
+	
+	if non_start_count == 0:
+		return true
+	
+	# Check if within reach of nearest hold
+	var nearest_dist = get_nearest_hold_distance(pos, exclude_hold)
+	return nearest_dist <= MAX_REACH_DISTANCE
 
 # =============================================================================
 # AUTO-RESET TIMER
@@ -171,15 +255,16 @@ func setup_ui():
 	# Top toolbar
 	var toolbar = PanelContainer.new()
 	toolbar.position = Vector2(10, 10)
-	toolbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toolbar.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(toolbar)
 	
 	var vbox_main = VBoxContainer.new()
-	vbox_main.mouse_filter = Control.MOUSE_FILTER_PASS
+	vbox_main.mouse_filter = Control.MOUSE_FILTER_STOP
 	toolbar.add_child(vbox_main)
 	
 	# === ROW 1: Climb Info ===
 	var info_row = HBoxContainer.new()
+	info_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	vbox_main.add_child(info_row)
 	
 	var name_label = Label.new()
@@ -242,6 +327,7 @@ func setup_ui():
 	
 	# === ROW 2: Hold Types ===
 	var holds_row = HBoxContainer.new()
+	holds_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	vbox_main.add_child(holds_row)
 	
 	for type_name in ["START", "TOP", "JUG", "CRIMP", "SLOPER", "POCKET", "FOOT"]:
@@ -255,6 +341,7 @@ func setup_ui():
 	
 	# === ROW 3: Actions ===
 	var actions_row = HBoxContainer.new()
+	actions_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	vbox_main.add_child(actions_row)
 	
 	var copy_btn = Button.new()
@@ -317,6 +404,23 @@ func _on_grade_changed(index: int):
 			climb_grade = YDS_GRADES[yds_index]
 
 # =============================================================================
+# UI INTERACTION CHECK
+# =============================================================================
+
+func is_mouse_over_ui() -> bool:
+	"""Check if mouse is over any UI element"""
+	var mouse_pos = get_viewport().get_mouse_position()
+	
+	# Check if mouse is over the toolbar
+	var toolbar = ui_layer.get_node_or_null("PanelContainer")
+	if toolbar:
+		var toolbar_rect = Rect2(toolbar.position, toolbar.size)
+		if toolbar_rect.has_point(mouse_pos):
+			return true
+	
+	return false
+
+# =============================================================================
 # INPUT HANDLING
 # =============================================================================
 
@@ -342,6 +446,10 @@ func handle_input(event):
 					_on_paste_json()
 	
 	if event is InputEventMouseButton:
+		# Don't process clicks over UI
+		if is_mouse_over_ui():
+			return
+		
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				handle_left_click()
@@ -379,6 +487,7 @@ func handle_input(event):
 			new_pos.y = clamp(new_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
 			
 			dragging_hold.global_position = new_pos
+			update_wall_bounds()
 
 func handle_left_click():
 	var pos = snap_to_grid(get_global_mouse_position())
@@ -420,6 +529,11 @@ func update_preview():
 		clear_preview()
 		return
 	
+	# Don't show preview over UI
+	if is_mouse_over_ui():
+		clear_preview()
+		return
+	
 	if not preview_hold or not is_instance_valid(preview_hold):
 		clear_preview()
 		preview_hold = loaded_scenes[selected_hold_type].instantiate()
@@ -434,9 +548,12 @@ func update_preview():
 	snapped_pos.x = clamp(snapped_pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
 	snapped_pos.y = clamp(snapped_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
 	
-	# Check if position would overlap
-	if is_position_too_close(snapped_pos, null):
-		preview_hold.modulate = Color(1, 0.3, 0.3, 0.5)  # Red tint if too close
+	# Check if position would overlap or be unreachable
+	var too_close = is_position_too_close(snapped_pos, null)
+	var unreachable = not is_position_reachable(snapped_pos, null)
+	
+	if too_close or unreachable:
+		preview_hold.modulate = Color(1, 0.3, 0.3, 0.5)  # Red tint if invalid
 	else:
 		preview_hold.modulate = Color(1, 1, 1, 0.5)  # Normal if OK
 	
@@ -477,6 +594,11 @@ func place_hold(pos: Vector2) -> bool:
 		show_notification("Hold too close to another hold! (min " + str(MIN_HOLD_DISTANCE) + "px)", true)
 		return false
 	
+	# Check reach distance (except for START and FOOT holds)
+	if not is_position_reachable(pos, null):
+		show_notification("Hold too far from route! (max " + str(int(MAX_REACH_DISTANCE)) + "px from nearest hold)", true)
+		return false
+	
 	var hold = loaded_scenes[selected_hold_type].instantiate()
 	
 	# SET TYPE BEFORE ADDING TO TREE
@@ -490,6 +612,9 @@ func place_hold(pos: Vector2) -> bool:
 	# Store the type we wanted in metadata for later retrieval
 	hold.set_meta("editor_type", selected_hold_type)
 	
+	# Update wall bounds after placing hold
+	update_wall_bounds()
+	
 	print("Placed " + selected_hold_type + " at " + str(pos))
 	return true
 
@@ -497,6 +622,7 @@ func delete_hold(hold: Node2D):
 	if hold == dragging_hold:
 		dragging_hold = null
 	hold.queue_free()
+	update_wall_bounds()
 	print("Deleted hold at " + str(hold.global_position))
 
 func get_hold_at_position(pos: Vector2, max_dist: float = 40.0) -> Node2D:
@@ -639,7 +765,7 @@ func _on_paste_json():
 		else:
 			env_config.set_environment(0)  # GYM
 			environment_dropdown.select(0)
-		update_wall_color()
+		update_wall_bounds()
 	
 	# Load holds
 	for hold_data in data.holds:
@@ -659,6 +785,8 @@ func _on_paste_json():
 		
 		# Store the type in metadata
 		hold.set_meta("editor_type", type_name)
+	
+	update_wall_bounds()
 	
 	print("Loaded: " + climb_name + " (" + climb_grade + ") - " + str(data.holds.size()) + " holds")
 	show_notification("Loaded: " + climb_name + " (" + climb_grade + ")")
@@ -820,6 +948,8 @@ func _on_clear():
 	if grade_dropdown:
 		grade_dropdown.select(0)
 	
+	update_wall_bounds()
+	
 	print("Cleared all holds")
 	idle_timer = 0.0  # Reset idle timer
 
@@ -876,41 +1006,120 @@ func update_info_label():
 	var climb_info = climb_name if climb_name != "" else "Unnamed"
 	climb_info += " (" + climb_grade + ")"
 	
-	info_label.text = "%s | Holds: %d (START:%d/%d, TOP:%d/%d) | Selected: %s | Grid: %s | Zoom: %.1fx | Auto-reset: %ds" % [
-		climb_info, count, start_count, MAX_START_HOLDS, top_count, MAX_TOP_HOLDS, selected, grid_status, camera.zoom.x, auto_reset_remaining
+	# Calculate route height
+	var bounds = get_route_bounds()
+	var route_height = 0
+	if bounds.valid:
+		route_height = int(abs(bounds.max.y - bounds.min.y))
+	
+	info_label.text = "%s | Holds: %d (START:%d/%d, TOP:%d/%d) | Height: %dpx | Selected: %s | Grid: %s | Zoom: %.1fx | Auto-reset: %ds" % [
+		climb_info, count, start_count, MAX_START_HOLDS, top_count, MAX_TOP_HOLDS, route_height, selected, grid_status, camera.zoom.x, auto_reset_remaining
 	]
 
 # =============================================================================
-# GRID
+# GRID & VISUAL HELPERS
 # =============================================================================
 
 func _draw():
-	# Draw canvas boundary
-	draw_rect(Rect2(CANVAS_MIN_X, CANVAS_MIN_Y, CANVAS_MAX_X - CANVAS_MIN_X, CANVAS_MAX_Y - CANVAS_MIN_Y), Color(0.2, 0.2, 0.3, 0.3), false, 3.0)
+	# Draw canvas boundary (full editor space)
+	draw_rect(
+		Rect2(CANVAS_MIN_X, CANVAS_MIN_Y, CANVAS_MAX_X - CANVAS_MIN_X, CANVAS_MAX_Y - CANVAS_MIN_Y), 
+		Color(0.15, 0.15, 0.2, 0.3), 
+		false, 
+		2.0
+	)
+	
+	# Draw dynamic wall bounds (this is what will render in-game)
+	var bounds = get_route_bounds()
+	if bounds.valid:
+		# Main wall rectangle (tight around route)
+		draw_rect(
+			Rect2(bounds.min, bounds.size),
+			Color(0.3, 0.5, 0.8, 0.25),
+			true  # Filled
+		)
+		
+		# Wall outline
+		draw_rect(
+			Rect2(bounds.min, bounds.size),
+			Color(0.4, 0.7, 1.0, 0.6),
+			false,
+			3.0
+		)
+		
+		# Top edge indicator (where player tops out)
+		var top_y = bounds.min.y
+		draw_line(
+			Vector2(bounds.min.x, top_y),
+			Vector2(bounds.max.x, top_y),
+			Color(1.0, 1.0, 0.3, 0.8),
+			4.0
+		)
+		
+		# Label for wall dimensions
+		var height = int(bounds.size.y)
+		var width = int(bounds.size.x)
+		
+		# Draw dimension labels near the wall
+		var label_pos = Vector2(bounds.max.x + 20, bounds.center.y)
+		draw_string(
+			ThemeDB.fallback_font,
+			label_pos,
+			str(height) + "px tall",
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1,
+			16,
+			Color.WHITE
+		)
 	
 	if not grid_enabled:
 		return
 	
+	# Get viewport bounds in world space
 	var viewport_rect = get_viewport_rect()
 	var cam_pos = camera.position
 	var cam_zoom = camera.zoom.x
 	
 	var half_size = viewport_rect.size / (2.0 * cam_zoom)
-	var top_left = cam_pos - half_size
-	var bottom_right = cam_pos + half_size
+	var view_min = cam_pos - half_size
+	var view_max = cam_pos + half_size
 	
-	# Clamp grid to canvas boundaries
-	var start_x = max(floor(top_left.x / grid_size) * grid_size, CANVAS_MIN_X)
-	var start_y = max(floor(top_left.y / grid_size) * grid_size, CANVAS_MIN_Y)
-	var end_x = min(ceil(bottom_right.x / grid_size) * grid_size, CANVAS_MAX_X)
-	var end_y = min(ceil(bottom_right.y / grid_size) * grid_size, CANVAS_MAX_Y)
+	# Clamp to canvas boundaries
+	var draw_min_x = max(view_min.x, CANVAS_MIN_X)
+	var draw_max_x = min(view_max.x, CANVAS_MAX_X)
+	var draw_min_y = max(view_min.y, CANVAS_MIN_Y)
+	var draw_max_y = min(view_max.y, CANVAS_MAX_Y)
 	
+	# Calculate grid line start/end positions (snapped to grid)
+	var start_x = floor(draw_min_x / grid_size) * grid_size
+	var end_x = ceil(draw_max_x / grid_size) * grid_size
+	var start_y = floor(draw_min_y / grid_size) * grid_size
+	var end_y = ceil(draw_max_y / grid_size) * grid_size
+	
+	# Clamp grid lines to canvas bounds
+	start_x = max(start_x, CANVAS_MIN_X)
+	end_x = min(end_x, CANVAS_MAX_X)
+	start_y = max(start_y, CANVAS_MIN_Y)
+	end_y = min(end_y, CANVAS_MAX_Y)
+	
+	# Draw vertical lines
 	var x = start_x
 	while x <= end_x:
-		draw_line(Vector2(x, max(start_y, CANVAS_MIN_Y)), Vector2(x, min(end_y, CANVAS_MAX_Y)), Color(0.3, 0.3, 0.3, 0.3), 1.0)
+		draw_line(
+			Vector2(x, draw_min_y),
+			Vector2(x, draw_max_y),
+			Color(0.3, 0.3, 0.3, 0.2),
+			1.0
+		)
 		x += grid_size
 	
+	# Draw horizontal lines
 	var y = start_y
 	while y <= end_y:
-		draw_line(Vector2(max(start_x, CANVAS_MIN_X), y), Vector2(min(end_x, CANVAS_MAX_X), y), Color(0.3, 0.3, 0.3, 0.3), 1.0)
+		draw_line(
+			Vector2(draw_min_x, y),
+			Vector2(draw_max_x, y),
+			Color(0.3, 0.3, 0.3, 0.2),
+			1.0
+		)
 		y += grid_size

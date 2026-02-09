@@ -1,21 +1,15 @@
-[gd_scene load_steps=9 format=3 uid="uid://dbyu6py4a276m"]
+[gd_scene load_steps=8 format=3 uid="uid://dbyu6py4a276m"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_6lxc5"]
 [ext_resource type="Texture2D" uid="uid://bu2ve6bewtc4r" path="res://assets/images/holds/gym/sloper.png" id="2_6ows1"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_js2ht"]
 [ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_3yt30"]
-[ext_resource type="Texture2D" uid="uid://hqdm2hg1mgb8" path="res://assets/images/holds/granite/granite-jug.png" id="5_3yt30"]
+[ext_resource type="Texture2D" uid="uid://d3v6svbttwmwg" path="res://assets/images/holds/granite/granite-sloper.png" id="5_3yt30"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_7irpt"]
 radius = 115.00001
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_f3fsl"]
-shader = ExtResource("2_js2ht")
-shader_parameter/grunge_mask = ExtResource("3_3yt30")
-shader_parameter/wear_strength = 0.30000001425
-shader_parameter/grunge_scale = 1.00000004424012
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_ilu1u"]
 shader = ExtResource("2_js2ht")
 shader_parameter/grunge_mask = ExtResource("3_3yt30")
 shader_parameter/wear_strength = 0.30000001425
@@ -45,7 +39,7 @@ scale = Vector2(0.2, 0.2)
 texture = ExtResource("2_6ows1")
 
 [node name="GraniteHold" type="Sprite2D" parent="."]
-material = SubResource("ShaderMaterial_ilu1u")
-position = Vector2(-5.0000153, -10.0000305)
-scale = Vector2(0.1625, 0.1625)
+material = SubResource("ShaderMaterial_f3fsl")
+position = Vector2(-1.9073486e-06, 0)
+scale = Vector2(0.2, 0.2)
 texture = ExtResource("5_3yt30")

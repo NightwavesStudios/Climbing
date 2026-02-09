@@ -15,7 +15,7 @@ shader_parameter/grunge_scale = 1.00000004424012
 [sub_resource type="CircleShape2D" id="CircleShape2D_e3qun"]
 radius = 96.17692
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_i7q76"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_xyj0e"]
 shader = ExtResource("1_yvwuy")
 shader_parameter/grunge_mask = ExtResource("2_xyj0e")
 shader_parameter/wear_strength = 0.30000001425
@@ -44,7 +44,7 @@ scale = Vector2(0.1625, 0.1625)
 texture = ExtResource("2_4vhrv")
 
 [node name="GraniteHold" type="Sprite2D" parent="."]
-material = SubResource("ShaderMaterial_i7q76")
+material = SubResource("ShaderMaterial_xyj0e")
 position = Vector2(-5.0000153, -10.0000305)
 scale = Vector2(0.1625, 0.1625)
 texture = ExtResource("5_xyj0e")
