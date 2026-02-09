@@ -1641,7 +1641,10 @@ func attempt_grab(limb: Limb):
 	var dist_to_hold = to_hold.length()
 	
 	var grab_pos: Vector2
-	if dist_to_hold < 15.0:
+	# For top-out holds, use the actual hand position (free X-axis)
+	if closest_hold.has_method("is_top_out") and closest_hold.is_top_out():
+		grab_pos = limb_pos
+	elif dist_to_hold < 15.0:
 		grab_pos = closest_hold_point
 	else:
 		grab_pos = limb_pos + to_hold * 0.7
