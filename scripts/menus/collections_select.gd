@@ -13,6 +13,22 @@ var button_to_collection = {}
 func _ready() -> void:
 	_setup_button_mapping()
 	_update_collection_states()
+	_make_buttons_same_size_and_height()
+
+func _make_buttons_same_size_and_height():
+	var buttons = $ScrollContainer/HBoxContainer.get_children()
+	var max_width = 0
+	var target_height = get_viewport_rect().size.y * 0.6
+
+	# find max width
+	for button in buttons:
+		if button is Button:
+			max_width = max(max_width, button.get_minimum_size().x)
+
+	# apply same width and target height
+	for button in buttons:
+		if button is Button:
+			button.custom_minimum_size = Vector2(max_width, target_height)
 
 func _setup_button_mapping():
 	"""Map buttons to their collection IDs"""
@@ -53,7 +69,10 @@ func _style_collection_button(button: Button, collection_id: String, unlocked: b
 		text += " (" + str(progress.completed) + "/" + str(progress.total) + ")"
 	
 	button.text = text
+	
+	# CRITICAL: Actually disable the button if not unlocked
 	button.disabled = not unlocked
+	button.focus_mode = Control.FOCUS_NONE if not unlocked else Control.FOCUS_ALL
 	
 	# Visual styling
 	if not unlocked:

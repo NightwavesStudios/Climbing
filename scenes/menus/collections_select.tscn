@@ -11,7 +11,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_ns5ma")
 
-[node name="HBoxContainer" type="HBoxContainer" parent="."]
+[node name="ScrollContainer" type="ScrollContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -19,27 +19,45 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="TutorialCollection" type="Button" parent="HBoxContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="ScrollContainer"]
 layout_mode = 2
-text = "Tutorial"
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+alignment = 1
 
-[node name="FlowCollection" type="Button" parent="HBoxContainer"]
+[node name="FirstMovesCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
-text = "Flow"
+size_flags_vertical = 4
+text = "First Moves"
 
-[node name="PrecisionCollection" type="Button" parent="HBoxContainer"]
+[node name="MovementCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
-text = "Precision"
+size_flags_vertical = 4
+text = "Movement"
 
-[node name="InstabilityCollection" type="Button" parent="HBoxContainer"]
+[node name="SmallHoldsCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
+size_flags_vertical = 4
+text = "Small Holds"
+
+[node name="InstabilityCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
+layout_mode = 2
+size_flags_vertical = 4
 text = "Instability"
 
-[node name="LongHaulCollection" type="Button" parent="HBoxContainer"]
+[node name="EnduranceCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
-text = "Long-Haul"
+size_flags_vertical = 4
+text = "Endurance"
 
-[connection signal="pressed" from="HBoxContainer/TutorialCollection" to="." method="_on_tutorial_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/FlowCollection" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/PrecisionCollection" to="." method="_on_precision_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/InstabilityCollection" to="." method="_on_instability_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/FirstMovesCollection" to="." method="_on_tutorial_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/MovementCollection" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/SmallHoldsCollection" to="." method="_on_precision_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/InstabilityCollection" to="." method="_on_instability_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/EnduranceCollection" to="." method="_on_long_haul_collection_pressed"]

@@ -1724,37 +1724,36 @@ func check_fall_detection(delta: float):
 func check_climb_completion():
 	if climb_completed:
 		return
-	
+
 	# Check for top-out: both hands on top-out holds
-	var left_on_top = false
-	var right_on_top = false
-	
-	if left_hand_hold and left_hand_hold.has_method("is_top_out") and left_hand_hold.is_top_out():
-		left_on_top = true
-	if right_hand_hold and right_hand_hold.has_method("is_top_out") and right_hand_hold.is_top_out():
-		right_on_top = true
-	
+	var left_on_top = left_hand_hold and left_hand_hold.has_method("is_top_out") and left_hand_hold.is_top_out()
+	var right_on_top = right_hand_hold and right_hand_hold.has_method("is_top_out") and right_hand_hold.is_top_out()
+
 	# Complete if both hands are on top-out holds (works for both gym and granite)
 	if left_on_top and right_on_top:
 		climb_completed = true
-		
+
 		# Check if it's a granite route
-		var env_config = get_node_or_null("/root/EnvironmentConfig")
-		var is_granite = false
-		if env_config and env_config.has_method("get_current_environment"):
-			is_granite = env_config.get_current_environment() == 1
-		
+		var is_granite := false
+		if Engine.has_singleton("EnvironmentConfig"):
+			var env_config = EnvironmentConfig
+			is_granite = env_config.get_current_environment() == EnvironmentConfig.EnvironmentType.GRANITE
+
 		if is_granite:
 			print("Climb completed via granite top-out!")
 		else:
 			print("Climb completed via top hold!")
-		
-		var game_scene = get_parent()
-		if game_scene.has_method("on_level_complete"):
+
+		# Notify main game scene
+		var game_scene = get_tree().get_current_scene()
+		if game_scene and game_scene.has_method("on_level_complete"):
 			game_scene.on_level_complete()
+
+
 func update_camera():
 	if cam:
 		cam.global_position = cam.global_position.lerp(global_position, CAM_LERP)
+
 
 func _draw():
 	if aesthetic:

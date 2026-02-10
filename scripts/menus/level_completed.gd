@@ -2,21 +2,12 @@
 extends Control
 ## Level Complete Screen
 
-# ─────────────────────────────────────────────
-# Optional UI nodes (safe lookups)
-# ─────────────────────────────────────────────
 @onready var next_button: Button = get_node_or_null("NextButton")
 @onready var menu_button: Button = get_node_or_null("MenuButton")
 @onready var restart_button: Button = get_node_or_null("RestartButton")
 
-# ─────────────────────────────────────────────
-# State
-# ─────────────────────────────────────────────
 var _completed_level_path: String = ""
 
-# ─────────────────────────────────────────────
-# Lifecycle
-# ─────────────────────────────────────────────
 func _ready() -> void:
 	# Get the completed level from GameState
 	_completed_level_path = GameState.get_last_completed_level()
@@ -40,9 +31,6 @@ func _ready() -> void:
 			next_button.visible = true
 			next_button.disabled = false
 
-# ─────────────────────────────────────────────
-# Button callbacks
-# ─────────────────────────────────────────────
 func _on_next_button_pressed() -> void:
 	print("=== NEXT BUTTON PRESSED ===")
 	print("Completed level was: ", _completed_level_path)
@@ -62,15 +50,15 @@ func _on_next_button_pressed() -> void:
 	GameState.set_current_level(next_level)
 	
 	print("Current level is now: ", GameState.get_current_level())
-	print("Changing scene to main_scene.tscn")
+	print("Transitioning to next level...")
 	print("===========================")
 	
-	# Load fresh main scene
-	get_tree().change_scene_to_file("res://scenes/main/main_scene.tscn")
+	# Use Transition autoload
+	Transition.to("res://scenes/main/main_scene.tscn")
 
 func _on_menu_button_pressed() -> void:
-	# Return to main menu
-	Transition.to("res://scenes/menus/main_menu.tscn")
+	# Return to collection select
+	Transition.to("res://scenes/menus/collections_select.tscn")
 
 func _on_restart_button_pressed() -> void:
 	# Restart the level just completed

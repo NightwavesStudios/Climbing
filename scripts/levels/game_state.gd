@@ -16,7 +16,7 @@ var climb_metadata: Dictionary = {}  # level_path: {name: String, grade: String}
 # Collection definitions
 const COLLECTIONS = {
 	"tutorial": {
-		"name": "Tutorial",
+		"name": "First Moves",
 		"description": "Learn the basics of climbing",
 		"unlock_requirement": {"type": "always"},  # Always unlocked
 		"levels": [
@@ -25,16 +25,8 @@ const COLLECTIONS = {
 			"res://scenes/levels/tutorial/pocket-galore.json",
 			"res://scenes/levels/tutorial/longer-ascent.json",
 			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/far-reach.json",
+			"res://scenes/levels/tutorial/long-way-up.json",
+			"res://scenes/levels/tutorial/crimp.json",
 		]
 	},
 	"flow": {

@@ -21,8 +21,11 @@ var current_level_name: String = ""
 var current_level_grade: String = ""
 var current_level_environment: String = "gym"
 
+# =============================================================================
+# READY
+# =============================================================================
 func _ready():
-	# Load all hold scenes
+	# Load hold scenes
 	for type_name in HOLD_SCENES:
 		if ResourceLoader.exists(HOLD_SCENES[type_name]):
 			loaded_scenes[type_name] = load(HOLD_SCENES[type_name])
@@ -37,27 +40,41 @@ func _ready():
 	else:
 		holds_container = get_node("Holds")
 	
-	# Create dynamic wall
-	_create_dynamic_wall()
+	# Defer dynamic wall creation to avoid "parent busy"
+	call_deferred("_create_dynamic_wall")
 
+# =============================================================================
+# DYNAMIC WALL
+# =============================================================================
 func _create_dynamic_wall():
 	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
 	dynamic_wall = wall_script.new()
 	dynamic_wall.name = "DynamicWall"
 	dynamic_wall.z_index = -10
+	# Safely add to parent
 	get_parent().add_child(dynamic_wall)
 
+# Update bounds
+func update_wall_bounds():
+	if dynamic_wall:
+		dynamic_wall.calculate_bounds_from_holds(holds_container)
+
+func get_wall_bounds() -> Dictionary:
+	if dynamic_wall and dynamic_wall.has_method("get_bounds"):
+		return dynamic_wall.get_bounds()
+	return {"min": Vector2.ZERO, "max": Vector2.ZERO, "valid": false}
+
+func get_dynamic_wall() -> Node2D:
+	return dynamic_wall
 
 # =============================================================================
-# LOAD LEVEL
+# LEVEL LOADING
 # =============================================================================
-
 func load_level(path: String) -> bool:
 	"""Load a .json level file from res://levels/"""
-	
 	clear_holds()
 	
-	# Load JSON resource
+	# Load JSON
 	if not FileAccess.file_exists(path):
 		print("ERROR: Level file not found: " + path)
 		return false
@@ -77,7 +94,6 @@ func load_level(path: String) -> bool:
 		return false
 	
 	var level_data = json.data
-	
 	if not "holds" in level_data:
 		print("ERROR: No 'holds' array in: " + path)
 		return false
@@ -87,11 +103,10 @@ func load_level(path: String) -> bool:
 	current_level_grade = level_data.get("grade", "")
 	current_level_environment = level_data.get("environment", "gym")
 	
-	# CRITICAL: Set environment FIRST
 	print("Setting environment to: " + current_level_environment)
 	set_environment_from_string(current_level_environment)
 	
-	# Wait for environment to propagate
+	# Wait one frame for environment to update
 	await get_tree().process_frame
 	
 	# Store metadata in GameState
@@ -99,21 +114,20 @@ func load_level(path: String) -> bool:
 	if game_state and game_state.has_method("set_climb_metadata"):
 		game_state.set_climb_metadata(path, current_level_name, current_level_grade)
 	
-	# Spawn holds AFTER environment is set
+	# Spawn holds
 	for hold_data in level_data.holds:
 		spawn_hold(hold_data)
 	
-	# CRITICAL: Wait for holds' deferred sprite updates to complete
+	# Wait a couple frames to ensure all deferred _ready() calls are finished
 	await get_tree().process_frame
 	await get_tree().process_frame
 	
-	# Force update all holds (just to be sure)
-	print("Forcing all holds to update sprites...")
+	# Force update all holds for environment
 	for hold in get_tree().get_nodes_in_group("holds"):
 		if hold.has_method("_update_sprite_for_environment"):
 			hold._update_sprite_for_environment()
 	
-	# UPDATE DYNAMIC WALL BOUNDS
+	# Update dynamic wall bounds
 	update_wall_bounds()
 	
 	print("✓ Loaded: " + path)
@@ -124,49 +138,32 @@ func load_level(path: String) -> bool:
 	
 	return true
 
+# =============================================================================
+# ENVIRONMENT
+# =============================================================================
 func set_environment_from_string(env_name: String):
-	"""Set the environment based on string from JSON"""
 	if not has_node("/root/EnvironmentConfig"):
 		print("WARNING: EnvironmentConfig not available")
 		return
 	
 	var env_config = get_node("/root/EnvironmentConfig")
-	
 	match env_name.to_lower():
 		"gym":
-			env_config.set_environment(0)  # EnvironmentType.GYM
+			env_config.set_environment(0)
 			print("Level environment set to: GYM")
 		"granite":
-			env_config.set_environment(1)  # EnvironmentType.GRANITE
+			env_config.set_environment(1)
 			print("Level environment set to: GRANITE")
 		_:
 			print("WARNING: Unknown environment: " + env_name + ", defaulting to gym")
 			env_config.set_environment(0)
 	
-	# Update wall appearance based on environment
 	if dynamic_wall and dynamic_wall.has_method("update_environment"):
 		dynamic_wall.update_environment()
 
 # =============================================================================
-# DYNAMIC WALL BOUNDS
+# HOLDS
 # =============================================================================
-func update_wall_bounds():
-	dynamic_wall.calculate_bounds_from_holds(holds_container)
-
-func get_wall_bounds() -> Dictionary:
-	"""Get the current wall bounds (for camera positioning, etc.)"""
-	if dynamic_wall and dynamic_wall.has_method("get_bounds"):
-		return dynamic_wall.get_bounds()
-	return {"min": Vector2.ZERO, "max": Vector2.ZERO, "valid": false}
-
-func get_dynamic_wall() -> Node2D:
-	"""Get reference to the dynamic wall"""
-	return dynamic_wall
-
-# =============================================================================
-# HOLD SPAWNING
-# =============================================================================
-
 func spawn_hold(hold_data: Dictionary) -> Node2D:
 	var type_name = hold_data.get("type", "JUG")
 	if type_name not in loaded_scenes:
@@ -176,33 +173,12 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 	var hold = loaded_scenes[type_name].instantiate()
 	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
 	
-	# CRITICAL: Set the hold type BEFORE adding to tree
-	# This way _ready() will see _type_was_set_manually = true
 	if hold.has_method("set_hold_type_from_string"):
 		hold.set_hold_type_from_string(type_name)
 	
-	# NOW add to tree - _ready() will respect the manual setting
 	holds_container.add_child(hold)
 	hold.add_to_group("holds")
-	
 	return hold
-
-# =============================================================================
-# METADATA GETTERS
-# =============================================================================
-
-func get_current_level_name() -> String:
-	return current_level_name
-
-func get_current_level_grade() -> String:
-	return current_level_grade
-
-func get_current_level_environment() -> String:
-	return current_level_environment
-	
-# =============================================================================
-# UTILITY
-# =============================================================================
 
 func clear_holds():
 	if holds_container:
@@ -229,21 +205,17 @@ func get_top_holds() -> Array[Node2D]:
 	return tops
 
 func get_player_spawn_position() -> Vector2:
-	"""Get the position where player should spawn based on start holds"""
 	var starts = get_start_holds()
-	
 	if starts.size() == 0:
 		print("WARNING: No START holds found!")
-		return Vector2(400, 300)  # Default fallback
+		return Vector2(400, 300)
 	
-	# If one start hold, spawn directly below it
 	if starts.size() == 1:
 		var hold_point = starts[0].get_node_or_null("HoldPoint")
 		if hold_point:
 			return hold_point.global_position + Vector2(0, 80)
 		return starts[0].global_position + Vector2(0, 80)
 	
-	# If multiple start holds, spawn between them
 	var sum = Vector2.ZERO
 	for hold in starts:
 		var hold_point = hold.get_node_or_null("HoldPoint")
@@ -252,8 +224,7 @@ func get_player_spawn_position() -> Vector2:
 		else:
 			sum += hold.global_position
 	
-	var center = sum / starts.size()
-	return center + Vector2(0, 80)  # Spawn 80 pixels below the center
+	return sum / starts.size() + Vector2(0, 80)
 
 func validate_level() -> Dictionary:
 	var result = {
@@ -267,14 +238,12 @@ func validate_level() -> Dictionary:
 	}
 	
 	result.total_holds = get_hold_count()
-	
 	if result.total_holds == 0:
 		result.errors.append("No holds in level")
 		return result
 	
 	var starts = get_start_holds()
 	var tops = get_top_holds()
-	
 	result.start_count = starts.size()
 	result.top_count = tops.size()
 	result.has_start = result.start_count > 0
@@ -286,5 +255,4 @@ func validate_level() -> Dictionary:
 		result.errors.append("No TOP holds")
 	
 	result.valid = result.has_start and result.has_top
-	
 	return result

@@ -55,7 +55,6 @@ var current_environment: String = "gym"
 func _ready():
 	z_index = -10
 	add_to_group("environment_walls")
-	# Defer environment setup so wall is fully in tree
 	call_deferred("update_environment_settings")
 
 # =============================================================================
@@ -102,20 +101,33 @@ func draw_textured_wall(start_pos: Vector2, size: Vector2):
 			var seed := int(px / tile) + int(py / tile) * 1000
 			var v := (hash_to_float(seed) - 0.5) * texture_variation
 			
-			draw_rect(Rect2(Vector2(px, py), Vector2(tile, tile)),
-				Color(current_wall_color.r + v,
-					  current_wall_color.g + v,
-					  current_wall_color.b + v,
-					  current_wall_color.a))
+			# Clamp tile to wall bounds
+			var tile_rect = Rect2(Vector2(px, py), Vector2(tile, tile))
+			var wall_rect = Rect2(wall_min, wall_max - wall_min)
+			var clipped_rect = tile_rect.intersection(wall_rect)
+			
+			if clipped_rect.has_area():
+				draw_rect(clipped_rect,
+					Color(current_wall_color.r + v,
+						  current_wall_color.g + v,
+						  current_wall_color.b + v,
+						  current_wall_color.a))
 
 # =============================================================================
-# BOLT HOLES
+# BOLT HOLES - FIXED TO CLIP AT WALL EDGES
 # =============================================================================
 func draw_bolt_holes(start_pos: Vector2, end_pos: Vector2):
-	var sx = floor(start_pos.x / hole_spacing.x) * hole_spacing.x
-	var sy = floor(start_pos.y / hole_spacing.y) * hole_spacing.y
-	var ex = ceil(end_pos.x / hole_spacing.x) * hole_spacing.x
-	var ey = ceil(end_pos.y / hole_spacing.y) * hole_spacing.y
+	# Apply strict margin to keep holes away from edges
+	var margin = 15.0
+	var draw_min_x = start_pos.x + margin
+	var draw_max_x = end_pos.x - margin
+	var draw_min_y = start_pos.y + margin
+	var draw_max_y = end_pos.y - margin
+	
+	var sx = floor(draw_min_x / hole_spacing.x) * hole_spacing.x
+	var sy = floor(draw_min_y / hole_spacing.y) * hole_spacing.y
+	var ex = ceil(draw_max_x / hole_spacing.x) * hole_spacing.x
+	var ey = ceil(draw_max_y / hole_spacing.y) * hole_spacing.y
 	
 	var x = sx
 	while x <= ex:
@@ -126,12 +138,17 @@ func draw_bolt_holes(start_pos: Vector2, end_pos: Vector2):
 				(hash_to_float(seed) - 0.5) * hole_jitter,
 				(hash_to_float(seed + 1) - 0.5) * hole_jitter
 			)
-			draw_circle(Vector2(x, y) + jitter, hole_radius, hole_color)
+			var hole_pos = Vector2(x, y) + jitter
+			
+			# Only draw if strictly within wall bounds (with margin)
+			if hole_pos.x >= draw_min_x and hole_pos.x <= draw_max_x and \
+			   hole_pos.y >= draw_min_y and hole_pos.y <= draw_max_y:
+				draw_circle(hole_pos, hole_radius, hole_color)
 			y += hole_spacing.y
 		x += hole_spacing.x
 
 # =============================================================================
-# GRANITE TEXTURE
+# GRANITE TEXTURE - FIXED TO CLIP AT WALL EDGES
 # =============================================================================
 func draw_granite_texture():
 	var wall_size = wall_max - wall_min
@@ -142,10 +159,16 @@ func draw_granite_texture():
 		var x_offset = (float(i) / num_cracks) * wall_size.x
 		var x_pos = wall_min.x + x_offset + (hash(rng_seed + i) % 50 - 25)
 		
-		draw_line(Vector2(x_pos, wall_min.y),
-				  Vector2(x_pos, wall_max.y),
-				  Color(0.45, 0.43, 0.4, 0.3),
-				  2.0)
+		# Clamp crack lines to wall boundaries
+		var start_y = max(wall_min.y, wall_min.y)
+		var end_y = min(wall_max.y, wall_max.y)
+		
+		# Only draw if within wall bounds
+		if x_pos >= wall_min.x and x_pos <= wall_max.x:
+			draw_line(Vector2(x_pos, start_y),
+					  Vector2(x_pos, end_y),
+					  Color(0.45, 0.43, 0.4, 0.3),
+					  2.0)
 
 # =============================================================================
 # EDGE RENDERING
@@ -224,7 +247,6 @@ func calculate_bounds_from_holds(holds_container: Node2D):
 	queue_redraw()
 
 func _create_granite_top_edge(holds_container: Node2D):
-	"""Single top-edge hold that spans wall width and snaps only on y-axis"""
 	for child in get_children():
 		if child.has_meta("is_top_edge_hold"):
 			child.queue_free()
@@ -248,11 +270,8 @@ func _create_granite_top_edge(holds_container: Node2D):
 
 	top_hold.global_position = Vector2((wall_min.x + wall_max.x)/2, wall_min.y)
 
-	# Add hold deferred to avoid busy errors
 	add_child.call_deferred(top_hold)
 	top_hold.add_to_group("holds")
-
-	# Deferred script assignment to fix get_recovery_rate errors
 	call_deferred("_assign_top_hold_script", top_hold)
 
 func _assign_top_hold_script(top_hold):
@@ -272,13 +291,11 @@ func is_foothold() -> bool: return false
 
 func can_grab(limb: Node2D, is_foot: bool) -> bool:
 	if is_foot: return false
-	# Allow both hands to grab
 	return true
 
 func try_claim(limb: Node2D, is_foot: bool, snap_pos: Vector2) -> bool:
 	if not can_grab(limb, is_foot): return false
 	
-	# Track which hand is which by name and store its X position
 	var limb_name = limb.name
 	if limb_name == 'LeftHand':
 		claimed_left_hand = limb
@@ -299,7 +316,6 @@ func release(limb: Node2D) -> void:
 		right_hand_x = 0.0
 
 func get_limb_anchor(limb: Node2D) -> Vector2:
-	# Return the stored X position where the hand grabbed, not its current position
 	var limb_name = limb.name
 	var x_pos = limb.global_position.x
 	
