@@ -26,38 +26,48 @@ size_flags_vertical = 3
 theme_override_constants/separation = 10
 alignment = 1
 
-[node name="FirstMovesCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+[node name="Chapter1" type="Button" parent="ScrollContainer/HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
-text = "First Moves"
+text = "Chapter 1:
 
-[node name="MovementCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+Beginnings"
+
+[node name="Chapter2" type="Button" parent="ScrollContainer/HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
-text = "Movement"
+text = "Chapter 2:
 
-[node name="SmallHoldsCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+Progressing"
+
+[node name="Chapter3" type="Button" parent="ScrollContainer/HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
-text = "Small Holds"
+text = "Chapter 3:
 
-[node name="InstabilityCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+Transition"
+
+[node name="Chapter4" type="Button" parent="ScrollContainer/HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
-text = "Instability"
+text = "Chapter 4:
 
-[node name="EnduranceCollection" type="Button" parent="ScrollContainer/HBoxContainer"]
+Exposure"
+
+[node name="Chapter5" type="Button" parent="ScrollContainer/HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
-text = "Endurance"
+text = "Chapter 5:
 
-[connection signal="pressed" from="ScrollContainer/HBoxContainer/FirstMovesCollection" to="." method="_on_tutorial_collection_pressed"]
-[connection signal="pressed" from="ScrollContainer/HBoxContainer/MovementCollection" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="ScrollContainer/HBoxContainer/SmallHoldsCollection" to="." method="_on_precision_collection_pressed"]
-[connection signal="pressed" from="ScrollContainer/HBoxContainer/InstabilityCollection" to="." method="_on_instability_collection_pressed"]
-[connection signal="pressed" from="ScrollContainer/HBoxContainer/EnduranceCollection" to="." method="_on_long_haul_collection_pressed"]
+IDK YET"
+
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter1" to="." method="_on_tutorial_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter2" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter3" to="." method="_on_precision_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter4" to="." method="_on_instability_collection_pressed"]
+[connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter5" to="." method="_on_long_haul_collection_pressed"]

@@ -28,81 +28,58 @@ func _ready():
 	collision_mask = 0
 	monitoring = true
 	
-	# Only auto-detect if type wasn't set manually by level loader
-	# AND only if properties haven't been configured yet
+	# Only auto-detect if type wasn't set manually
 	if not _type_was_set_manually:
 		_auto_detect_type_from_name()
 		_configure_hold_properties()
 	
-	# Add to holds group
 	add_to_group("holds")
 	
-	# Cache sprite nodes
 	_cache_sprite_nodes()
-	
-	# Set initial sprite based on current environment
 	_update_sprite_for_environment()
 	
-	# Debug output
 	var type_name = HoldType.keys()[hold_type]
-	print("Hold initialized: ", name, " type=", type_name, " at ", global_position)
+	print("Hold initialized: ", name, " type=", type_name)
 
 func _cache_sprite_nodes():
 	"""Find and cache all sprite nodes for different environments"""
 	sprite_nodes.clear()
 	
-	# Try to find sprites as direct children first
 	for child in get_children():
 		if child is Sprite2D:
 			var node_name = child.name
 			if "Gym" in node_name:
 				sprite_nodes["Gym"] = child
-				print("  Found Gym sprite (child): " + node_name)
 			elif "Granite" in node_name:
 				sprite_nodes["Granite"] = child
-				print("  Found Granite sprite (child): " + node_name)
 			elif "Sandstone" in node_name:
 				sprite_nodes["Sandstone"] = child
-				print("  Found Sandstone sprite (child): " + node_name)
 	
-	# If not found as children, try as siblings (common in hold scenes)
 	if sprite_nodes.size() == 0 and get_parent():
 		for sibling in get_parent().get_children():
 			if sibling is Sprite2D and sibling != self:
 				var node_name = sibling.name
 				if "Gym" in node_name:
 					sprite_nodes["Gym"] = sibling
-					print("  Found Gym sprite (sibling): " + node_name)
 				elif "Granite" in node_name:
 					sprite_nodes["Granite"] = sibling
-					print("  Found Granite sprite (sibling): " + node_name)
 				elif "Sandstone" in node_name:
 					sprite_nodes["Sandstone"] = sibling
-					print("  Found Sandstone sprite (sibling): " + node_name)
-	
-	if sprite_nodes.size() == 0:
-		print("  WARNING: No environment sprites found for " + name)
 
 func _update_sprite_for_environment():
 	"""Show only the sprite for the current environment"""
 	var env_config = get_node_or_null("/root/EnvironmentConfig")
 	if not env_config:
-		print("  WARNING: EnvironmentConfig not found for " + name)
 		return
 	
 	var sprite_suffix = env_config.get_sprite_suffix()
 	
-	# Hide all sprites first
 	for suffix in sprite_nodes:
 		if sprite_nodes[suffix]:
 			sprite_nodes[suffix].visible = false
 	
-	# Show only the sprite for current environment
 	if sprite_suffix in sprite_nodes and sprite_nodes[sprite_suffix]:
 		sprite_nodes[sprite_suffix].visible = true
-		print("  " + name + ": Showing " + sprite_suffix + " sprite")
-	else:
-		print("  WARNING: " + name + " has no sprite for environment: " + sprite_suffix)
 
 func _auto_detect_type_from_name():
 	"""Auto-detect hold type from scene filename"""
@@ -112,7 +89,6 @@ func _auto_detect_type_from_name():
 	
 	var filename = scene_path.get_file().to_lower()
 	
-	# Only auto-detect if type is still JUG (default)
 	if hold_type != HoldType.JUG:
 		return
 	
@@ -172,20 +148,18 @@ func set_hold_type_from_string(type_str: String):
 			hold_type = HoldType.FOOTHOLD
 		"POCKET":
 			hold_type = HoldType.POCKET
-		_:
-			print("WARNING: Unknown hold type string: ", type_str)
 	
-	# Configure properties immediately when type is set manually
-	# This ensures the properties are correct even if called before _ready()
 	_configure_hold_properties()
 
+# =============================================================================
+# HOLD TYPE CHECKS
+# =============================================================================
+
 func is_start_hold() -> bool:
-	var result = hold_type == HoldType.START
-	return result
+	return hold_type == HoldType.START
 
 func is_top_out() -> bool:
-	var result = hold_type == HoldType.TOP_OUT
-	return result
+	return hold_type == HoldType.TOP_OUT
 
 func is_jug() -> bool:
 	return hold_type == HoldType.JUG
@@ -202,18 +176,18 @@ func is_foothold() -> bool:
 func is_pocket() -> bool:
 	return hold_type == HoldType.POCKET
 
-# Attempt to claim this hold for a specific limb at a specific position
+# =============================================================================
+# GRAB/RELEASE
+# =============================================================================
+
 func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
-	# Footholds can only be used by feet
 	if is_foothold() and not is_foot:
 		return false
 	
-	# Pockets can only hold one limb at a time
 	if is_pocket():
 		if occupied_by != null and occupied_by != limb:
 			return false
 	
-	# Validate that grab position is reasonably close to hold
 	var local_grab = to_local(grab_position)
 	var shape = get_node_or_null("CollisionShape2D")
 	if shape and shape.shape:
@@ -221,25 +195,23 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 		
 		if shape.shape is RectangleShape2D:
 			var extents = shape.shape.size / 2.0
-			max_grab_distance = extents.length() + 10.0  # Allow 10 pixels outside
+			max_grab_distance = extents.length() + 10.0
 		elif shape.shape is CircleShape2D:
-			max_grab_distance = shape.shape.radius + 10.0  # Allow 10 pixels outside
+			max_grab_distance = shape.shape.radius + 10.0
 		
-		# Check if grab is too far from hold center
 		if local_grab.length() > max_grab_distance:
 			return false
 	
 	occupied_by = limb
 	limb_placements[limb] = local_grab
+	
 	return true
 
-# Release this hold
 func release(limb: Node2D):
 	if occupied_by == limb:
 		occupied_by = null
 	limb_placements.erase(limb)
 
-# Check if this hold can be grabbed
 func can_grab(limb: Node2D, is_foot: bool) -> bool:
 	if is_foothold() and not is_foot:
 		return false
@@ -249,14 +221,15 @@ func can_grab(limb: Node2D, is_foot: bool) -> bool:
 	
 	return true
 
-# Get the global position where a limb is holding
+# =============================================================================
+# POSITIONING
+# =============================================================================
+
 func get_limb_anchor(limb: Node2D) -> Vector2:
 	if limb in limb_placements:
 		return to_global(limb_placements[limb])
-	# Fallback to center point
 	return hold_point.global_position
 
-# Calculate how off-center a placement is (0 = center, 1 = edge)
 func get_placement_offset(limb: Node2D) -> float:
 	if limb not in limb_placements:
 		return 0.0
@@ -266,7 +239,6 @@ func get_placement_offset(limb: Node2D) -> float:
 	if not shape or not shape.shape:
 		return 0.0
 	
-	# Get shape bounds
 	var shape_extents = Vector2.ZERO
 	if shape.shape is RectangleShape2D:
 		shape_extents = shape.shape.size / 2.0
@@ -277,47 +249,40 @@ func get_placement_offset(limb: Node2D) -> float:
 	if shape_extents.length() < 0.1:
 		return 0.0
 	
-	# Calculate distance from center as fraction of shape size
 	var offset = local_pos.length() / shape_extents.length()
 	return clamp(offset, 0.0, 1.0)
 
-# Slopers and crimps are more sensitive to placement
 func get_placement_difficulty_modifier(limb: Node2D) -> float:
 	var offset = get_placement_offset(limb)
 	
 	match hold_type:
 		HoldType.SLOPER:
-			# Off-center = much harder
 			return 1.0 + (offset * 2.0)
 		HoldType.CRIMP:
-			# Off-center = harder
 			return 1.0 + (offset * 1.0)
 		HoldType.POCKET:
-			# Pockets are forgiving once you're in
 			return 1.0 + (offset * 0.3)
 		_:
-			# Other holds don't care much
 			return 1.0 + (offset * 0.5)
+
+# =============================================================================
+# PRESSURE CALCULATIONS
+# =============================================================================
 
 func get_state_pressure(delta: float, body_offset: float, time_static: float, foot_support_ratio: float, limb: Node2D) -> float:
 	var pressure = difficulty * delta
 	
-	# Apply placement-based modifier
 	var placement_mod = get_placement_difficulty_modifier(limb)
 	pressure *= placement_mod
 	
-	# Slopers are relentless
 	if is_sloper():
 		pressure += delta * 2.0
 	
-	# Bad body position increases pressure
 	pressure += body_offset * 0.3 * delta
 	
-	# Staying static too long on difficult holds
 	if difficulty > 0.5:
 		pressure += time_static * 0.2 * delta
 	
-	# Reduce pump proportionally to feet support (max 50% reduction)
 	if foot_support_ratio > 0.0:
 		pressure *= 1.0 - (0.5 * foot_support_ratio)
 	
@@ -328,11 +293,7 @@ func get_recovery_rate(delta: float, body_balance: float, foot_support_ratio: fl
 		return 0.0
 	
 	var recovery = rest_value * delta
-	
-	# Better balance = better recovery
 	recovery += body_balance * 0.5 * delta
-	
-	# Multiply by foot support: more weight on feet = better recovery
 	recovery *= 0.5 + 0.5 * foot_support_ratio
 	
 	return recovery

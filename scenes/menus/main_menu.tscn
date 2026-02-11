@@ -21,17 +21,18 @@ grow_vertical = 2
 theme_override_constants/separation = 50
 alignment = 1
 
-[node name="Play" type="Button" parent="Buttons"]
+[node name="Story" type="Button" parent="Buttons"]
 layout_mode = 2
-text = "Play"
+text = "Story
+"
 
-[node name="LevelMaker" type="Button" parent="Buttons"]
+[node name="Community" type="Button" parent="Buttons"]
 layout_mode = 2
-text = "Level Maker"
+text = "Community"
 
-[node name="FeaturedClimbs" type="Button" parent="Buttons"]
+[node name="LevelEditor" type="Button" parent="Buttons"]
 layout_mode = 2
-text = "Featured Climbs"
+text = "Level Editor"
 
 [node name="Settings" type="Button" parent="Buttons"]
 layout_mode = 2
@@ -42,7 +43,7 @@ layout_mode = 2
 text = "Quit
 "
 
-[connection signal="pressed" from="Buttons/Play" to="." method="_on_play_pressed"]
-[connection signal="pressed" from="Buttons/LevelMaker" to="." method="_on_level_maker_pressed"]
+[connection signal="pressed" from="Buttons/Story" to="." method="_on_play_pressed"]
+[connection signal="pressed" from="Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]
 [connection signal="pressed" from="Buttons/Settings" to="." method="_on_settings_pressed"]
 [connection signal="pressed" from="Buttons/Quit" to="." method="_on_quit_pressed"]

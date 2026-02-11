@@ -257,7 +257,9 @@ func _ready():
 	previous_right_foot_pos = right_foot.global_position
 	
 	await get_tree().process_frame
-	initial_grab()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	call_deferred("initial_grab")
 
 func _process(delta):
 	handle_input()
@@ -838,7 +840,9 @@ func reset_climb():
 	fall_timer = 0.0
 	
 	await get_tree().process_frame
-	initial_grab()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	call_deferred("initial_grab")
 
 func simulate_physics(delta):
 	var held_hand_count := 0
@@ -1467,61 +1471,165 @@ func find_best_foot_hold(foot_position: Vector2, is_left: bool) -> Area2D:
 	return best_hold
 
 func initial_grab():
+	"""Fixed version that ensures proper grip on start holds"""
+	print("=== INITIAL GRAB SEQUENCE START ===")
+	
+	# Wait extra frames to ensure holds are fully ready
+	await get_tree().process_frame
+	await get_tree().process_frame
+	
 	var start_holds := find_start_holds()
+	print("Found " + str(start_holds.size()) + " start holds")
+	
+	# Clear any existing holds first
+	if left_hand_hold:
+		left_hand_hold.release(left_hand)
+		left_hand_hold = null
+	if right_hand_hold:
+		right_hand_hold.release(right_hand)
+		right_hand_hold = null
+	if left_foot_hold:
+		left_foot_hold.release(left_foot)
+		left_foot_hold = null
+	if right_foot_hold:
+		right_foot_hold.release(right_foot)
+		right_foot_hold = null
+	
+	# Reset ALL velocities
+	body_velocity = Vector2.ZERO
+	com_velocity = Vector2.ZERO
+	left_hand_velocity = Vector2.ZERO
+	right_hand_velocity = Vector2.ZERO
+	left_foot_velocity = Vector2.ZERO
+	right_foot_velocity = Vector2.ZERO
+	left_hand_joint_velocity = Vector2.ZERO
+	right_hand_joint_velocity = Vector2.ZERO
+	left_foot_joint_velocity = Vector2.ZERO
+	right_foot_joint_velocity = Vector2.ZERO
+	
+	# Reset grab states
+	left_hand_grabbing = false
+	right_hand_grabbing = false
+	left_foot_grabbing = false
+	right_foot_grabbing = false
 	
 	if start_holds.size() == 1:
+		# Single start hold - both hands grab it
 		var hold = start_holds[0]
-		var snap_point: Marker2D = hold.get_node("HoldPoint")
-		var hold_pos = snap_point.global_position
+		var hold_point: Marker2D = hold.get_node_or_null("HoldPoint")
+		if not hold_point:
+			print("ERROR: Start hold missing HoldPoint!")
+			return
 		
-		hold.try_claim(left_hand, false, hold_pos)
-		left_hand_hold = hold
-		left_hand.global_position = hold_pos
+		var hold_pos = hold_point.global_position
+		print("Single start hold at: " + str(hold_pos))
 		
-		hold.try_claim(right_hand, false, hold_pos)
-		right_hand_hold = hold
-		right_hand.global_position = hold_pos
+		# LEFT HAND
+		if hold.can_grab(left_hand, false):
+			if hold.try_claim(left_hand, false, hold_pos):
+				left_hand_hold = hold
+				left_hand.global_position = hold_pos
+				left_hand_anchor = hold_pos
+				print("  ✓ Left hand claimed hold")
+			else:
+				print("  ✗ Left hand failed to claim hold")
+		else:
+			print("  ✗ Left hand cannot grab hold")
 		
+		# RIGHT HAND (same hold)
+		if hold.can_grab(right_hand, false):
+			if hold.try_claim(right_hand, false, hold_pos):
+				right_hand_hold = hold
+				right_hand.global_position = hold_pos
+				right_hand_anchor = hold_pos
+				print("  ✓ Right hand claimed hold")
+			else:
+				print("  ✗ Right hand failed to claim hold")
+		else:
+			print("  ✗ Right hand cannot grab hold")
+		
+		# Position body below hold
 		global_position.x = hold_pos.x
 		global_position.y = hold_pos.y + 80
 		
 	elif start_holds.size() >= 2:
-		var a_x = start_holds[0].get_node("HoldPoint").global_position.x
-		var b_x = start_holds[1].get_node("HoldPoint").global_position.x
+		# Two start holds - one for each hand
+		var hold_0_point: Marker2D = start_holds[0].get_node_or_null("HoldPoint")
+		var hold_1_point: Marker2D = start_holds[1].get_node_or_null("HoldPoint")
+		
+		if not hold_0_point or not hold_1_point:
+			print("ERROR: Start holds missing HoldPoint!")
+			return
+		
+		var a_x = hold_0_point.global_position.x
+		var b_x = hold_1_point.global_position.x
 		var left_start = start_holds[0] if a_x <= b_x else start_holds[1]
 		var right_start = start_holds[1] if a_x <= b_x else start_holds[0]
 		
+		# LEFT HAND
 		var lp: Marker2D = left_start.get_node("HoldPoint")
-		left_start.try_claim(left_hand, false, lp.global_position)
-		left_hand_hold = left_start
-		left_hand.global_position = lp.global_position
+		var left_pos = lp.global_position
+		print("Left start hold at: " + str(left_pos))
 		
+		if left_start.can_grab(left_hand, false):
+			if left_start.try_claim(left_hand, false, left_pos):
+				left_hand_hold = left_start
+				left_hand.global_position = left_pos
+				left_hand_anchor = left_pos
+				print("  ✓ Left hand claimed hold")
+			else:
+				print("  ✗ Left hand failed to claim hold")
+		else:
+			print("  ✗ Left hand cannot grab hold")
+		
+		# RIGHT HAND
 		var rp: Marker2D = right_start.get_node("HoldPoint")
-		right_start.try_claim(right_hand, false, rp.global_position)
-		right_hand_hold = right_start
-		right_hand.global_position = rp.global_position
+		var right_pos = rp.global_position
+		print("Right start hold at: " + str(right_pos))
 		
-		global_position.x = (lp.global_position.x + rp.global_position.x) / 2.0
-		global_position.y = lp.global_position.y + 80
+		if right_start.can_grab(right_hand, false):
+			if right_start.try_claim(right_hand, false, right_pos):
+				right_hand_hold = right_start
+				right_hand.global_position = right_pos
+				right_hand_anchor = right_pos
+				print("  ✓ Right hand claimed hold")
+			else:
+				print("  ✗ Right hand failed to claim hold")
+		else:
+			print("  ✗ Right hand cannot grab hold")
+		
+		# Position body between holds
+		global_position.x = (left_pos.x + right_pos.x) / 2.0
+		global_position.y = left_pos.y + 80
 		
 	else:
+		# Fallback: find nearest holds
+		print("No start holds found - using fallback")
 		var left_hold := find_nearest_hold(left_hand.global_position)
 		var right_hold := find_nearest_hold(right_hand.global_position)
 		
 		if left_hold and left_hold.can_grab(left_hand, false):
-			var snap_point: Marker2D = left_hold.get_node("HoldPoint")
-			left_hold.try_claim(left_hand, false, snap_point.global_position)
-			left_hand_hold = left_hold
-			left_hand.global_position = snap_point.global_position
+			var snap_point: Marker2D = left_hold.get_node_or_null("HoldPoint")
+			if snap_point:
+				var pos = snap_point.global_position
+				if left_hold.try_claim(left_hand, false, pos):
+					left_hand_hold = left_hold
+					left_hand.global_position = pos
+					left_hand_anchor = pos
 		
 		if right_hold and right_hold != left_hold and right_hold.can_grab(right_hand, false):
-			var snap_point: Marker2D = right_hold.get_node("HoldPoint")
-			right_hold.try_claim(right_hand, false, snap_point.global_position)
-			right_hand_hold = right_hold
-			right_hand.global_position = snap_point.global_position
+			var snap_point: Marker2D = right_hold.get_node_or_null("HoldPoint")
+			if snap_point:
+				var pos = snap_point.global_position
+				if right_hold.try_claim(right_hand, false, pos):
+					right_hand_hold = right_hold
+					right_hand.global_position = pos
+					right_hand_anchor = pos
 	
+	# Update center of mass
 	com_position = global_position + Vector2(0, COM_OFFSET_Y)
 	
+	# Try to place feet on nearby footholds
 	var left_foot_start := find_nearest_hold(left_foot.global_position)
 	var right_foot_start := find_nearest_hold(right_foot.global_position)
 	
@@ -1533,6 +1641,7 @@ func initial_grab():
 		if left_foot_start.try_claim(left_foot, true, snap_pos):
 			left_foot_hold = left_foot_start
 			left_foot.global_position = left_foot_start.get_limb_anchor(left_foot)
+			left_foot_anchor = left_foot.global_position
 	
 	if (right_foot_start 
 			and right_foot_start != left_hand_hold 
@@ -1543,6 +1652,45 @@ func initial_grab():
 		if right_foot_start.try_claim(right_foot, true, snap_pos):
 			right_foot_hold = right_foot_start
 			right_foot.global_position = right_foot_start.get_limb_anchor(right_foot)
+			right_foot_anchor = right_foot.global_position
+	
+	# CRITICAL: Apply joint constraints multiple times to ensure proper positioning
+	for i in range(15):
+		apply_joint_constraints()
+	
+	# Final pin to ensure limbs are exactly on holds
+	pin_held_limbs()
+	
+	# Reset all velocities again after constraints
+	body_velocity = Vector2.ZERO
+	com_velocity = Vector2.ZERO
+	left_hand_velocity = Vector2.ZERO
+	right_hand_velocity = Vector2.ZERO
+	left_foot_velocity = Vector2.ZERO
+	right_foot_velocity = Vector2.ZERO
+	left_hand_joint_velocity = Vector2.ZERO
+	right_hand_joint_velocity = Vector2.ZERO
+	left_foot_joint_velocity = Vector2.ZERO
+	right_foot_joint_velocity = Vector2.ZERO
+	
+	# CRITICAL: Notify all holds that climb has started
+	print("=== NOTIFYING ALL HOLDS: CLIMB START ===")
+	var notify_count = 0
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold.has_method("notify_climb_start"):
+			hold.notify_climb_start()
+			notify_count += 1
+	print("Notified " + str(notify_count) + " holds that climb has started")
+	print("========================================")
+	
+	# Final verification
+	print("=== SPAWN STATE ===")
+	print("Body position: " + str(global_position))
+	print("Left hand hold: " + ("YES" if left_hand_hold else "NO"))
+	print("Right hand hold: " + ("YES" if right_hand_hold else "NO"))
+	print("Left foot hold: " + ("YES" if left_foot_hold else "NO"))
+	print("Right foot hold: " + ("YES" if right_foot_hold else "NO"))
+	print("===================")
 
 func find_start_holds() -> Array[Area2D]:
 	var start_holds: Array[Area2D] = []
@@ -1683,6 +1831,13 @@ func attempt_grab(limb: Limb):
 	
 	if not climb_started:
 		climb_started = true
+		print("🎬 FIRST GRAB - Climb started!")
+		
+		# Notify game scene
+		var game_scene = get_tree().get_current_scene()
+		if game_scene and game_scene.has_method("on_climb_start"):
+			print("  Notifying game scene...")
+			game_scene.on_climb_start()
 
 func release_limb(limb: Limb):
 	match limb:

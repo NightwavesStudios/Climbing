@@ -243,3 +243,9 @@ func _on_level_loaded():
 func _on_transition_finished():
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(true)
+
+func on_climb_start():
+	# Call this when player grabs first hold
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold.has_method("notify_climb_start"):
+			hold.notify_climb_start()

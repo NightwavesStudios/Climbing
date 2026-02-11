@@ -71,7 +71,7 @@ func get_dynamic_wall() -> Node2D:
 # LEVEL LOADING
 # =============================================================================
 func load_level(path: String) -> bool:
-	"""Load a .json level file from res://levels/"""
+	"""Load a .json level file"""
 	clear_holds()
 	
 	# Load JSON
@@ -115,10 +115,13 @@ func load_level(path: String) -> bool:
 		game_state.set_climb_metadata(path, current_level_name, current_level_grade)
 	
 	# Spawn holds
+	print("\n=== SPAWNING HOLDS ===")
+	
 	for hold_data in level_data.holds:
 		spawn_hold(hold_data)
+		await get_tree().process_frame
 	
-	# Wait a couple frames to ensure all deferred _ready() calls are finished
+	# Wait for all holds to be ready
 	await get_tree().process_frame
 	await get_tree().process_frame
 	
@@ -130,11 +133,13 @@ func load_level(path: String) -> bool:
 	# Update dynamic wall bounds
 	update_wall_bounds()
 	
-	print("✓ Loaded: " + path)
+	print("\n═══════════════════════════════════════")
+	print("✓ LEVEL LOADED: " + path)
 	if current_level_name != "":
 		print("  Name: " + current_level_name + " (" + current_level_grade + ")")
 	print("  Environment: " + current_level_environment)
 	print("  Holds: " + str(level_data.holds.size()))
+	print("═══════════════════════════════════════\n")
 	
 	return true
 
