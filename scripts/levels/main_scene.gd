@@ -1,5 +1,5 @@
 extends Node2D
-## EXAMPLE: Main game scene with dynamic wall integration
+## Main game scene with dynamic wall integration
 
 @export var default_level_path: String = "res://scenes/levels/tutorial/ladder.json"
 
@@ -8,7 +8,7 @@ extends Node2D
 @onready var camera: Camera2D = $Camera2D
 
 var _current_level_path: String = ""
-var dynamic_wall: Node2D = null  # Changed from DynamicWall to Node2D to avoid type issues
+var dynamic_wall: Node2D = null
 
 func _ready():
 	print("=== MAIN SCENE READY ===")
@@ -183,10 +183,7 @@ func check_player_top_out() -> bool:
 	
 	return player.global_position.y < (top_y + tolerance)
 
-# Call this from your level completion check:
 func _process(delta):
-	# Your existing process logic...
-	
 	# Check for top-out (if you want automatic detection)
 	if check_player_top_out():
 		# Optional: auto-complete level when player reaches top
@@ -226,8 +223,13 @@ func on_level_complete():
 	Transition.to("res://scenes/menus/level_completed.tscn")
 
 func on_player_reset():
+	print("Player reset requested (from crashpad)")
 	position_player_at_spawn()
 	center_camera_on_route()
+	
+	# Reset player state if method exists
+	if player and player.has_method("reset_climb"):
+		player.reset_climb()
 
 # =============================================================================
 # TRANSITION CALLBACKS

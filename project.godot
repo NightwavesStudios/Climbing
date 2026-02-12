@@ -23,7 +23,6 @@ LevelManager="*res://scripts/levels/level_manager.gd"
 Transition="*res://scripts/menus/transition.gd"
 LevelTransition="*res://scripts/levels/level_transition.gd"
 EnvironmentConfig="*res://scripts/levels/enviornment_config.gd"
-HoldModifiers="*res://scripts/holds/hold_modifiers.gd"
 
 [display]
 

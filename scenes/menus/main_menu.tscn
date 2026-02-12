@@ -1,6 +1,10 @@
-[gd_scene load_steps=2 format=3 uid="uid://cmudrme1ntc3v"]
+[gd_scene load_steps=6 format=3 uid="uid://cmudrme1ntc3v"]
 
 [ext_resource type="Script" uid="uid://cih6ocoqb46qx" path="res://scripts/menus/main_menu.gd" id="1_xqga4"]
+[ext_resource type="PackedScene" uid="uid://c5s02ajy6gea3" path="res://scenes/player/character.tscn" id="2_6bivr"]
+[ext_resource type="Script" uid="uid://cgqdhpr2iwubh" path="res://scripts/holds/wall_holes.gd" id="3_imvie"]
+[ext_resource type="Script" uid="uid://dvxutv1iytasy" path="res://scripts/editor/level_loader.gd" id="4_ng0o5"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="5_imvie"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -11,8 +15,25 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_xqga4")
 
-[node name="Buttons" type="VBoxContainer" parent="."]
-layout_mode = 1
+[node name="Camera2D" type="Camera2D" parent="."]
+position_smoothing_enabled = true
+position_smoothing_speed = 10.0
+rotation_smoothing_enabled = true
+rotation_smoothing_speed = 10.0
+
+[node name="Character" parent="." instance=ExtResource("2_6bivr")]
+z_index = 2
+
+[node name="Wall" type="Node2D" parent="."]
+z_index = -100
+script = ExtResource("3_imvie")
+
+[node name="LevelLoader" type="Node2D" parent="."]
+script = ExtResource("4_ng0o5")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="Buttons" type="VBoxContainer" parent="CanvasLayer"]
 anchors_preset = 9
 anchor_bottom = 1.0
 offset_left = 44.0
@@ -21,29 +42,34 @@ grow_vertical = 2
 theme_override_constants/separation = 50
 alignment = 1
 
-[node name="Story" type="Button" parent="Buttons"]
+[node name="Story" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
 text = "Story
 "
+script = ExtResource("5_imvie")
 
-[node name="Community" type="Button" parent="Buttons"]
+[node name="Community" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
 text = "Community"
+script = ExtResource("5_imvie")
 
-[node name="LevelEditor" type="Button" parent="Buttons"]
+[node name="LevelEditor" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
 text = "Level Editor"
+script = ExtResource("5_imvie")
 
-[node name="Settings" type="Button" parent="Buttons"]
+[node name="Settings" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
 text = "Settings"
+script = ExtResource("5_imvie")
 
-[node name="Quit" type="Button" parent="Buttons"]
+[node name="Quit" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
 text = "Quit
 "
+script = ExtResource("5_imvie")
 
-[connection signal="pressed" from="Buttons/Story" to="." method="_on_play_pressed"]
-[connection signal="pressed" from="Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]
-[connection signal="pressed" from="Buttons/Settings" to="." method="_on_settings_pressed"]
-[connection signal="pressed" from="Buttons/Quit" to="." method="_on_quit_pressed"]
+[connection signal="pressed" from="CanvasLayer/Buttons/Story" to="." method="_on_play_pressed"]
+[connection signal="pressed" from="CanvasLayer/Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]
+[connection signal="pressed" from="CanvasLayer/Buttons/Settings" to="." method="_on_settings_pressed"]
+[connection signal="pressed" from="CanvasLayer/Buttons/Quit" to="." method="_on_quit_pressed"]

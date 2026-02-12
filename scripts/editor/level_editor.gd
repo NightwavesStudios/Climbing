@@ -1,9 +1,10 @@
 extends Node2D
-## Level Editor (Modifiers Removed)
+## Level Editor with Crashpad Support
 
 var camera: Camera2D
 var holds_container: Node2D
 var preview_container: Node2D
+var crashpads_container: Node2D
 var wall: Node2D
 
 # UI
@@ -20,6 +21,11 @@ var preview_hold: Node2D = null
 var dragging_hold: Node2D = null
 var drag_offset: Vector2 = Vector2.ZERO
 
+# Crashpad state
+var placing_crashpad: bool = false
+var preview_crashpad: Node2D = null
+var dragging_crashpad: Node2D = null
+
 # Climb metadata
 var climb_name: String = ""
 var climb_grade: String = "VB"
@@ -30,7 +36,7 @@ var grid_size: float = 32.0
 
 # Auto-reset timer
 var idle_timer: float = 0.0
-const IDLE_RESET_TIME: float = 30.0
+const IDLE_RESET_TIME: float = 3000.0
 
 # Hold limits
 const MAX_START_HOLDS: int = 2
@@ -57,7 +63,10 @@ const HOLD_SCENES = {
 	"FOOT": "res://scenes/holds/foothold.tscn"
 }
 
+const CRASHPAD_SCENE = "res://scenes/props/crashpad.tscn"
+
 var loaded_scenes: Dictionary = {}
+var crashpad_scene: PackedScene = null
 
 # Camera settings
 const ZOOM_SPEED = 0.15
@@ -96,6 +105,13 @@ func _ready():
 		holds_container.name = "Holds"
 		add_child(holds_container)
 	
+	if has_node("Crashpads"):
+		crashpads_container = get_node("Crashpads")
+	else:
+		crashpads_container = Node2D.new()
+		crashpads_container.name = "Crashpads"
+		add_child(crashpads_container)
+	
 	if has_node("PreviewContainer"):
 		preview_container = get_node("PreviewContainer")
 	else:
@@ -108,6 +124,10 @@ func _ready():
 	for type_name in HOLD_SCENES:
 		if ResourceLoader.exists(HOLD_SCENES[type_name]):
 			loaded_scenes[type_name] = load(HOLD_SCENES[type_name])
+	
+	# Load crashpad scene
+	if ResourceLoader.exists(CRASHPAD_SCENE):
+		crashpad_scene = load(CRASHPAD_SCENE)
 	
 	setup_ui()
 	update_wall_bounds()
@@ -195,7 +215,7 @@ func setup_ui():
 	environment_dropdown.item_selected.connect(on_environment_changed)
 	info_row.add_child(environment_dropdown)
 	
-	# ROW 2: Hold Type
+	# ROW 2: Hold Type + Crashpad
 	var hold_row = HBoxContainer.new()
 	hold_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	vbox_main.add_child(hold_row)
@@ -212,6 +232,15 @@ func setup_ui():
 	
 	hold_type_dropdown.item_selected.connect(_on_hold_type_selected)
 	hold_row.add_child(hold_type_dropdown)
+	
+	hold_row.add_child(VSeparator.new())
+	
+	# Crashpad button
+	var crashpad_btn = Button.new()
+	crashpad_btn.text = "PLACE CRASHPAD"
+	crashpad_btn.custom_minimum_size = Vector2(140, 30)
+	crashpad_btn.pressed.connect(_on_place_crashpad_pressed)
+	hold_row.add_child(crashpad_btn)
 	
 	# ROW 3: Actions
 	var actions_row = HBoxContainer.new()
@@ -259,6 +288,13 @@ func setup_ui():
 
 func _on_hold_type_selected(index: int):
 	selected_hold_type = HOLD_TYPES[index]
+	placing_crashpad = false
+	clear_preview()
+	reset_idle_timer()
+
+func _on_place_crashpad_pressed():
+	placing_crashpad = true
+	selected_hold_type = ""
 	clear_preview()
 	reset_idle_timer()
 
@@ -272,10 +308,14 @@ func _input(event):
 			KEY_DELETE:
 				if dragging_hold:
 					delete_hold(dragging_hold)
+				elif dragging_crashpad:
+					delete_crashpad(dragging_crashpad)
 			KEY_ESCAPE:
 				selected_hold_type = ""
+				placing_crashpad = false
 				clear_preview()
 				dragging_hold = null
+				dragging_crashpad = null
 				var preview_player = get_node_or_null("PreviewPlayer")
 				if preview_player:
 					preview_player.queue_free()
@@ -303,12 +343,17 @@ func _input(event):
 				handle_left_click()
 			else:
 				dragging_hold = null
+				dragging_crashpad = null
 		
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			var pos = get_global_mouse_position()
 			var hold = get_hold_at_position(pos)
 			if hold:
 				delete_hold(hold)
+			else:
+				var crashpad = get_crashpad_at_position(pos)
+				if crashpad:
+					delete_crashpad(crashpad)
 		
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			camera.zoom *= (1.0 + ZOOM_SPEED)
@@ -336,11 +381,20 @@ func _input(event):
 			new_pos.y = clamp(new_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
 			dragging_hold.global_position = new_pos
 			update_wall_bounds()
+		elif dragging_crashpad:
+			reset_idle_timer()
+			var new_pos = snap_to_grid(get_global_mouse_position() + drag_offset)
+			new_pos.x = clamp(new_pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
+			new_pos.y = clamp(new_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
+			dragging_crashpad.global_position = new_pos
 
 func handle_left_click():
 	var pos = get_global_mouse_position()
 	
-	if selected_hold_type and selected_hold_type in loaded_scenes:
+	if placing_crashpad and crashpad_scene:
+		var snapped_pos = snap_to_grid(pos)
+		place_crashpad(snapped_pos)
+	elif selected_hold_type and selected_hold_type in loaded_scenes:
 		var snapped_pos = snap_to_grid(pos)
 		place_hold(snapped_pos)
 	else:
@@ -348,6 +402,47 @@ func handle_left_click():
 		if hold:
 			dragging_hold = hold
 			drag_offset = hold.global_position - pos
+		else:
+			var crashpad = get_crashpad_at_position(pos)
+			if crashpad:
+				dragging_crashpad = crashpad
+				drag_offset = crashpad.global_position - pos
+
+# =============================================================================
+# CRASHPAD MANAGEMENT
+# =============================================================================
+
+func place_crashpad(pos: Vector2) -> bool:
+	if not crashpad_scene:
+		show_notification("Crashpad scene not found!", true)
+		return false
+	
+	pos.x = clamp(pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
+	pos.y = clamp(pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
+	
+	var crashpad = crashpad_scene.instantiate()
+	crashpad.global_position = pos
+	crashpads_container.add_child(crashpad)
+	crashpad.add_to_group("crashpads")
+	
+	return true
+
+func delete_crashpad(crashpad: Node2D):
+	if crashpad == dragging_crashpad:
+		dragging_crashpad = null
+	crashpad.queue_free()
+
+func get_crashpad_at_position(pos: Vector2, max_dist: float = 60.0) -> Node2D:
+	var closest: Node2D = null
+	var closest_dist = max_dist
+	
+	for crashpad in crashpads_container.get_children():
+		var dist = crashpad.global_position.distance_to(pos)
+		if dist < closest_dist:
+			closest_dist = dist
+			closest = crashpad
+	
+	return closest
 
 # =============================================================================
 # JSON EXPORT/IMPORT
@@ -363,7 +458,8 @@ func _on_copy_json():
 		"name": climb_name if climb_name != "" else "Unnamed Climb",
 		"grade": climb_grade,
 		"environment": environment_name,
-		"holds": []
+		"holds": [],
+		"crashpads": []
 	}
 	
 	for hold in holds_container.get_children():
@@ -375,11 +471,18 @@ func _on_copy_json():
 		}
 		level_data.holds.append(hold_data)
 	
+	for crashpad in crashpads_container.get_children():
+		var crashpad_data = {
+			"x": crashpad.global_position.x,
+			"y": crashpad.global_position.y
+		}
+		level_data.crashpads.append(crashpad_data)
+	
 	var json_str = JSON.stringify(level_data, "\t")
 	DisplayServer.clipboard_set(json_str)
 	
 	show_notification("JSON copied! " + level_data.name + " (" + level_data.grade + ") - " + 
-					  str(level_data.holds.size()) + " holds")
+					  str(level_data.holds.size()) + " holds, " + str(level_data.crashpads.size()) + " crashpads")
 
 func _on_paste_json():
 	var clipboard = DisplayServer.clipboard_get()
@@ -442,6 +545,14 @@ func _on_paste_json():
 		holds_container.add_child(hold)
 		hold.add_to_group("holds")
 		hold.set_meta("editor_type", type_name)
+	
+	# Load crashpads
+	if "crashpads" in data and crashpad_scene:
+		for crashpad_data in data.crashpads:
+			var crashpad = crashpad_scene.instantiate()
+			crashpad.global_position = Vector2(crashpad_data.get("x", 0), crashpad_data.get("y", 0))
+			crashpads_container.add_child(crashpad)
+			crashpad.add_to_group("crashpads")
 	
 	update_wall_bounds()
 	show_notification("Loaded: " + climb_name + " (" + climb_grade + ")")
@@ -621,6 +732,28 @@ func update_camera(delta):
 # =============================================================================
 
 func update_preview():
+	# Handle crashpad preview
+	if placing_crashpad and crashpad_scene:
+		if not preview_crashpad or not is_instance_valid(preview_crashpad):
+			clear_preview()
+			preview_crashpad = crashpad_scene.instantiate()
+			preview_crashpad.modulate = Color(1, 1, 1, 0.5)
+			preview_crashpad.z_index = 100
+			preview_container.add_child(preview_crashpad)
+		
+		if is_mouse_over_ui():
+			preview_crashpad.visible = false
+		else:
+			preview_crashpad.visible = true
+			var mouse_pos = get_global_mouse_position()
+			var snapped_pos = snap_to_grid(mouse_pos)
+			snapped_pos.x = clamp(snapped_pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
+			snapped_pos.y = clamp(snapped_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
+			preview_crashpad.global_position = snapped_pos
+		
+		return
+	
+	# Handle hold preview
 	if not selected_hold_type or selected_hold_type not in loaded_scenes:
 		clear_preview()
 		return
@@ -656,6 +789,10 @@ func clear_preview():
 	if preview_hold and is_instance_valid(preview_hold):
 		preview_hold.queue_free()
 	preview_hold = null
+	
+	if preview_crashpad and is_instance_valid(preview_crashpad):
+		preview_crashpad.queue_free()
+	preview_crashpad = null
 
 # =============================================================================
 # CALLBACKS
@@ -688,6 +825,10 @@ func on_environment_changed(index: int):
 	for hold in holds_container.get_children():
 		if hold.has_method("_update_sprite_for_environment"):
 			hold._update_sprite_for_environment()
+	
+	for crashpad in crashpads_container.get_children():
+		if crashpad.has_method("_update_sprite_for_environment"):
+			crashpad._update_sprite_for_environment()
 
 func _on_preview():
 	if holds_container.get_child_count() == 0:
@@ -752,6 +893,9 @@ func _on_clear():
 	for hold in holds_container.get_children():
 		hold.queue_free()
 	
+	for crashpad in crashpads_container.get_children():
+		crashpad.queue_free()
+	
 	climb_name = ""
 	climb_grade = "VB"
 	if climb_name_input:
@@ -768,6 +912,7 @@ func _on_back_pressed():
 		preview_player.queue_free()
 	
 	selected_hold_type = ""
+	placing_crashpad = false
 	clear_preview()
 	
 	Transition.to("res://scenes/menus/main_menu.tscn")
@@ -810,8 +955,16 @@ func show_notification(text: String, is_error: bool = false):
 		label.queue_free()
 
 func update_info_label():
-	var selected = selected_hold_type if selected_hold_type else "None"
+	var selected = ""
+	if placing_crashpad:
+		selected = "CRASHPAD"
+	elif selected_hold_type:
+		selected = selected_hold_type
+	else:
+		selected = "None"
+	
 	var count = holds_container.get_child_count()
+	var crashpad_count = crashpads_container.get_child_count()
 	var grid_status = "ON" if grid_enabled else "OFF"
 	var start_count = count_holds_of_type("START")
 	var top_count = count_holds_of_type("TOP")
@@ -825,8 +978,8 @@ func update_info_label():
 	if bounds.valid:
 		route_height = int(abs(bounds.max.y - bounds.min.y))
 	
-	info_label.text = "%s | Holds: %d (START:%d/%d, TOP:%d/%d) | Height: %dpx | Placing: %s | Grid: %s | Zoom: %.1fx | Auto-reset: %ds" % [
-		climb_info, count, start_count, MAX_START_HOLDS, top_count, MAX_TOP_HOLDS, route_height, selected, grid_status, camera.zoom.x, auto_reset_remaining
+	info_label.text = "%s | Holds: %d (START:%d/%d, TOP:%d/%d) | Crashpads: %d | Height: %dpx | Placing: %s | Grid: %s | Zoom: %.1fx | Auto-reset: %ds" % [
+		climb_info, count, start_count, MAX_START_HOLDS, top_count, MAX_TOP_HOLDS, crashpad_count, route_height, selected, grid_status, camera.zoom.x, auto_reset_remaining
 	]
 
 func get_route_bounds() -> Dictionary:

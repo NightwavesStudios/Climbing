@@ -2,28 +2,30 @@ extends Control
 ## Level Select Screen
 
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # Layout tuning
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 @export_range(0.2, 0.9, 0.05)
-var container_width_ratio := 0.5   # % of screen width
+var container_width_ratio := 0.5
 
 @export_range(0.3, 0.9, 0.05)
-var container_height_ratio := 0.7  # % of screen height
+var container_height_ratio := 0.7
 
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # Node references
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 @onready var scroll_container: ScrollContainer = $CenterContainer/ScrollContainer
 @onready var level_container: VBoxContainer = $CenterContainer/ScrollContainer/LevelContainer
 @onready var collection_title: Label = $CollectionTitle
 @onready var progress_label: Label = $ProgressLabel
 
-
 var _layout_ready := false
 
 
+# ─────────────────────────────────────────────
+# Ready
+# ─────────────────────────────────────────────
 func _ready() -> void:
 	_layout_ready = true
 	_update_layout()
@@ -35,9 +37,9 @@ func _notification(what):
 		_update_layout()
 
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # Layout logic
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 func _update_layout() -> void:
 	if scroll_container == null:
 		return
@@ -54,9 +56,9 @@ func _update_layout() -> void:
 	level_container.alignment = BoxContainer.ALIGNMENT_CENTER
 
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # UI population
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 func _populate_levels() -> void:
 	var collection_id := GameState.get_current_collection()
 	if collection_id == "":
@@ -88,15 +90,22 @@ func _populate_levels() -> void:
 		)
 
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # Button creation
-# ─────────────────────────────────────────────────────────────
-func _create_level_button(index: int, level_path: String, unlocked: bool, completed: bool) -> Button:
-	var button := Button.new()
+# ─────────────────────────────────────────────
+func _create_level_button(index: int, level_path: String, unlocked: bool, completed: bool) -> UniversalButton:
+	var button := UniversalButton.new()
 	
 	button.custom_minimum_size = Vector2(420, 64)
 	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	button.focus_mode = Control.FOCUS_NONE
+	
+	# 🎨 Fine-tune feel for level select
+	button.hover_scale = 1.03
+	button.press_scale = 0.95
+	button.animation_speed = 16
+	button.enable_outline_pulse = false
+	button.click_volume_db = -12
 	
 	var text := "%d. %s" % [index + 1, _get_level_name_from_path(level_path)]
 	
@@ -109,21 +118,22 @@ func _create_level_button(index: int, level_path: String, unlocked: bool, comple
 	button.text = text
 	button.disabled = not unlocked
 	
+	# Visual state coloring
 	if not unlocked:
-		button.modulate = Color(0.55, 0.55, 0.55, 0.75)
+		button.set_visual_state(Color(0.55, 0.55, 0.55, 0.75))
 	elif completed:
-		button.modulate = Color(0.6, 1.0, 0.6)
+		button.set_visual_state(Color(0.6, 1.0, 0.6))
 	else:
-		button.modulate = Color.WHITE
+		button.set_visual_state(Color.WHITE)
 	
 	button.pressed.connect(_on_level_selected.bind(level_path, unlocked))
 	
 	return button
 
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # Actions
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 func _on_level_selected(level_path: String, unlocked: bool) -> void:
 	if not unlocked:
 		return
@@ -136,9 +146,9 @@ func _on_back_pressed() -> void:
 	Transition.to("res://scenes/menus/collections_select.tscn")
 
 
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 # Helpers
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
 func _get_level_name_from_path(path: String) -> String:
 	var words := path.get_file().get_basename().split("_")
 	var result := ""

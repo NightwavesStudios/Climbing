@@ -12,8 +12,11 @@ const HOLD_SCENES = {
 	"FOOT": "res://scenes/holds/foothold.tscn"
 }
 
+const CRASHPAD_SCENE = "res://scenes/props/crashpad.tscn"
+
 var loaded_scenes: Dictionary = {}
 var holds_container: Node2D
+var crashpads_container: Node2D
 var dynamic_wall: Node2D = null
 
 # Current level metadata
@@ -39,6 +42,14 @@ func _ready():
 		add_child(holds_container)
 	else:
 		holds_container = get_node("Holds")
+	
+	# Create crashpads container
+	if not has_node("Crashpads"):
+		crashpads_container = Node2D.new()
+		crashpads_container.name = "Crashpads"
+		add_child(crashpads_container)
+	else:
+		crashpads_container = get_node("Crashpads")
 	
 	# Defer dynamic wall creation to avoid "parent busy"
 	call_deferred("_create_dynamic_wall")
@@ -73,6 +84,7 @@ func get_dynamic_wall() -> Node2D:
 func load_level(path: String) -> bool:
 	"""Load a .json level file"""
 	clear_holds()
+	clear_crashpads()
 	
 	# Load JSON
 	if not FileAccess.file_exists(path):
@@ -130,6 +142,9 @@ func load_level(path: String) -> bool:
 		if hold.has_method("_update_sprite_for_environment"):
 			hold._update_sprite_for_environment()
 	
+	# Load crashpads
+	load_crashpads(level_data)
+	
 	# Update dynamic wall bounds
 	update_wall_bounds()
 	
@@ -139,6 +154,8 @@ func load_level(path: String) -> bool:
 		print("  Name: " + current_level_name + " (" + current_level_grade + ")")
 	print("  Environment: " + current_level_environment)
 	print("  Holds: " + str(level_data.holds.size()))
+	if "crashpads" in level_data:
+		print("  Crashpads: " + str(level_data.crashpads.size()))
 	print("═══════════════════════════════════════\n")
 	
 	return true
@@ -261,3 +278,58 @@ func validate_level() -> Dictionary:
 	
 	result.valid = result.has_start and result.has_top
 	return result
+
+# =============================================================================
+# CRASHPADS
+# =============================================================================
+func load_crashpads(level_data: Dictionary) -> void:
+	"""Load crashpads from level data"""
+	if not "crashpads" in level_data:
+		print("  No crashpads in level data")
+		return
+	
+	if not crashpads_container:
+		crashpads_container = Node2D.new()
+		crashpads_container.name = "Crashpads"
+		add_child(crashpads_container)
+		print("  Created Crashpads container")
+	
+	# Check if crashpad scene exists
+	if not ResourceLoader.exists(CRASHPAD_SCENE):
+		push_error("Crashpad scene not found at: " + CRASHPAD_SCENE)
+		return
+	
+	var crashpad_scene = load(CRASHPAD_SCENE)
+	var crashpad_count = 0
+	
+	print("\n=== SPAWNING CRASHPADS ===")
+	
+	for crashpad_data in level_data.crashpads:
+		var crashpad = crashpad_scene.instantiate()
+		crashpad.global_position = Vector2(
+			crashpad_data.get("x", 0),
+			crashpad_data.get("y", 0)
+		)
+		crashpads_container.add_child(crashpad)
+		crashpad.add_to_group("crashpads")
+		crashpad_count += 1
+		
+		print("  Spawned crashpad at: " + str(crashpad.global_position))
+	
+	# Wait for crashpads to be ready
+	await get_tree().process_frame
+	
+	# Force update crashpads for environment
+	for crashpad in get_tree().get_nodes_in_group("crashpads"):
+		if crashpad.has_method("_update_sprite_for_environment"):
+			crashpad._update_sprite_for_environment()
+	
+	print("  Loaded " + str(crashpad_count) + " crashpads")
+
+func clear_crashpads():
+	if crashpads_container:
+		for child in crashpads_container.get_children():
+			child.queue_free()
+
+func get_crashpad_count() -> int:
+	return crashpads_container.get_child_count() if crashpads_container else 0

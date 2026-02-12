@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://ca1j1id3nxv3l"]
+[gd_scene load_steps=3 format=3 uid="uid://ca1j1id3nxv3l"]
 
 [ext_resource type="Script" uid="uid://nsfftbyrolbv" path="res://scripts/menus/level_completed.gd" id="1_hw4ma"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_qpkrs"]
 
 [node name="LevelCompleted" type="Control"]
 layout_mode = 3
@@ -42,10 +43,12 @@ alignment = 1
 [node name="NextButton" type="Button" parent="VBoxContainer"]
 layout_mode = 2
 text = "Next Climb"
+script = ExtResource("2_qpkrs")
 
 [node name="MenuButton" type="Button" parent="VBoxContainer"]
 layout_mode = 2
 text = "Back to Menu"
+script = ExtResource("2_qpkrs")
 
 [connection signal="pressed" from="VBoxContainer/NextButton" to="." method="_on_next_button_pressed"]
 [connection signal="pressed" from="VBoxContainer/MenuButton" to="." method="_on_menu_button_pressed"]

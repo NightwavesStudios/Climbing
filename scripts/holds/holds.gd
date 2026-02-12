@@ -9,6 +9,11 @@ enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET }
 @export var difficulty: float = 0.0
 @export var rest_value: float = 0.0
 
+# NEW: Hold behavior settings
+@export var snap_to_point: bool = true  ## If true, hand snaps to HoldPoint. If false, hand can grab anywhere in area
+@export var is_grabbable: bool = true  ## If false, this is just decoration (no collision/grab)
+@export var multi_area_enabled: bool = false  ## If true, supports multiple grab areas with different snap points
+
 # Pocket-specific: track if a limb is already using this hold
 var occupied_by: Node2D = null
 
@@ -17,6 +22,9 @@ var limb_placements: Dictionary = {}  # Node2D -> Vector2 (local position)
 
 @onready var hold_point: Marker2D = $HoldPoint
 
+# Multi-area support
+var grab_areas: Dictionary = {}  # Area2D -> Marker2D (point for that area)
+
 # Flag to prevent auto-detection if type was set manually
 var _type_was_set_manually: bool = false
 
@@ -24,6 +32,17 @@ var _type_was_set_manually: bool = false
 var sprite_nodes: Dictionary = {}
 
 func _ready():
+	# If not grabbable, disable collision and monitoring
+	if not is_grabbable:
+		collision_layer = 0
+		collision_mask = 0
+		monitoring = false
+		monitorable = false
+		add_to_group("decorations")
+		_cache_sprite_nodes()
+		_update_sprite_for_environment()
+		return
+	
 	collision_layer = 2
 	collision_mask = 0
 	monitoring = true
@@ -35,11 +54,32 @@ func _ready():
 	
 	add_to_group("holds")
 	
+	# Setup multi-area if enabled
+	if multi_area_enabled:
+		_setup_multi_areas()
+	
 	_cache_sprite_nodes()
 	_update_sprite_for_environment()
 	
 	var type_name = HoldType.keys()[hold_type]
-	print("Hold initialized: ", name, " type=", type_name)
+	var snap_status = "SNAP" if snap_to_point else "FREE"
+	var grab_status = "GRABBABLE" if is_grabbable else "DECORATION"
+	print("Hold initialized: ", name, " type=", type_name, " mode=", snap_status, " ", grab_status)
+
+func _setup_multi_areas():
+	"""Find all child Area2D nodes and their associated Marker2D points"""
+	grab_areas.clear()
+	
+	for child in get_children():
+		if child is Area2D and child != self:
+			# Find associated marker (e.g., Area2D_1 -> Point_1)
+			var area_name = child.name
+			var point_name = area_name.replace("Area2D", "Point")
+			
+			var point = get_node_or_null(point_name)
+			if point and point is Marker2D:
+				grab_areas[child] = point
+				print("  Multi-area: ", area_name, " -> ", point_name)
 
 func _cache_sprite_nodes():
 	"""Find and cache all sprite nodes for different environments"""
@@ -181,6 +221,9 @@ func is_pocket() -> bool:
 # =============================================================================
 
 func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
+	if not is_grabbable:
+		return false
+	
 	if is_foothold() and not is_foot:
 		return false
 	
@@ -188,24 +231,55 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 		if occupied_by != null and occupied_by != limb:
 			return false
 	
-	var local_grab = to_local(grab_position)
-	var shape = get_node_or_null("CollisionShape2D")
-	if shape and shape.shape:
-		var max_grab_distance = 0.0
+	# For multi-area holds, check which area was entered
+	var snap_point = hold_point
+	if multi_area_enabled:
+		snap_point = _find_nearest_area_point(grab_position)
+	
+	var local_grab: Vector2
+	
+	if snap_to_point:
+		# Snap mode: use the hold point (or area point)
+		local_grab = to_local(snap_point.global_position)
+	else:
+		# Free placement mode: use actual grab position
+		local_grab = to_local(grab_position)
 		
-		if shape.shape is RectangleShape2D:
-			var extents = shape.shape.size / 2.0
-			max_grab_distance = extents.length() + 10.0
-		elif shape.shape is CircleShape2D:
-			max_grab_distance = shape.shape.radius + 10.0
-		
-		if local_grab.length() > max_grab_distance:
-			return false
+		# Still validate it's within bounds
+		var shape = get_node_or_null("CollisionShape2D")
+		if shape and shape.shape:
+			var max_grab_distance = 0.0
+			
+			if shape.shape is RectangleShape2D:
+				var extents = shape.shape.size / 2.0
+				max_grab_distance = extents.length() + 10.0
+			elif shape.shape is CircleShape2D:
+				max_grab_distance = shape.shape.radius + 10.0
+			
+			if local_grab.length() > max_grab_distance:
+				return false
 	
 	occupied_by = limb
 	limb_placements[limb] = local_grab
 	
 	return true
+
+func _find_nearest_area_point(global_pos: Vector2) -> Marker2D:
+	"""Find which multi-area point is closest to the grab position"""
+	if grab_areas.size() == 0:
+		return hold_point
+	
+	var nearest_point = hold_point
+	var nearest_dist = INF
+	
+	for area in grab_areas:
+		var point = grab_areas[area]
+		var dist = point.global_position.distance_to(global_pos)
+		if dist < nearest_dist:
+			nearest_dist = dist
+			nearest_point = point
+	
+	return nearest_point
 
 func release(limb: Node2D):
 	if occupied_by == limb:
@@ -213,6 +287,9 @@ func release(limb: Node2D):
 	limb_placements.erase(limb)
 
 func can_grab(limb: Node2D, is_foot: bool) -> bool:
+	if not is_grabbable:
+		return false
+	
 	if is_foothold() and not is_foot:
 		return false
 	
@@ -228,7 +305,12 @@ func can_grab(limb: Node2D, is_foot: bool) -> bool:
 func get_limb_anchor(limb: Node2D) -> Vector2:
 	if limb in limb_placements:
 		return to_global(limb_placements[limb])
-	return hold_point.global_position
+	
+	if snap_to_point:
+		return hold_point.global_position
+	
+	# For non-snap holds, return current limb position
+	return limb.global_position
 
 func get_placement_offset(limb: Node2D) -> float:
 	if limb not in limb_placements:
@@ -253,17 +335,21 @@ func get_placement_offset(limb: Node2D) -> float:
 	return clamp(offset, 0.0, 1.0)
 
 func get_placement_difficulty_modifier(limb: Node2D) -> float:
-	var offset = get_placement_offset(limb)
+	# For non-snap holds, difficulty varies based on where you grab
+	if not snap_to_point:
+		var offset = get_placement_offset(limb)
+		
+		match hold_type:
+			HoldType.SLOPER:
+				return 1.0 + (offset * 2.0)
+			HoldType.CRIMP:
+				return 1.0 + (offset * 1.0)
+			HoldType.POCKET:
+				return 1.0 + (offset * 0.3)
+			_:
+				return 1.0 + (offset * 0.5)
 	
-	match hold_type:
-		HoldType.SLOPER:
-			return 1.0 + (offset * 2.0)
-		HoldType.CRIMP:
-			return 1.0 + (offset * 1.0)
-		HoldType.POCKET:
-			return 1.0 + (offset * 0.3)
-		_:
-			return 1.0 + (offset * 0.5)
+	return 1.0
 
 # =============================================================================
 # PRESSURE CALCULATIONS
@@ -297,3 +383,7 @@ func get_recovery_rate(delta: float, body_balance: float, foot_support_ratio: fl
 	recovery *= 0.5 + 0.5 * foot_support_ratio
 	
 	return recovery
+
+func notify_climb_start():
+	"""Called when climb starts (used for any hold-specific initialization)"""
+	pass
