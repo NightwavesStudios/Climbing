@@ -24,6 +24,11 @@ var current_level_name: String = ""
 var current_level_grade: String = ""
 var current_level_environment: String = "gym"
 
+# Discipline metadata
+var current_level_discipline: String = "bouldering"
+var speed_time_limit: float = 60.0  # Default 60 seconds for speed climbing
+var rope_belayer_position: Vector2 = Vector2.ZERO  # For roped climbing
+
 # =============================================================================
 # READY
 # =============================================================================
@@ -69,7 +74,7 @@ func _create_dynamic_wall():
 func update_wall_bounds():
 	if dynamic_wall:
 		dynamic_wall.calculate_bounds_from_holds(holds_container)
-
+	
 func get_wall_bounds() -> Dictionary:
 	if dynamic_wall and dynamic_wall.has_method("get_bounds"):
 		return dynamic_wall.get_bounds()
@@ -115,8 +120,28 @@ func load_level(path: String) -> bool:
 	current_level_grade = level_data.get("grade", "")
 	current_level_environment = level_data.get("environment", "gym")
 	
+	# Load discipline data
+	current_level_discipline = level_data.get("discipline", "bouldering")
+	speed_time_limit = level_data.get("speed_time_limit", 60.0)
+	
+	# Load belayer position for roped climbing
+	if "belayer_position" in level_data:
+		var belayer_data = level_data.belayer_position
+		rope_belayer_position = Vector2(
+			belayer_data.get("x", 0),
+			belayer_data.get("y", 0)
+		)
+	else:
+		rope_belayer_position = Vector2.ZERO
+	
 	print("Setting environment to: " + current_level_environment)
 	set_environment_from_string(current_level_environment)
+	
+	print("Discipline: " + current_level_discipline)
+	if current_level_discipline == "speed":
+		print("  Time limit: " + str(speed_time_limit) + " seconds")
+	elif current_level_discipline == "roped":
+		print("  Belayer position: " + str(rope_belayer_position))
 	
 	# Wait one frame for environment to update
 	await get_tree().process_frame
@@ -142,20 +167,33 @@ func load_level(path: String) -> bool:
 		if hold.has_method("_update_sprite_for_environment"):
 			hold._update_sprite_for_environment()
 	
-	# Load crashpads
+	# Load crashpads (with belayer exclusion for roped climbing)
 	load_crashpads(level_data)
 	
 	# Update dynamic wall bounds
 	update_wall_bounds()
+	
+	# Load wall polygon if exists
+	if "wall_polygon" in level_data and dynamic_wall:
+		if dynamic_wall.has_method("set_polygon_data"):
+			dynamic_wall.set_polygon_data(level_data.wall_polygon)
+			print("  ✓ Loaded wall polygon shape")
 	
 	print("\n═══════════════════════════════════════")
 	print("✓ LEVEL LOADED: " + path)
 	if current_level_name != "":
 		print("  Name: " + current_level_name + " (" + current_level_grade + ")")
 	print("  Environment: " + current_level_environment)
+	print("  Discipline: " + current_level_discipline)
+	if current_level_discipline == "speed":
+		print("    Time limit: " + str(speed_time_limit) + "s")
+	elif current_level_discipline == "roped":
+		print("    Belayer at: " + str(rope_belayer_position))
 	print("  Holds: " + str(level_data.holds.size()))
 	if "crashpads" in level_data:
 		print("  Crashpads: " + str(level_data.crashpads.size()))
+	if "wall_polygon" in level_data:
+		print("  Wall: Custom polygon shape")
 	print("═══════════════════════════════════════\n")
 	
 	return true
@@ -283,7 +321,7 @@ func validate_level() -> Dictionary:
 # CRASHPADS
 # =============================================================================
 func load_crashpads(level_data: Dictionary) -> void:
-	"""Load crashpads from level data"""
+	"""Load crashpads from level data, excluding belayer area in roped mode"""
 	if not "crashpads" in level_data:
 		print("  No crashpads in level data")
 		return
@@ -302,14 +340,27 @@ func load_crashpads(level_data: Dictionary) -> void:
 	var crashpad_scene = load(CRASHPAD_SCENE)
 	var crashpad_count = 0
 	
+	# Get belayer exclusion zone for roped climbing
+	var belayer_exclusion_radius = 120.0
+	var has_belayer = current_level_discipline == "roped" and rope_belayer_position != Vector2.ZERO
+	
 	print("\n=== SPAWNING CRASHPADS ===")
+	if has_belayer:
+		print("  Roped mode - excluding crashpads near belayer at: ", rope_belayer_position)
 	
 	for crashpad_data in level_data.crashpads:
-		var crashpad = crashpad_scene.instantiate()
-		crashpad.global_position = Vector2(
+		var crashpad_pos = Vector2(
 			crashpad_data.get("x", 0),
 			crashpad_data.get("y", 0)
 		)
+		
+		# Skip crashpad if too close to belayer
+		if has_belayer and crashpad_pos.distance_to(rope_belayer_position) < belayer_exclusion_radius:
+			print("  Skipped crashpad at: ", crashpad_pos, " (too close to belayer)")
+			continue
+		
+		var crashpad = crashpad_scene.instantiate()
+		crashpad.global_position = crashpad_pos
 		crashpads_container.add_child(crashpad)
 		crashpad.add_to_group("crashpads")
 		crashpad_count += 1
@@ -333,3 +384,28 @@ func clear_crashpads():
 
 func get_crashpad_count() -> int:
 	return crashpads_container.get_child_count() if crashpads_container else 0
+
+# =============================================================================
+# DISCIPLINE GETTERS
+# =============================================================================
+
+func get_discipline() -> String:
+	"""Get the current level's climbing discipline"""
+	return current_level_discipline
+
+func get_speed_time_limit() -> float:
+	"""Get time limit for speed climbing"""
+	return speed_time_limit
+
+func get_belayer_position() -> Vector2:
+	"""Get belayer position for roped climbing"""
+	return rope_belayer_position
+
+func is_bouldering() -> bool:
+	return current_level_discipline == "bouldering"
+
+func is_roped() -> bool:
+	return current_level_discipline == "roped"
+
+func is_speed() -> bool:
+	return current_level_discipline == "speed"

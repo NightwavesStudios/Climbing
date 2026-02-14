@@ -56,6 +56,7 @@ func _fade_in_menu() -> void:
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
 
+
 func _center_camera_on_route() -> void:
 	var bounds = level_loader.get_wall_bounds()
 	if bounds.valid:
@@ -86,4 +87,5 @@ func _on_settings_pressed() -> void:
 	Transition.to("res://scenes/menus/settings.tscn")
 
 func _on_quit_pressed() -> void:
+	await get_tree().create_timer(0.1).timeout 
 	get_tree().quit()

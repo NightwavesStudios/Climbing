@@ -1,5 +1,5 @@
 extends Node2D
-## Main game scene with dynamic wall integration
+## Main game scene with dynamic wall integration and climbing disciplines
 
 @export var default_level_path: String = "res://scenes/levels/tutorial/ladder.json"
 
@@ -9,6 +9,11 @@ extends Node2D
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
+
+# Discipline systems
+var rope_system: Node2D = null
+var speed_timer: CanvasLayer = null
+var current_discipline: int = 0  # 0=Boulder, 1=Roped, 2=Speed
 
 func _ready():
 	print("=== MAIN SCENE READY ===")
@@ -79,10 +84,17 @@ func _load_initial_level(path: String):
 		
 		var validation = level_loader.validate_level()
 		if not validation.valid:
-			print("  ERROR: Level validation failed!")
-			return
+			print("  WARNING: Level validation failed, but continuing anyway")
+			for error in validation.errors:
+				print("    - " + error)
+		else:
+			print("  ✓ Level validation passed")
 		
 		print("  Level loaded successfully: ", path)
+		
+		# Setup discipline-specific systems (even if validation failed)
+		await setup_discipline_systems()
+		
 		position_player_at_spawn()
 		center_camera_on_route()
 	else:
@@ -112,6 +124,175 @@ func _update_wall_bounds():
 			print("  Wall bounds: " + str(bounds.min) + " to " + str(bounds.max))
 			if dynamic_wall.has_method("get_wall_width") and dynamic_wall.has_method("get_wall_height"):
 				print("  Wall size: " + str(dynamic_wall.get_wall_width()) + "x" + str(dynamic_wall.get_wall_height()) + "px")
+
+# =============================================================================
+# DISCIPLINE SYSTEM SETUP
+# =============================================================================
+
+func setup_discipline_systems():
+	"""Initialize discipline-specific systems"""
+	
+	# Get discipline from level loader
+	if not level_loader:
+		print("WARNING: LevelLoader not found")
+		return
+	
+	var discipline_str = level_loader.get_discipline()
+	current_discipline = ClimbingDiscipline.from_string(discipline_str)
+	
+	print("\n═══ DISCIPLINE SETUP ═══")
+	print("Discipline: " + ClimbingDiscipline.get_display_name(current_discipline))
+	
+	# Get player
+	if not player:
+		print("ERROR: Player not found!")
+		return
+	
+	# Set discipline on player
+	if player.has_method("set_climbing_discipline"):
+		player.set_climbing_discipline(current_discipline)
+	
+	match current_discipline:
+		ClimbingDiscipline.Type.BOULDERING:
+			setup_bouldering()
+		
+		ClimbingDiscipline.Type.ROPED:
+			await setup_roped_climbing(level_loader, player)
+		
+		ClimbingDiscipline.Type.SPEED:
+			setup_speed_climbing(level_loader, player)
+	
+	print("═══════════════════════\n")
+
+func setup_bouldering():
+	"""Setup for bouldering (no special systems needed)"""
+	print("  Mode: Standard bouldering")
+
+func setup_roped_climbing(loader, plyr):
+	"""Setup rope system for roped climbing"""
+	print("  Mode: Roped climbing")
+	
+	var belayer_pos = loader.get_belayer_position()
+	
+	if belayer_pos == Vector2.ZERO:
+		print("  WARNING: No belayer position set, using default")
+		# Use bottom-center of wall as fallback
+		var wall_bounds = loader.get_wall_bounds()
+		if wall_bounds.valid:
+			belayer_pos = Vector2(
+				(wall_bounds.min.x + wall_bounds.max.x) / 2,
+				wall_bounds.max.y - 50
+			)
+		else:
+			# Ultimate fallback
+			belayer_pos = plyr.global_position + Vector2(0, 200)
+	
+	# Only create rope system if it doesn't exist
+	if not rope_system or not is_instance_valid(rope_system):
+		print("  Creating rope system...")
+		
+		# Load rope system script dynamically
+		var RopeSystemScript = load("res://scripts/systems/rope_system.gd")
+		if not RopeSystemScript:
+			print("  ERROR: Could not load rope_system.gd!")
+			return
+		
+		rope_system = RopeSystemScript.new()
+		rope_system.name = "RopeSystem"
+		
+		# IMPORTANT: Add to scene tree BEFORE calling setup_rope
+		add_child(rope_system)
+		
+		# Wait one frame for rope system to initialize
+		await get_tree().process_frame
+		
+		print("  ✓ Rope system created")
+	else:
+		print("  Using existing rope system")
+	
+	# Always setup the rope (even if system already exists)
+	if rope_system.has_method("setup_rope"):
+		rope_system.setup_rope(belayer_pos, plyr)
+	else:
+		print("  ERROR: rope_system missing setup_rope method!")
+	
+	# Attach to player
+	if plyr.has_method("set_rope_system"):
+		plyr.set_rope_system(rope_system)
+		print("  Rope system attached to player")
+	
+	print("  ✓ Rope system ready at: ", belayer_pos)
+
+func setup_speed_climbing(loader, plyr):
+	"""Setup timer for speed climbing"""
+	print("  Mode: Speed climbing")
+	
+	var time_limit = loader.get_speed_time_limit()
+	
+	print("  Creating speed timer UI...")
+	
+	# Load speed timer script dynamically
+	var SpeedTimerScript = load("res://scripts/levels/speed_timer.gd")
+	if not SpeedTimerScript:
+		print("  ERROR: Could not load speed_timer.gd!")
+		return
+	
+	speed_timer = SpeedTimerScript.new()
+	speed_timer.name = "SpeedTimer"
+	
+	# Add to scene tree
+	add_child(speed_timer)
+	
+	# Wait for it to be ready
+	await get_tree().process_frame
+	
+	# Configure timer
+	if speed_timer.has_method("set_time_limit"):
+		speed_timer.set_time_limit(time_limit)
+	
+	# Connect signals
+	if speed_timer.has_signal("time_expired"):
+		speed_timer.time_expired.connect(_on_speed_time_expired)
+	if speed_timer.has_signal("time_warning"):
+		speed_timer.time_warning.connect(_on_speed_time_warning)
+	if speed_timer.has_signal("timer_started_signal"):
+		speed_timer.timer_started_signal.connect(_on_speed_timer_started)
+	
+	# Attach to player
+	if plyr.has_method("set_speed_timer"):
+		plyr.set_speed_timer(speed_timer)
+		print("  Speed timer attached to player")
+	
+	# Make sure it's visible
+	speed_timer.visible = true
+	if speed_timer.has_method("show_timer"):
+		speed_timer.show_timer()
+	
+	print("  ✓ Speed timer created: ", time_limit, " seconds")
+
+# =============================================================================
+# SPEED CLIMBING CALLBACKS
+# =============================================================================
+
+func _on_speed_time_expired():
+	"""Handle speed climbing time running out"""
+	print("⏰ TIME'S UP! Speed climb failed.")
+	
+	# Show failure message
+	show_message("TIME'S UP!", Color.RED)
+	
+	# Reset after delay
+	await get_tree().create_timer(2.0).timeout
+	reset_level()
+
+func _on_speed_time_warning(seconds: float):
+	"""Handle speed climbing warnings"""
+	if seconds <= 5.0:
+		show_message(str(int(seconds)) + "!", Color.ORANGE)
+
+func _on_speed_timer_started():
+	"""Handle speed timer starting"""
+	print("🏃 Speed climb started!")
 
 # =============================================================================
 # PLAYER SPAWN
@@ -183,7 +364,7 @@ func check_player_top_out() -> bool:
 	
 	return player.global_position.y < (top_y + tolerance)
 
-func _process(delta):
+func _process(_delta):
 	# Check for top-out (if you want automatic detection)
 	if check_player_top_out():
 		# Optional: auto-complete level when player reaches top
@@ -213,9 +394,19 @@ func on_level_complete():
 		push_error("ERROR: _current_level_path is empty! Cannot record completion.")
 		return
 	
+	# Get completion time for speed climbing
+	var completion_time = 0.0
+	if current_discipline == ClimbingDiscipline.Type.SPEED and speed_timer:
+		if speed_timer.has_method("get_time_remaining"):
+			completion_time = speed_timer.get_time_remaining()
+			print("  Speed climb time remaining: ", completion_time, "s")
+	
 	var game_state = get_node_or_null("/root/GameState")
 	if game_state and game_state.has_method("record_level_completion"):
-		game_state.record_level_completion(_current_level_path, 0.0)
+		game_state.record_level_completion(_current_level_path, completion_time)
+	
+	# Cleanup discipline systems
+	cleanup_discipline_systems()
 	
 	await get_tree().create_timer(1.0).timeout
 	
@@ -223,13 +414,93 @@ func on_level_complete():
 	Transition.to("res://scenes/menus/level_completed.tscn")
 
 func on_player_reset():
+	"""Called when player falls on crashpad - does NOT clean up rope system"""
 	print("Player reset requested (from crashpad)")
+	
+	# Just reset player position and state
 	position_player_at_spawn()
 	center_camera_on_route()
 	
 	# Reset player state if method exists
 	if player and player.has_method("reset_climb"):
 		player.reset_climb()
+	
+	# Reset speed timer if active (but don't delete it)
+	if current_discipline == ClimbingDiscipline.Type.SPEED and speed_timer:
+		if speed_timer.has_method("stop_timer"):
+			speed_timer.stop_timer()
+	
+	# NOTE: Rope system is NOT deleted here - it persists across resets!
+
+func on_climb_start():
+	"""Called when player makes first move"""
+	print("🎬 First grab detected - climb started!")
+	
+	# Start speed timer if in speed mode
+	if current_discipline == ClimbingDiscipline.Type.SPEED:
+		if speed_timer and speed_timer.has_method("start_timer"):
+			speed_timer.start_timer()
+	
+	# Notify all holds that climb has started
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold.has_method("notify_climb_start"):
+			hold.notify_climb_start()
+
+func reset_level():
+	"""Reset the current level - full reload"""
+	print("Resetting level...")
+	
+	cleanup_discipline_systems()
+	
+	# Reload level
+	if _current_level_path != "":
+		await _load_initial_level(_current_level_path)
+	else:
+		position_player_at_spawn()
+		center_camera_on_route()
+
+# =============================================================================
+# DISCIPLINE CLEANUP
+# =============================================================================
+
+func cleanup_discipline_systems():
+	"""Clean up discipline-specific systems - ONLY called on level change"""
+	
+	if rope_system and is_instance_valid(rope_system):
+		if rope_system.has_method("cleanup"):
+			rope_system.cleanup()
+		else:
+			rope_system.queue_free()
+		rope_system = null
+	
+	if speed_timer and is_instance_valid(speed_timer):
+		if speed_timer.has_method("cleanup"):
+			speed_timer.cleanup()
+		else:
+			speed_timer.queue_free()
+		speed_timer = null
+	
+	current_discipline = 0
+	print("Discipline systems cleaned up")
+
+# =============================================================================
+# HELPER TO SHOW MESSAGES
+# =============================================================================
+
+func show_message(text: String, color: Color = Color.WHITE):
+	"""Show temporary message on screen"""
+	var label = Label.new()
+	label.text = text
+	label.position = Vector2(get_viewport().size.x / 2 - 100, 200)
+	label.add_theme_font_size_override("font_size", 48)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_outline_color", Color.BLACK)
+	label.add_theme_constant_override("outline_size", 5)
+	add_child(label)
+	
+	await get_tree().create_timer(1.5).timeout
+	if is_instance_valid(label):
+		label.queue_free()
 
 # =============================================================================
 # TRANSITION CALLBACKS
@@ -245,9 +516,3 @@ func _on_level_loaded():
 func _on_transition_finished():
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(true)
-
-func on_climb_start():
-	# Call this when player grabs first hold
-	for hold in get_tree().get_nodes_in_group("holds"):
-		if hold.has_method("notify_climb_start"):
-			hold.notify_climb_start()

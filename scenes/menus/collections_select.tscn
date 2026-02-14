@@ -72,8 +72,18 @@ text = "Chapter 5:
 IDK YET"
 script = ExtResource("2_rcboh")
 
+[node name="Back" type="Button" parent="."]
+layout_mode = 0
+offset_left = 25.0
+offset_top = 20.0
+offset_right = 85.0
+offset_bottom = 60.0
+text = "Back"
+script = ExtResource("2_rcboh")
+
 [connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter1" to="." method="_on_tutorial_collection_pressed"]
 [connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter2" to="." method="_on_flow_collection_pressed"]
 [connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter3" to="." method="_on_precision_collection_pressed"]
 [connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter4" to="." method="_on_instability_collection_pressed"]
 [connection signal="pressed" from="ScrollContainer/HBoxContainer/Chapter5" to="." method="_on_long_haul_collection_pressed"]
+[connection signal="pressed" from="Back" to="." method="_on_back_pressed"]

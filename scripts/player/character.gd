@@ -28,6 +28,14 @@ var right_hand_state: GripState = GripState.RELAXED
 var left_foot_state: GripState = GripState.RELAXED
 var right_foot_state: GripState = GripState.RELAXED
 
+# Climbing discipline
+var current_discipline: int = 0  # 0=Bouldering, 1=Roped, 2=Speed
+var rope_system: Node2D = null
+
+# Speed climbing
+var speed_timer: Node = null
+var speed_climb_active := false
+
 var left_hand_pressure: float = 0.0
 var right_hand_pressure: float = 0.0
 var left_foot_pressure: float = 0.0
@@ -839,6 +847,16 @@ func reset_climb():
 	right_foot_shake_lerp = 0.0
 	fall_timer = 0.0
 	
+	# Clean up discipline-specific systems
+	if rope_system and is_instance_valid(rope_system):
+		if rope_system.has_method("cleanup"):
+			rope_system.cleanup()
+		rope_system = null
+	
+	if speed_timer and is_instance_valid(speed_timer):
+		if speed_timer.has_method("stop_timer"):
+			speed_timer.stop_timer()
+	
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -873,6 +891,11 @@ func simulate_physics(delta):
 		right_foot_manual = false
 		left_foot_auto_disabled = false
 		right_foot_auto_disabled = false
+	
+	# Apply rope physics if in roped mode
+	if current_discipline == 1 and rope_system:  # Roped climbing
+		if rope_system.has_method("apply_rope_force_to_player"):
+			com_velocity = rope_system.apply_rope_force_to_player(com_velocity)
 	
 	pin_held_limbs()
 	apply_limb_gravity(delta)
@@ -1872,6 +1895,12 @@ func check_fall_detection(delta: float):
 		fall_timer += delta
 		if fall_timer >= FALL_DETECTION_TIME:
 			print("Fell off - resetting climb")
+			
+			# Pause speed timer on fall
+			if current_discipline == 2 and speed_timer:
+				if speed_timer.has_method("pause_timer"):
+					speed_timer.pause_timer()
+			
 			reset_climb()
 	else:
 		fall_timer = 0.0
@@ -1880,11 +1909,10 @@ func check_climb_completion():
 	if climb_completed:
 		return
 
-	# Check for top-out: both hands on top-out holds
 	var left_on_top = left_hand_hold and left_hand_hold.has_method("is_top_out") and left_hand_hold.is_top_out()
 	var right_on_top = right_hand_hold and right_hand_hold.has_method("is_top_out") and right_hand_hold.is_top_out()
 
-	# Complete if both hands are on top-out holds (works for both gym and granite)
+	# Complete if both hands are on top-out holds
 	if left_on_top and right_on_top:
 		climb_completed = true
 
@@ -1894,16 +1922,25 @@ func check_climb_completion():
 			var env_config = EnvironmentConfig
 			is_granite = env_config.get_current_environment() == EnvironmentConfig.EnvironmentType.GRANITE
 
-		if is_granite:
-			print("Climb completed via granite top-out!")
-		else:
-			print("Climb completed via top hold!")
+		# Log completion message based on discipline
+		match current_discipline:
+			0:  # Bouldering
+				if is_granite:
+					print("Climb completed via granite top-out!")
+				else:
+					print("Climb completed via top hold!")
+			1:  # Roped
+				print("Roped climb completed!")
+			2:  # Speed
+				if speed_timer and speed_timer.has_method("pause_timer"):
+					speed_timer.pause_timer()
+				var time = speed_timer.get_time_remaining() if speed_timer else 0
+				print("Speed climb completed with ", time, " seconds remaining!")
 
 		# Notify main game scene
 		var game_scene = get_tree().get_current_scene()
 		if game_scene and game_scene.has_method("on_level_complete"):
 			game_scene.on_level_complete()
-
 
 func update_camera():
 	if cam:
@@ -2011,3 +2048,29 @@ func draw_debug_info():
 		var perp = Vector2(-swing_normalized.y, swing_normalized.x) * 4.0
 		draw_line(swing_end, swing_end - swing_normalized * 6.0 + perp, Color(0, 1, 1, 0.9), 2.5)
 		draw_line(swing_end, swing_end - swing_normalized * 6.0 - perp, Color(0, 1, 1, 0.9), 2.5)
+
+func set_climbing_discipline(discipline: int):
+	"""Set the climbing discipline for this route"""
+	current_discipline = discipline
+	
+	match discipline:
+		0:  # Bouldering
+			print("Character: Set to BOULDERING mode")
+		1:  # Roped
+			print("Character: Set to ROPED CLIMBING mode")
+		2:  # Speed
+			print("Character: Set to SPEED CLIMBING mode")
+			speed_climb_active = true
+
+func set_rope_system(rope: Node2D):
+	"""Attach rope system for roped climbing"""
+	rope_system = rope
+	print("Character: Rope system attached")
+
+func set_speed_timer(timer: Node):
+	"""Attach speed timer for speed climbing"""
+	speed_timer = timer
+	print("Character: Speed timer attached")
+
+func get_climbing_discipline() -> int:
+	return current_discipline

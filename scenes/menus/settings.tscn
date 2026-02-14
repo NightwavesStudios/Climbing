@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://yajtbkqrwd1m"]
+[gd_scene load_steps=3 format=3 uid="uid://yajtbkqrwd1m"]
 
 [ext_resource type="Script" uid="uid://bkpjoeawvlf41" path="res://scripts/menus/settings.gd" id="1_del6v"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_erjg3"]
 
 [node name="Settings" type="Control"]
 layout_mode = 3
@@ -81,10 +82,12 @@ size_flags_vertical = 3
 [node name="Save" type="Button" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 text = "Save"
+script = ExtResource("2_erjg3")
 
 [node name="Back" type="Button" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 text = "Back"
+script = ExtResource("2_erjg3")
 
 [connection signal="value_changed" from="MarginContainer/VBoxContainer/Volume" to="." method="_on_volume_value_changed"]
 [connection signal="item_selected" from="MarginContainer/VBoxContainer/WindowMode" to="." method="_on_window_mode_item_selected"]

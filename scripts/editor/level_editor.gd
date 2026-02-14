@@ -1,5 +1,5 @@
 extends Node2D
-## Level Editor with Crashpad Support
+## Level Editor with Crashpad Support, Enhanced Audio/UI, and Climbing Disciplines
 
 var camera: Camera2D
 var holds_container: Node2D
@@ -15,6 +15,14 @@ var environment_dropdown: OptionButton
 var climb_name_input: LineEdit
 var grade_dropdown: OptionButton
 
+# Discipline UI
+var discipline_dropdown: OptionButton
+var discipline_settings_panel: PanelContainer
+var speed_time_input: SpinBox
+var belayer_placement_button: Button
+var placing_belayer: bool = false
+var belayer_marker: Node2D = null
+
 # State
 var selected_hold_type: String = ""
 var preview_hold: Node2D = null
@@ -29,6 +37,11 @@ var dragging_crashpad: Node2D = null
 # Climb metadata
 var climb_name: String = ""
 var climb_grade: String = "VB"
+
+# Discipline state
+var current_discipline: String = "bouldering"
+var speed_time_limit: float = 60.0
+var belayer_position: Vector2 = Vector2.ZERO
 
 # Grid
 var grid_enabled: bool = true
@@ -86,8 +99,38 @@ const WALL_PADDING_SIDES = 100.0
 const WALL_PADDING_TOP = 100.0
 const WALL_PADDING_BOTTOM = 150.0
 
+# Audio settings
+@export_group("Audio Settings")
+@export var enable_editor_sounds: bool = true
+@export var master_volume_db: float = -6.0
+
+@export_subgroup("Action Pitches")
+@export var pitch_place_hold: float = 1.2
+@export var pitch_delete_hold: float = 0.7
+@export var pitch_place_crashpad: float = 1.15
+@export var pitch_copy_json: float = 1.3
+@export var pitch_paste_json: float = 1.25
+@export var pitch_clear: float = 0.6
+@export var pitch_error: float = 0.5
+@export var pitch_success: float = 1.4
+@export var pitch_preview: float = 1.2
+
+@export_subgroup("Pitch Randomization")
+@export var randomize_pitch: bool = true
+@export var pitch_variation: float = 0.05
+
+# Audio player
+const CLICK_SOUND = preload("res://assets/audio/sfx/button-clicked.wav")
+var _audio_player: AudioStreamPlayer
+
 func _ready():
+	_setup_audio()
+	
 	wall = get_node_or_null("Wall")
+	
+	if wall and wall.has_method("set_editor_mode"):
+		wall.set_editor_mode(true)
+		print("LevelEditor: Enabled editor mode on wall")
 	
 	if has_node("Camera2D"):
 		camera = get_node("Camera2D")
@@ -138,6 +181,28 @@ func _process(delta):
 	update_info_label()
 	update_idle_timer(delta)
 	queue_redraw()
+
+# =============================================================================
+# AUDIO SYSTEM
+# =============================================================================
+
+func _setup_audio():
+	_audio_player = AudioStreamPlayer.new()
+	_audio_player.name = "EditorAudioPlayer"
+	_audio_player.stream = CLICK_SOUND
+	_audio_player.volume_db = master_volume_db
+	add_child(_audio_player)
+
+func play_sound(base_pitch: float):
+	if not enable_editor_sounds:
+		return
+	
+	var final_pitch = base_pitch
+	if randomize_pitch:
+		final_pitch += randf_range(-pitch_variation, pitch_variation)
+	
+	_audio_player.pitch_scale = final_pitch
+	_audio_player.play()
 
 # =============================================================================
 # UI SETUP
@@ -215,6 +280,51 @@ func setup_ui():
 	environment_dropdown.item_selected.connect(on_environment_changed)
 	info_row.add_child(environment_dropdown)
 	
+	info_row.add_child(VSeparator.new())
+	
+	var discipline_label = Label.new()
+	discipline_label.text = "Discipline:"
+	info_row.add_child(discipline_label)
+	
+	discipline_dropdown = OptionButton.new()
+	discipline_dropdown.custom_minimum_size = Vector2(120, 30)
+	discipline_dropdown.add_item("Bouldering")
+	discipline_dropdown.add_item("Roped")
+	discipline_dropdown.add_item("Speed")
+	discipline_dropdown.select(0)
+	discipline_dropdown.item_selected.connect(_on_discipline_changed)
+	info_row.add_child(discipline_dropdown)
+	
+	# Discipline-specific settings panel
+	discipline_settings_panel = PanelContainer.new()
+	discipline_settings_panel.visible = false
+	discipline_settings_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	vbox_main.add_child(discipline_settings_panel)
+	
+	var settings_hbox = HBoxContainer.new()
+	discipline_settings_panel.add_child(settings_hbox)
+	
+	# Speed climbing settings
+	var speed_label = Label.new()
+	speed_label.text = "Time Limit (s):"
+	settings_hbox.add_child(speed_label)
+	
+	speed_time_input = SpinBox.new()
+	speed_time_input.min_value = 10.0
+	speed_time_input.max_value = 300.0
+	speed_time_input.step = 5.0
+	speed_time_input.value = 60.0
+	speed_time_input.custom_minimum_size = Vector2(100, 30)
+	speed_time_input.value_changed.connect(_on_speed_time_changed)
+	settings_hbox.add_child(speed_time_input)
+	
+	settings_hbox.add_child(VSeparator.new())
+	
+	# Roped climbing settings
+	belayer_placement_button = _create_editor_button("PLACE BELAYER", Vector2(130, 30))
+	belayer_placement_button.pressed.connect(_on_place_belayer_pressed)
+	settings_hbox.add_child(belayer_placement_button)
+	
 	# ROW 2: Hold Type + Crashpad
 	var hold_row = HBoxContainer.new()
 	hold_row.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -227,18 +337,26 @@ func setup_ui():
 	hold_type_dropdown = OptionButton.new()
 	hold_type_dropdown.custom_minimum_size = Vector2(120, 30)
 	
-	for type_name in HOLD_TYPES:
-		hold_type_dropdown.add_item(type_name)
+	if has_node("/root/HoldRegistry"):
+		var registry = get_node("/root/HoldRegistry")
+		var hold_types = registry.get_all_hold_types()
+		for type_name in hold_types:
+			var display_name = registry.get_hold_display_name(type_name)
+			hold_type_dropdown.add_item(display_name)
+			hold_type_dropdown.set_item_metadata(
+				hold_type_dropdown.get_item_count() - 1,
+				type_name
+			)
+	else:
+		for type_name in HOLD_TYPES:
+			hold_type_dropdown.add_item(type_name)
 	
 	hold_type_dropdown.item_selected.connect(_on_hold_type_selected)
 	hold_row.add_child(hold_type_dropdown)
 	
 	hold_row.add_child(VSeparator.new())
 	
-	# Crashpad button
-	var crashpad_btn = Button.new()
-	crashpad_btn.text = "PLACE CRASHPAD"
-	crashpad_btn.custom_minimum_size = Vector2(140, 30)
+	var crashpad_btn = _create_editor_button("PLACE CRASHPAD", Vector2(140, 30))
 	crashpad_btn.pressed.connect(_on_place_crashpad_pressed)
 	hold_row.add_child(crashpad_btn)
 	
@@ -247,35 +365,29 @@ func setup_ui():
 	actions_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	vbox_main.add_child(actions_row)
 	
-	var copy_btn = Button.new()
-	copy_btn.text = "COPY JSON"
-	copy_btn.custom_minimum_size = Vector2(90, 30)
+	var copy_btn = _create_editor_button("COPY JSON", Vector2(90, 30))
 	copy_btn.pressed.connect(_on_copy_json)
 	actions_row.add_child(copy_btn)
 	
-	var paste_btn = Button.new()
-	paste_btn.text = "PASTE JSON"
-	paste_btn.custom_minimum_size = Vector2(90, 30)
+	var paste_btn = _create_editor_button("PASTE JSON", Vector2(90, 30))
 	paste_btn.pressed.connect(_on_paste_json)
 	actions_row.add_child(paste_btn)
 	
-	var preview_btn = Button.new()
-	preview_btn.text = "PREVIEW"
-	preview_btn.custom_minimum_size = Vector2(70, 30)
+	var preview_btn = _create_editor_button("PREVIEW", Vector2(70, 30))
 	preview_btn.pressed.connect(_on_preview)
 	actions_row.add_child(preview_btn)
 	
-	var clear_btn = Button.new()
-	clear_btn.text = "CLEAR"
-	clear_btn.custom_minimum_size = Vector2(60, 30)
+	var clear_btn = _create_editor_button("CLEAR", Vector2(60, 30))
 	clear_btn.pressed.connect(_on_clear)
 	actions_row.add_child(clear_btn)
 	
-	var back_btn = Button.new()
-	back_btn.text = "BACK"
-	back_btn.custom_minimum_size = Vector2(60, 30)
+	var back_btn = _create_editor_button("BACK", Vector2(60, 30))
 	back_btn.pressed.connect(_on_back_pressed)
 	actions_row.add_child(back_btn)
+	
+	var add_point_btn = _create_editor_button("ADD POINT", Vector2(100, 30))
+	add_point_btn.pressed.connect(_on_add_wall_point)
+	actions_row.add_child(add_point_btn)
 	
 	# Info label
 	info_label = Label.new()
@@ -286,15 +398,127 @@ func setup_ui():
 	info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_layer.add_child(info_label)
 
-func _on_hold_type_selected(index: int):
-	selected_hold_type = HOLD_TYPES[index]
+func _create_editor_button(button_text: String, min_size: Vector2) -> Control:
+	var button_script = load("res://scripts/ui/universal_button.gd") if ResourceLoader.exists("res://scripts/ui/universal_button.gd") else null
+	
+	var button
+	if button_script:
+		button = Button.new()
+		button.set_script(button_script)
+		button.hover_scale = 1.04
+		button.press_scale = 0.93
+		button.animation_speed = 18.0
+		button.enable_outline_pulse = false
+		button.enable_click_sound = false
+	else:
+		button = Button.new()
+	
+	button.text = button_text
+	button.custom_minimum_size = min_size
+	button.focus_mode = Control.FOCUS_NONE
+	
+	return button
+
+# PART 2 OF LEVEL_EDITOR.GD - Append this after part 1
+
+# =============================================================================
+# DISCIPLINE CALLBACKS
+# =============================================================================
+
+func _on_discipline_changed(index: int):
+	reset_idle_timer()
+	
+	match index:
+		0:  # Bouldering
+			current_discipline = "bouldering"
+			discipline_settings_panel.visible = false
+			_clear_belayer_marker()
+		1:  # Roped
+			current_discipline = "roped"
+			discipline_settings_panel.visible = true
+			speed_time_input.visible = false
+			belayer_placement_button.visible = true
+			show_notification("Click PLACE BELAYER to set rope anchor point")
+		2:  # Speed
+			current_discipline = "speed"
+			discipline_settings_panel.visible = true
+			speed_time_input.visible = true
+			belayer_placement_button.visible = false
+			_clear_belayer_marker()
+	
+	print("Discipline changed to: " + current_discipline)
+
+func _on_speed_time_changed(value: float):
+	speed_time_limit = value
+	reset_idle_timer()
+
+func _on_place_belayer_pressed():
+	placing_belayer = true
+	selected_hold_type = ""
 	placing_crashpad = false
+	clear_preview()
+	show_notification("Click to place belayer anchor point")
+
+func _clear_belayer_marker():
+	if belayer_marker and is_instance_valid(belayer_marker):
+		belayer_marker.queue_free()
+	belayer_marker = null
+	belayer_position = Vector2.ZERO
+
+func _create_belayer_marker(pos: Vector2):
+	_clear_belayer_marker()
+	
+	belayer_marker = Node2D.new()
+	belayer_marker.name = "BelayerMarker"
+	belayer_marker.z_index = 100
+	belayer_marker.global_position = pos
+	belayer_position = pos
+	
+	# Create visual marker
+	var marker_sprite = Sprite2D.new()
+	var image = Image.create(32, 48, false, Image.FORMAT_RGBA8)
+	image.fill(Color.TRANSPARENT)
+	
+	# Draw stick figure
+	for y in range(48):
+		for x in range(32):
+			# Head
+			if Vector2(x - 16, y - 8).length() < 6:
+				image.set_pixel(x, y, Color.ORANGE)
+			# Body
+			if x >= 14 and x <= 18 and y >= 14 and y <= 32:
+				image.set_pixel(x, y, Color.ORANGE)
+			# Arms
+			if y >= 18 and y <= 22:
+				if x >= 8 and x <= 24:
+					image.set_pixel(x, y, Color.ORANGE)
+			# Legs
+			if y >= 32 and y <= 46:
+				if (x >= 10 and x <= 13) or (x >= 19 and x <= 22):
+					image.set_pixel(x, y, Color.ORANGE)
+	
+	var texture = ImageTexture.create_from_image(image)
+	marker_sprite.texture = texture
+	belayer_marker.add_child(marker_sprite)
+	
+	add_child(belayer_marker)
+	show_notification("Belayer placed at " + str(pos))
+
+func _on_hold_type_selected(index: int):
+	if hold_type_dropdown.get_item_metadata(index) != null:
+		selected_hold_type = hold_type_dropdown.get_item_metadata(index)
+	else:
+		selected_hold_type = hold_type_dropdown.get_item_text(index)
+	
+	placing_crashpad = false
+	placing_belayer = false
 	clear_preview()
 	reset_idle_timer()
 
 func _on_place_crashpad_pressed():
 	placing_crashpad = true
 	selected_hold_type = ""
+	placing_belayer = false
 	clear_preview()
 	reset_idle_timer()
 
@@ -310,34 +534,57 @@ func _input(event):
 					delete_hold(dragging_hold)
 				elif dragging_crashpad:
 					delete_crashpad(dragging_crashpad)
+			
 			KEY_ESCAPE:
 				selected_hold_type = ""
 				placing_crashpad = false
+				placing_belayer = false
 				clear_preview()
 				dragging_hold = null
 				dragging_crashpad = null
 				var preview_player = get_node_or_null("PreviewPlayer")
 				if preview_player:
 					preview_player.queue_free()
+			
 			KEY_G:
 				grid_enabled = !grid_enabled
+			
 			KEY_C:
 				if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META):
 					_on_copy_json()
+			
 			KEY_V:
 				if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META):
 					_on_paste_json()
+			
 			KEY_R:
 				var preview_player = get_node_or_null("PreviewPlayer")
 				if preview_player:
 					preview_player.queue_free()
 					return
+			
+			KEY_P:
+				_on_add_wall_point()
+			
+			KEY_E:
+				if wall and wall.has_method("enable_edit_mode"):
+					var is_editing = false
+					if "edit_mode" in wall:
+						is_editing = wall.edit_mode
+					
+					wall.enable_edit_mode(!is_editing)
+					
+					if !is_editing:
+						show_notification("Wall edit mode ENABLED - drag points or right-click to remove")
+					else:
+						show_notification("Wall edit mode DISABLED")
 	
 	if is_mouse_over_ui():
 		return
 	
 	if event is InputEventMouseButton:
 		reset_idle_timer()
+		
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				handle_left_click()
@@ -381,6 +628,7 @@ func _input(event):
 			new_pos.y = clamp(new_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
 			dragging_hold.global_position = new_pos
 			update_wall_bounds()
+		
 		elif dragging_crashpad:
 			reset_idle_timer()
 			var new_pos = snap_to_grid(get_global_mouse_position() + drag_offset)
@@ -390,6 +638,13 @@ func _input(event):
 
 func handle_left_click():
 	var pos = get_global_mouse_position()
+	
+	# Place belayer for roped climbing
+	if placing_belayer:
+		var snapped_pos = snap_to_grid(pos)
+		_create_belayer_marker(snapped_pos)
+		placing_belayer = false
+		return
 	
 	if placing_crashpad and crashpad_scene:
 		var snapped_pos = snap_to_grid(pos)
@@ -415,6 +670,7 @@ func handle_left_click():
 func place_crashpad(pos: Vector2) -> bool:
 	if not crashpad_scene:
 		show_notification("Crashpad scene not found!", true)
+		play_sound(pitch_error)
 		return false
 	
 	pos.x = clamp(pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
@@ -425,12 +681,14 @@ func place_crashpad(pos: Vector2) -> bool:
 	crashpads_container.add_child(crashpad)
 	crashpad.add_to_group("crashpads")
 	
+	play_sound(pitch_place_crashpad)
 	return true
 
 func delete_crashpad(crashpad: Node2D):
 	if crashpad == dragging_crashpad:
 		dragging_crashpad = null
 	crashpad.queue_free()
+	play_sound(pitch_delete_hold)
 
 func get_crashpad_at_position(pos: Vector2, max_dist: float = 60.0) -> Node2D:
 	var closest: Node2D = null
@@ -458,9 +716,25 @@ func _on_copy_json():
 		"name": climb_name if climb_name != "" else "Unnamed Climb",
 		"grade": climb_grade,
 		"environment": environment_name,
+		"discipline": current_discipline,
 		"holds": [],
 		"crashpads": []
 	}
+	
+	# Add discipline-specific data
+	if current_discipline == "speed":
+		level_data["speed_time_limit"] = speed_time_limit
+	elif current_discipline == "roped" and belayer_position != Vector2.ZERO:
+		level_data["belayer_position"] = {
+			"x": belayer_position.x,
+			"y": belayer_position.y
+		}
+	
+	# Save wall polygon data
+	if wall and wall.has_method("get_polygon_data"):
+		var polygon_data = wall.get_polygon_data()
+		if polygon_data:
+			level_data["wall_polygon"] = polygon_data
 	
 	for hold in holds_container.get_children():
 		var hold_type_str = get_hold_type(hold)
@@ -481,7 +755,16 @@ func _on_copy_json():
 	var json_str = JSON.stringify(level_data, "\t")
 	DisplayServer.clipboard_set(json_str)
 	
+	play_sound(pitch_copy_json)
+	
+	var discipline_info = current_discipline.capitalize()
+	if current_discipline == "speed":
+		discipline_info += " (" + str(speed_time_limit) + "s)"
+	elif current_discipline == "roped" and belayer_position != Vector2.ZERO:
+		discipline_info += " (Belayer set)"
+	
 	show_notification("JSON copied! " + level_data.name + " (" + level_data.grade + ") - " + 
+					  discipline_info + " - " +
 					  str(level_data.holds.size()) + " holds, " + str(level_data.crashpads.size()) + " crashpads")
 
 func _on_paste_json():
@@ -489,6 +772,7 @@ func _on_paste_json():
 	
 	if clipboard.is_empty():
 		show_notification("Clipboard is empty!", true)
+		play_sound(pitch_error)
 		return
 	
 	var json = JSON.new()
@@ -496,12 +780,14 @@ func _on_paste_json():
 	
 	if error != OK:
 		show_notification("Invalid JSON in clipboard!", true)
+		play_sound(pitch_error)
 		return
 	
 	var data = json.data
 	
 	if not "holds" in data:
 		show_notification("No 'holds' array in JSON!", true)
+		play_sound(pitch_error)
 		return
 	
 	_on_clear()
@@ -531,6 +817,29 @@ func _on_paste_json():
 			environment_dropdown.select(0)
 		update_wall_bounds()
 	
+	# Load discipline
+	current_discipline = data.get("discipline", "bouldering")
+	speed_time_limit = data.get("speed_time_limit", 60.0)
+	
+	if discipline_dropdown:
+		match current_discipline:
+			"bouldering":
+				discipline_dropdown.select(0)
+			"roped":
+				discipline_dropdown.select(1)
+			"speed":
+				discipline_dropdown.select(2)
+		_on_discipline_changed(discipline_dropdown.selected)
+	
+	if speed_time_input:
+		speed_time_input.value = speed_time_limit
+	
+	# Load belayer position for roped
+	if "belayer_position" in data and data.belayer_position:
+		var belayer_data = data.belayer_position
+		var belayer_pos = Vector2(belayer_data.get("x", 0), belayer_data.get("y", 0))
+		_create_belayer_marker(belayer_pos)
+	
 	for hold_data in data.holds:
 		var type_name = hold_data.get("type", "JUG")
 		if type_name not in loaded_scenes:
@@ -554,8 +863,15 @@ func _on_paste_json():
 			crashpads_container.add_child(crashpad)
 			crashpad.add_to_group("crashpads")
 	
+	# Load wall polygon data
+	if "wall_polygon" in data and wall and wall.has_method("set_polygon_data"):
+		wall.set_polygon_data(data.wall_polygon)
+	
 	update_wall_bounds()
-	show_notification("Loaded: " + climb_name + " (" + climb_grade + ")")
+	play_sound(pitch_paste_json)
+	show_notification("Loaded: " + climb_name + " (" + climb_grade + ") - " + current_discipline.capitalize())
+
+# PART 3 OF LEVEL_EDITOR.GD - Remaining helper functions and callbacks
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -616,20 +932,24 @@ func place_hold(pos: Vector2) -> bool:
 		var start_count = count_holds_of_type("START")
 		if start_count >= MAX_START_HOLDS:
 			show_notification("Maximum " + str(MAX_START_HOLDS) + " START holds allowed!", true)
+			play_sound(pitch_error)
 			return false
 	
 	if selected_hold_type == "TOP":
 		var top_count = count_holds_of_type("TOP")
 		if top_count >= MAX_TOP_HOLDS:
 			show_notification("Maximum " + str(MAX_TOP_HOLDS) + " TOP hold allowed!", true)
+			play_sound(pitch_error)
 			return false
 	
 	if is_position_too_close(pos, null):
 		show_notification("Hold too close to another hold!", true)
+		play_sound(pitch_error)
 		return false
 	
 	if not is_position_reachable(pos, null):
 		show_notification("Hold too far from route!", true)
+		play_sound(pitch_error)
 		return false
 	
 	var hold = loaded_scenes[selected_hold_type].instantiate()
@@ -642,6 +962,7 @@ func place_hold(pos: Vector2) -> bool:
 	hold.add_to_group("holds")
 	hold.set_meta("editor_type", selected_hold_type)
 	
+	play_sound(pitch_place_hold)
 	update_wall_bounds()
 	return true
 
@@ -685,6 +1006,7 @@ func delete_hold(hold: Node2D):
 	if hold == dragging_hold:
 		dragging_hold = null
 	hold.queue_free()
+	play_sound(pitch_delete_hold)
 	update_wall_bounds()
 
 func get_hold_at_position(pos: Vector2, max_dist: float = 40.0) -> Node2D:
@@ -798,6 +1120,34 @@ func clear_preview():
 # CALLBACKS
 # =============================================================================
 
+func _on_add_wall_point():
+	if not wall:
+		show_notification("No wall found!", true)
+		play_sound(pitch_error)
+		return
+	
+	if not wall.has_method("enable_polygon_mode"):
+		show_notification("Wall script needs to be updated! Check console.", true)
+		play_sound(pitch_error)
+		return
+	
+	if holds_container.get_child_count() == 0:
+		show_notification("Add holds first before editing wall shape!", true)
+		play_sound(pitch_error)
+		return
+	
+	wall.enable_polygon_mode(true)
+	
+	if wall.has_method("enable_edit_mode"):
+		wall.enable_edit_mode(true)
+	
+	var mouse_pos = get_global_mouse_position()
+	
+	if wall.has_method("add_point_between_nearest_edge"):
+		wall.add_point_between_nearest_edge(mouse_pos)
+		play_sound(pitch_place_hold)
+		show_notification("Point added! Drag to reshape wall")
+
 func _on_climb_name_changed(new_text: String):
 	reset_idle_timer()
 	climb_name = new_text
@@ -833,6 +1183,7 @@ func on_environment_changed(index: int):
 func _on_preview():
 	if holds_container.get_child_count() == 0:
 		show_notification("No holds to preview!", true)
+		play_sound(pitch_error)
 		return
 	
 	var start_holds = []
@@ -847,15 +1198,18 @@ func _on_preview():
 	
 	if start_holds.size() == 0:
 		show_notification("No START holds!", true)
+		play_sound(pitch_error)
 		return
 	
 	if top_holds.size() == 0:
 		show_notification("No TOP holds!", true)
+		play_sound(pitch_error)
 		return
 	
 	var player_scene_path = "res://scenes/player/character.tscn"
 	if not ResourceLoader.exists(player_scene_path):
 		show_notification("Player scene not found!", true)
+		play_sound(pitch_error)
 		return
 	
 	var old_preview = get_node_or_null("PreviewPlayer")
@@ -887,6 +1241,7 @@ func _on_preview():
 	player.global_position = spawn_pos
 	camera.position = player.global_position
 	
+	play_sound(pitch_preview)
 	show_notification("PREVIEW MODE - Press ESC/R to exit")
 
 func _on_clear():
@@ -896,6 +1251,20 @@ func _on_clear():
 	for crashpad in crashpads_container.get_children():
 		crashpad.queue_free()
 	
+	# Reset wall polygon
+	if wall and wall.has_method("reset_polygon"):
+		wall.reset_polygon()
+	
+	# Reset discipline
+	current_discipline = "bouldering"
+	speed_time_limit = 60.0
+	_clear_belayer_marker()
+	placing_belayer = false
+	
+	if discipline_dropdown:
+		discipline_dropdown.select(0)
+		_on_discipline_changed(0)
+	
 	climb_name = ""
 	climb_grade = "VB"
 	if climb_name_input:
@@ -904,6 +1273,7 @@ func _on_clear():
 		grade_dropdown.select(0)
 	
 	update_wall_bounds()
+	play_sound(pitch_clear)
 	idle_timer = 0.0
 
 func _on_back_pressed():
@@ -913,6 +1283,7 @@ func _on_back_pressed():
 	
 	selected_hold_type = ""
 	placing_crashpad = false
+	placing_belayer = false
 	clear_preview()
 	
 	Transition.to("res://scenes/menus/main_menu.tscn")
@@ -956,7 +1327,9 @@ func show_notification(text: String, is_error: bool = false):
 
 func update_info_label():
 	var selected = ""
-	if placing_crashpad:
+	if placing_belayer:
+		selected = "BELAYER"
+	elif placing_crashpad:
 		selected = "CRASHPAD"
 	elif selected_hold_type:
 		selected = selected_hold_type
@@ -972,6 +1345,11 @@ func update_info_label():
 	
 	var climb_info = climb_name if climb_name != "" else "Unnamed"
 	climb_info += " (" + climb_grade + ")"
+	climb_info += " | " + current_discipline.capitalize()
+	if current_discipline == "speed":
+		climb_info += " (" + str(speed_time_limit) + "s)"
+	elif current_discipline == "roped" and belayer_position != Vector2.ZERO:
+		climb_info += " (Belayer set)"
 	
 	var bounds = get_route_bounds()
 	var route_height = 0
@@ -1035,6 +1413,11 @@ func _draw():
 			false,
 			3.0
 		)
+	
+	# Draw belayer position indicator
+	if belayer_position != Vector2.ZERO:
+		draw_circle(belayer_position, 15, Color(1, 0.5, 0, 0.3))
+		draw_arc(belayer_position, 20, 0, TAU, 32, Color.ORANGE, 2.0)
 	
 	if not grid_enabled:
 		return

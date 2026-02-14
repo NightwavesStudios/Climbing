@@ -14,6 +14,11 @@ enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET }
 @export var is_grabbable: bool = true  ## If false, this is just decoration (no collision/grab)
 @export var multi_area_enabled: bool = false  ## If true, supports multiple grab areas with different snap points
 
+#SFX
+const GRAB_SFX = preload("res://assets/audio/sfx/grab-hold.wav")
+
+var _audio_player: AudioStreamPlayer
+
 # Pocket-specific: track if a limb is already using this hold
 var occupied_by: Node2D = null
 
@@ -60,6 +65,11 @@ func _ready():
 	
 	_cache_sprite_nodes()
 	_update_sprite_for_environment()
+	
+	#SFX
+	_audio_player = AudioStreamPlayer.new()
+	add_child(_audio_player)
+	_audio_player.stream = GRAB_SFX
 	
 	var type_name = HoldType.keys()[hold_type]
 	var snap_status = "SNAP" if snap_to_point else "FREE"
@@ -262,6 +272,9 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 	occupied_by = limb
 	limb_placements[limb] = local_grab
 	
+	_audio_player.pitch_scale = 1.0 + randf_range(-0.05, 0.05)
+	_audio_player.play()
+
 	return true
 
 func _find_nearest_area_point(global_pos: Vector2) -> Marker2D:

@@ -25,6 +25,7 @@ const COLLECTIONS = {
 			"res://scenes/levels/tutorial/pocket-galore.json",
 			"res://scenes/levels/tutorial/longer-ascent.json",
 			"res://scenes/levels/tutorial/far-reach.json",
+			"res://scenes/levels/tutorial/outdoor-sloper.json",
 			"res://scenes/levels/tutorial/long-way-up.json",
 			"res://scenes/levels/tutorial/crimp.json",
 		]
