@@ -847,12 +847,18 @@ func reset_climb():
 	right_foot_shake_lerp = 0.0
 	fall_timer = 0.0
 	
-	# Clean up discipline-specific systems
+	# DON'T delete rope system - just reset it
 	if rope_system and is_instance_valid(rope_system):
-		if rope_system.has_method("cleanup"):
-			rope_system.cleanup()
-		rope_system = null
-	
+		if rope_system.has_method("setup_rope"):
+			# Re-setup rope with current positions
+			var main = get_tree().current_scene
+			if main and main.has_method("get_node"):
+				var loader = main.get_node_or_null("LevelLoader")
+				if loader and loader.has_method("get_belayer_position"):
+					var belayer_pos = loader.get_belayer_position()
+					rope_system.setup_rope(belayer_pos, self)
+
+# Stop speed timer but don't delete it
 	if speed_timer and is_instance_valid(speed_timer):
 		if speed_timer.has_method("stop_timer"):
 			speed_timer.stop_timer()
