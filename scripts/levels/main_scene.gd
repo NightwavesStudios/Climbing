@@ -332,15 +332,15 @@ func center_camera_on_route():
 	
 	# Optionally zoom out to fit entire wall
 	if dynamic_wall.has_method("get_wall_height"):
-		var wall_height = dynamic_wall.get_wall_height()
-		var viewport_height = get_viewport_rect().size.y
+		#var wall_height = dynamic_wall.get_wall_height()
+		#var viewport_height = get_viewport_rect().size.y
 		
-		if wall_height > viewport_height * 0.8:
+		#if wall_height > viewport_height * 0.8:
 			# Zoom out if wall is tall
-			var zoom_factor = viewport_height / (wall_height * 1.2)
-			camera.zoom = Vector2(zoom_factor, zoom_factor)
-		else:
-			camera.zoom = Vector2(1.0, 1.0)
+			#var zoom_factor = viewport_height / (wall_height * 1.2)
+			#camera.zoom = Vector2(zoom_factor, zoom_factor)
+		#else:
+		camera.zoom = Vector2(1.0, 1.0)
 
 # =============================================================================
 # TOP-OUT DETECTION (for granite routes)

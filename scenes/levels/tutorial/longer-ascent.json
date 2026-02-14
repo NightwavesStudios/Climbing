@@ -1,6 +1,12 @@
 {
+	"belayer_position": {
+		"x": -64.0,
+		"y": 128.0
+	},
+	"crashpads": [],
+	"discipline": "roped",
 	"environment": "gym",
-	"grade": "VB",
+	"grade": "5.6",
 	"holds": [
 		{
 			"type": "START",
@@ -133,5 +139,29 @@
 			"y": -1056.0
 		}
 	],
-	"name": "Unnamed Climb"
+	"name": "Longer-Ascent",
+	"wall_polygon": {
+		"enabled": true,
+		"ground_left_index": 3,
+		"ground_right_index": 2,
+		"points": [
+			{
+				"x": -260.0,
+				"y": -1188.0
+			},
+			{
+				"x": 164.0,
+				"y": -1188.0
+			},
+			{
+				"x": 164.0,
+				"y": 150.0
+			},
+			{
+				"x": -260.0,
+				"y": 150.0
+			}
+		],
+		"top_edge_indices": []
+	}
 }

@@ -139,7 +139,7 @@ func _input(event: InputEvent):
 			
 			# Check if clicking near an edge to add point OR toggle top edge
 			if hovered_edge >= 0:
-				# If CTRL/CMD held, toggle top edge
+				# If CTRL/CMD/SHIFT held, toggle top edge
 				if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META) or Input.is_key_pressed(KEY_SHIFT):
 					toggle_top_edge(hovered_edge)
 				else:
@@ -151,20 +151,21 @@ func _input(event: InputEvent):
 		else:
 			_update_hover()
 
+# FIX: Better debug output and feedback
 func toggle_top_edge(edge_index: int):
 	"""Toggle whether an edge is marked as a top-out edge"""
 	if _is_ground_edge(edge_index):
-		print("Cannot mark ground edge as top-out")
+		print("❌ Cannot mark ground edge as top-out")
 		return
 	
 	if edge_index in top_edge_indices:
 		# Remove from top edges
 		top_edge_indices.erase(edge_index)
-		print("Unmarked edge " + str(edge_index) + " as top-out")
+		print("✓ Unmarked edge ", edge_index, " as top-out | Remaining: ", top_edge_indices)
 	else:
 		# Add to top edges
 		top_edge_indices.append(edge_index)
-		print("Marked edge " + str(edge_index) + " as top-out")
+		print("✓ Marked edge ", edge_index, " as top-out | All marked: ", top_edge_indices)
 	
 	# Recreate top edge holds
 	_create_top_edge_holds()
@@ -304,6 +305,7 @@ func _draw_polygon_wall():
 	var poly_points = PackedVector2Array(control_points)
 	draw_colored_polygon(poly_points, current_wall_color)
 
+# FIX: Much better visual feedback for edge selection
 func _draw_edge_highlights():
 	if hovered_edge < 0 or control_points.size() < 2:
 		return
@@ -316,11 +318,16 @@ func _draw_edge_highlights():
 	
 	# Show whether this edge is a top edge
 	var color = edge_hover_color
+	var label_text = "RIGHT-CLICK: Add point | SHIFT+RIGHT-CLICK: Mark as TOP-OUT"
+	
 	if hovered_edge in top_edge_indices:
 		color = Color(1.0, 0.5, 0.0, 0.9)  # Orange if already marked
+		label_text = "MARKED AS TOP-OUT | SHIFT+RIGHT-CLICK: Unmark"
 	
-	draw_line(p1, p2, color, 6.0)
+	# Draw thick highlight
+	draw_line(p1, p2, color, 8.0)
 	
+	# Draw hover indicator at mouse position
 	var mouse_pos = get_global_mouse_position()
 	var segment = p2 - p1
 	var segment_length_sq = segment.length_squared()
@@ -328,8 +335,18 @@ func _draw_edge_highlights():
 	if segment_length_sq > 0:
 		var t = clamp((mouse_pos - p1).dot(segment) / segment_length_sq, 0.0, 1.0)
 		var nearest_point = p1 + t * segment
-		draw_circle(nearest_point, 5.0, color)
+		draw_circle(nearest_point, 8.0, color)
+		
+		# Draw label above the line
+		var label_pos = nearest_point + Vector2(0, -30)
+		var label_size = ThemeDB.fallback_font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_CENTER, -1, 14)
+		draw_rect(Rect2(label_pos - Vector2(label_size.x/2 + 8, 8), 
+						label_size + Vector2(16, 16)), 
+				  Color(0, 0, 0, 0.9), true)
+		draw_string(ThemeDB.fallback_font, label_pos, label_text,
+					HORIZONTAL_ALIGNMENT_CENTER, -1, 14, color)
 
+# FIX: Show which edges are marked as top-out in the instructions
 func _draw_control_points():
 	for i in range(control_points.size()):
 		var point = control_points[i]
@@ -356,7 +373,12 @@ func _draw_control_points():
 	
 	# Instructions (only when editing)
 	if edit_mode and control_points.size() > 0:
-		var text = "LEFT-DRAG: Move | RIGHT-CLICK: Add Point | SHIFT+RIGHT-CLICK: Mark Top Edge | GREEN: Ground"
+		# NEW: Show current marked edges
+		var marked_edges_text = ""
+		if not top_edge_indices.is_empty():
+			marked_edges_text = " | MARKED TOP EDGES: " + str(top_edge_indices)
+		
+		var text = "LEFT-DRAG: Move | RIGHT-CLICK: Add Point | SHIFT+RIGHT-CLICK on EDGE: Mark Top Edge" + marked_edges_text
 		var pos = Vector2(wall_min.x, wall_min.y - 40)
 		
 		var size = ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
@@ -758,6 +780,8 @@ func _create_top_edge_holds():
 	if not use_polygon_mode or top_edge_indices.is_empty():
 		return
 	
+	print("Creating top edge holds for edges: ", top_edge_indices)
+	
 	# Create hold for each marked top edge
 	for edge_idx in top_edge_indices:
 		if edge_idx >= control_points.size():
@@ -766,6 +790,7 @@ func _create_top_edge_holds():
 		var p1 = control_points[edge_idx]
 		var p2 = control_points[(edge_idx + 1) % control_points.size()]
 		_create_edge_hold(p1, p2)
+		print("  Created top hold between ", p1, " and ", p2)
 
 func _create_edge_hold(p1: Vector2, p2: Vector2):
 	"""Create a hold along an edge"""
@@ -777,12 +802,14 @@ func _create_top_hold_at(position: Vector2, width: float):
 	"""Create a top-out hold at given position"""
 	var top_hold = Area2D.new()
 	top_hold.set_meta("is_top_edge_hold", true)
-	top_hold.collision_layer = 2
+	top_hold.collision_layer = 2  # Same as regular holds
 	top_hold.collision_mask = 0
+	top_hold.monitoring = false  # Don't need to detect other areas
+	top_hold.monitorable = true  # BUT must be detectable by limbs
 	top_hold.name = "TopEdgeHold"
 
 	var shape = RectangleShape2D.new()
-	shape.extents = Vector2(width / 2, 25)
+	shape.size = Vector2(width, 50)  # Use size instead of extents for Godot 4
 	var collision = CollisionShape2D.new()
 	collision.shape = shape
 	top_hold.add_child(collision)
@@ -794,9 +821,12 @@ func _create_top_hold_at(position: Vector2, width: float):
 
 	top_hold.global_position = position
 
-	add_child.call_deferred(top_hold)
+	# Add immediately, not deferred - this ensures collision is set up properly
+	add_child(top_hold)
 	top_hold.add_to_group("holds")
 	call_deferred("_assign_top_hold_script", top_hold)
+	
+	print("    DEBUG: Created top hold at ", position, " with width ", width)
 
 func _assign_top_hold_script(top_hold):
 	var script_code = """
@@ -958,8 +988,11 @@ func set_polygon_data(data: Dictionary):
 	if "top_edge_indices" in data:
 		var loaded_edges = data.get("top_edge_indices", [])
 		for edge_idx in loaded_edges:
-			if edge_idx is int:
-				top_edge_indices.append(edge_idx)
+			# JSON may load numbers as float or int, so convert to int
+			if edge_idx is float or edge_idx is int:
+				top_edge_indices.append(int(edge_idx))
+		
+		print("  DEBUG: Loaded top edge indices: ", top_edge_indices)
 	
 	if ground_left_index >= 0 and ground_left_index < control_points.size():
 		ground_y = control_points[ground_left_index].y

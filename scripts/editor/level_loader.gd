@@ -170,14 +170,49 @@ func load_level(path: String) -> bool:
 	# Load crashpads (with belayer exclusion for roped climbing)
 	load_crashpads(level_data)
 	
-	# Update dynamic wall bounds
-	update_wall_bounds()
-	
-	# Load wall polygon if exists
+	# CRITICAL FIX: Load polygon BEFORE updating wall bounds
+	# This preserves the custom polygon shape instead of resetting to rectangle
+	var has_custom_polygon = false
 	if "wall_polygon" in level_data and dynamic_wall:
 		if dynamic_wall.has_method("set_polygon_data"):
+			# Wait for wall to be fully ready
+			await get_tree().process_frame
+			
 			dynamic_wall.set_polygon_data(level_data.wall_polygon)
-			print("  ✓ Loaded wall polygon shape")
+			has_custom_polygon = true
+			print("  ✓ Loaded wall polygon shape with ", level_data.wall_polygon.get("points", []).size(), " points")
+			
+			# Show what we loaded
+			if "top_edge_indices" in level_data.wall_polygon:
+				print("  ✓ Polygon has top edge indices: ", level_data.wall_polygon.top_edge_indices)
+	
+	# Update dynamic wall bounds (this won't reset polygon if already loaded)
+	update_wall_bounds()
+	
+	# CRITICAL FIX: Create top edge holds AFTER wall bounds are set
+	if has_custom_polygon and dynamic_wall:
+		# Wait for bounds calculation to complete
+		await get_tree().process_frame
+		await get_tree().process_frame
+		
+		# Now create the top edge holds
+		if dynamic_wall.has_method("_create_top_edge_holds"):
+			print("  Creating top edge holds...")
+			dynamic_wall._create_top_edge_holds()
+			
+			# Verify they were created
+			var top_hold_count = 0
+			for child in dynamic_wall.get_children():
+				if child.has_meta("is_top_edge_hold"):
+					top_hold_count += 1
+					print("    - Created top hold at: ", child.global_position)
+			
+			if top_hold_count > 0:
+				print("  ✓ Created ", top_hold_count, " top edge holds from marked edges")
+			elif "top_edge_indices" in dynamic_wall and not dynamic_wall.top_edge_indices.is_empty():
+				print("  ⚠ WARNING: top_edge_indices exist but no holds created!")
+				print("    Indices: ", dynamic_wall.top_edge_indices)
+				print("    This means _create_top_edge_holds() failed - check dynamic_wall.gd")
 	
 	print("\n═══════════════════════════════════════")
 	print("✓ LEVEL LOADED: " + path)
@@ -194,6 +229,8 @@ func load_level(path: String) -> bool:
 		print("  Crashpads: " + str(level_data.crashpads.size()))
 	if "wall_polygon" in level_data:
 		print("  Wall: Custom polygon shape")
+		if "top_edge_indices" in level_data.wall_polygon:
+			print("  Top edges: " + str(level_data.wall_polygon.top_edge_indices))
 	print("═══════════════════════════════════════\n")
 	
 	return true
@@ -258,10 +295,19 @@ func get_start_holds() -> Array[Node2D]:
 
 func get_top_holds() -> Array[Node2D]:
 	var tops: Array[Node2D] = []
+	
+	# Get regular TOP holds from holds container
 	if holds_container:
 		for hold in holds_container.get_children():
 			if hold.has_method("is_top_out") and hold.is_top_out():
 				tops.append(hold)
+	
+	# CRITICAL FIX: Also include dynamically created top edge holds from wall
+	if dynamic_wall:
+		for child in dynamic_wall.get_children():
+			if child.has_meta("is_top_edge_hold"):
+				tops.append(child)
+	
 	return tops
 
 func get_player_spawn_position() -> Vector2:
@@ -303,7 +349,7 @@ func validate_level() -> Dictionary:
 		return result
 	
 	var starts = get_start_holds()
-	var tops = get_top_holds()
+	var tops = get_top_holds()  # This now includes top edge holds
 	result.start_count = starts.size()
 	result.top_count = tops.size()
 	result.has_start = result.start_count > 0
