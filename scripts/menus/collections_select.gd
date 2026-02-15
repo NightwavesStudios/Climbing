@@ -13,22 +13,6 @@ var button_to_collection = {}
 func _ready() -> void:
 	_setup_button_mapping()
 	_update_collection_states()
-	_make_buttons_same_size_and_height()
-
-func _make_buttons_same_size_and_height():
-	var buttons = $ScrollContainer/HBoxContainer.get_children()
-	var max_width = 0
-	var target_height = get_viewport_rect().size.y * 0.6
-
-	# find max width
-	for button in buttons:
-		if button is Button:
-			max_width = max(max_width, button.get_minimum_size().x)
-
-	# apply same width and target height
-	for button in buttons:
-		if button is Button:
-			button.custom_minimum_size = Vector2(max_width, target_height)
 
 func _setup_button_mapping():
 	"""Map buttons to their collection IDs"""
@@ -50,51 +34,6 @@ func _update_collection_states():
 		var is_unlocked = GameState.is_collection_unlocked(collection_id)
 		var is_completed = GameState.is_collection_completed(collection_id)
 		var progress = GameState.get_collection_progress(collection_id)
-		
-		# Update button appearance
-		_style_collection_button(button, collection_id, is_unlocked, is_completed, progress)
-
-func _style_collection_button(button: Button, collection_id: String, unlocked: bool, completed: bool, progress: Dictionary):
-	"""Style the button based on its state"""
-	if not button:
-		return
-	
-	var data = GameState.get_collection_data(collection_id)
-	
-	# Set button text
-	var text = data.name
-	if completed:
-		text += " ✓"  # Checkmark for completed
-	elif progress.completed > 0:
-		text += " (" + str(progress.completed) + "/" + str(progress.total) + ")"
-	
-	button.text = text
-	
-	# CRITICAL: Actually disable the button if not unlocked
-	button.disabled = not unlocked
-	button.focus_mode = Control.FOCUS_NONE if not unlocked else Control.FOCUS_ALL
-	
-	# Visual styling
-	if not unlocked:
-		# Locked state - gray and disabled
-		button.modulate = Color(0.5, 0.5, 0.5, 0.7)
-		button.mouse_default_cursor_shape = Control.CURSOR_FORBIDDEN
-		
-		# Add lock icon or text hint
-		if button.get_node_or_null("LockIcon"):
-			button.get_node("LockIcon").visible = true
-		
-	elif completed:
-		# Completed state - gold/special color
-		button.modulate = Color(1.0, 0.9, 0.5, 1.0)
-		
-	else:
-		# Unlocked but not completed - normal
-		button.modulate = Color(1.0, 1.0, 1.0, 1.0)
-
-# =============================================================================
-# BUTTON CALLBACKS
-# =============================================================================
 
 func _on_tutorial_collection_pressed() -> void:
 	_select_collection("tutorial")

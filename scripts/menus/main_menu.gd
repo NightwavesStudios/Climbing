@@ -68,11 +68,7 @@ func _center_camera_on_route() -> void:
 		var wall_height = bounds.max.y - bounds.min.y
 		var viewport_height = get_viewport_rect().size.y
 		
-		if wall_height > viewport_height * 0.7:
-			var zoom_factor = viewport_height / (wall_height * 1.2)
-			camera.zoom = Vector2(zoom_factor, zoom_factor)
-		else:
-			camera.zoom = Vector2(1.0, 1.0)
+		camera.zoom = Vector2(1.0, 1.0)
 
 # --------------------------
 # BUTTON CALLBACKS

@@ -3,8 +3,6 @@ extends Control
 ## Level Complete Screen
 
 @onready var next_button: Button = get_node_or_null("NextButton")
-@onready var menu_button: Button = get_node_or_null("MenuButton")
-@onready var restart_button: Button = get_node_or_null("RestartButton")
 
 var _completed_level_path: String = ""
 
