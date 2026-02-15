@@ -270,12 +270,16 @@ func _draw():
 	else:
 		_draw_rectangle_wall()
 	
-	# Bolt holes (gym only)
+	# Bolt holes (gym only) - NOW USES POLYGON
 	if show_bolt_holes and not is_granite:
-		draw_bolt_holes(wall_min, wall_max)
+		if use_polygon_mode and control_points.size() >= 3:
+			draw_bolt_holes_on_polygon()
+		else:
+			draw_bolt_holes(wall_min, wall_max)
 	
-	# Granite texture
-	if is_granite:
+	# Granite texture - ONLY in granite mode AND NOT in polygon mode
+	# FIX: Don't draw granite lines in polygon mode
+	if is_granite and not use_polygon_mode:
 		draw_granite_texture()
 	
 	# Ground
@@ -448,10 +452,65 @@ func draw_bolt_holes(start_pos: Vector2, end_pos: Vector2):
 			y += hole_spacing.y
 		x += hole_spacing.x
 
+# FIX: Only check polygon containment, not bounding box
+func draw_bolt_holes_on_polygon():
+	"""Draw bolt holes only within the custom polygon area"""
+	if control_points.size() < 3:
+		return
+	
+	var margin = 15.0
+	var draw_min_x = wall_min.x + margin
+	var draw_max_x = wall_max.x - margin
+	var draw_min_y = wall_min.y + margin
+	var draw_max_y = wall_max.y - margin
+	
+	var sx = floor(draw_min_x / hole_spacing.x) * hole_spacing.x
+	var sy = floor(draw_min_y / hole_spacing.y) * hole_spacing.y
+	var ex = ceil(draw_max_x / hole_spacing.x) * hole_spacing.x
+	var ey = ceil(draw_max_y / hole_spacing.y) * hole_spacing.y
+	
+	var x = sx
+	while x <= ex:
+		var y = sy
+		while y <= ey:
+			var seed := int(x / hole_spacing.x) + int(y / hole_spacing.y) * 1000
+			var jitter := Vector2(
+				(hash_to_float(seed) - 0.5) * hole_jitter,
+				(hash_to_float(seed + 1) - 0.5) * hole_jitter
+			)
+			var hole_pos = Vector2(x, y) + jitter
+			
+			# FIX: Only check polygon containment - remove bounding box pre-filter
+			# This ensures holes only appear within the actual polygon shape
+			if _point_in_polygon(hole_pos):
+				draw_circle(hole_pos, hole_radius, hole_color)
+			y += hole_spacing.y
+		x += hole_spacing.x
+
+# Helper function to check if a point is inside the polygon
+func _point_in_polygon(point: Vector2) -> bool:
+	"""Ray casting algorithm to check if point is inside polygon"""
+	var inside = false
+	var j = control_points.size() - 1
+	
+	for i in range(control_points.size()):
+		var pi = control_points[i]
+		var pj = control_points[j]
+		
+		if ((pi.y > point.y) != (pj.y > point.y)) and \
+		   (point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y) + pi.x):
+			inside = not inside
+		
+		j = i
+	
+	return inside
+
 # =============================================================================
 # GRANITE TEXTURE
 # =============================================================================
 func draw_granite_texture():
+	"""Draw subtle granite cracks - ONLY for rectangle mode"""
+	# FIX: This should only be called in rectangle mode now
 	var wall_size = wall_max - wall_min
 	var rng_seed = int(wall_min.x + wall_min.y)
 	var num_cracks = int(wall_size.x / 200.0) + 2
