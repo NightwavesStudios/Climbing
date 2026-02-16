@@ -21,10 +21,12 @@ offset_bottom = 60.0
 text = "Back"
 script = ExtResource("2_rcboh")
 
-[node name="Locations" type="Node2D" parent="."]
+[node name="Locations" type="Control" parent="."]
+anchors_preset = 0
 
 [node name="TutorialGym" type="Button" parent="Locations"]
 custom_minimum_size = Vector2(87, 0)
+layout_mode = 0
 offset_left = 148.0
 offset_top = 473.0
 offset_right = 241.0
@@ -36,6 +38,7 @@ script = ExtResource("2_rcboh")
 
 [node name="Chapter2" type="Button" parent="Locations"]
 custom_minimum_size = Vector2(87, 0)
+layout_mode = 0
 offset_left = 219.0
 offset_top = 299.0
 offset_right = 318.0
@@ -47,6 +50,7 @@ script = ExtResource("2_rcboh")
 
 [node name="Chapter3" type="Button" parent="Locations"]
 custom_minimum_size = Vector2(87, 0)
+layout_mode = 0
 offset_left = 449.0
 offset_top = 142.0
 offset_right = 537.0
@@ -58,6 +62,7 @@ script = ExtResource("2_rcboh")
 
 [node name="Chapter4" type="Button" parent="Locations"]
 custom_minimum_size = Vector2(87, 0)
+layout_mode = 0
 offset_left = 784.0
 offset_top = 98.0
 offset_right = 872.0
@@ -69,6 +74,7 @@ script = ExtResource("2_rcboh")
 
 [node name="Chapter5" type="Button" parent="Locations"]
 custom_minimum_size = Vector2(87, 0)
+layout_mode = 0
 offset_left = 1062.0
 offset_top = 255.0
 offset_right = 1150.0

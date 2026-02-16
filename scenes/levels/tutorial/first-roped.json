@@ -6,7 +6,7 @@
 	"crashpads": [],
 	"discipline": "roped",
 	"environment": "gym",
-	"grade": "5.6",
+	"grade": "5.5",
 	"holds": [
 		{
 			"type": "START",
@@ -139,7 +139,7 @@
 			"y": -1056.0
 		}
 	],
-	"name": "Longer-Ascent",
+	"name": "First Roped",
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 3,

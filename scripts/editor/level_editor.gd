@@ -54,6 +54,10 @@ var grid_size: float = 32.0
 var idle_timer: float = 0.0
 const IDLE_RESET_TIME: float = 300.0  # 5 minutes instead of 50 minutes
 
+# Undo system
+var undo_stack: Array = []
+const MAX_UNDO_STACK: int = 50
+
 # Hold limits
 const MAX_START_HOLDS: int = 2
 const MAX_TOP_HOLDS: int = 1
@@ -216,21 +220,27 @@ func setup_ui():
 	ui_layer.name = "UI"
 	add_child(ui_layer)
 	
-	# Simple flat background bar at top
+	# Simple flat background bar at top - fill entire width
 	var top_bar = ColorRect.new()
 	top_bar.color = Color(0.12, 0.12, 0.14, 0.92)
-	top_bar.anchor_left = 0.0
-	top_bar.anchor_right = 1.0
-	top_bar.anchor_top = 0.0
-	top_bar.offset_bottom = 120
+	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top_bar.size.y = 120
 	top_bar.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(top_bar)
 	
+	# Margin container for content
+	var margin = MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	margin.size.y = 120
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 20)
+	ui_layer.add_child(margin)
+	
 	# Main horizontal container for all controls
 	var main_hbox = HBoxContainer.new()
-	main_hbox.position = Vector2(20, 20)
 	main_hbox.add_theme_constant_override("separation", 15)
-	ui_layer.add_child(main_hbox)
+	margin.add_child(main_hbox)
 	
 	# === LEFT SECTION: ROUTE INFO ===
 	var info_section = VBoxContainer.new()
@@ -394,6 +404,18 @@ func setup_ui():
 	var clear_btn = create_flat_button("Clear", Vector2(70, 28))
 	clear_btn.pressed.connect(_on_clear)
 	actions_hbox2.add_child(clear_btn)
+	
+	var actions_hbox3 = HBoxContainer.new()
+	actions_hbox3.add_theme_constant_override("separation", 6)
+	actions_section.add_child(actions_hbox3)
+	
+	var grid_btn = create_flat_button("Grid: ON", Vector2(70, 28))
+	grid_btn.pressed.connect(func(): toggle_grid(grid_btn))
+	actions_hbox3.add_child(grid_btn)
+	
+	var wall_btn = create_flat_button("Edit Wall", Vector2(70, 28))
+	wall_btn.pressed.connect(_on_toggle_wall_edit)
+	actions_hbox3.add_child(wall_btn)
 	
 	add_vertical_separator(main_hbox)
 	
@@ -587,6 +609,11 @@ func _on_place_crashpad_pressed():
 
 func _input(event):
 	if event is InputEventKey and event.pressed:
+		# Handle Ctrl+Z separately since it needs modifier check
+		if event.keycode == KEY_Z and (event.ctrl_pressed or event.meta_pressed):
+			undo_last_action()
+			return
+		
 		match event.keycode:
 			KEY_DELETE:
 				if dragging_hold:
@@ -707,6 +734,8 @@ func place_crashpad(pos: Vector2) -> bool:
 	pos.x = clamp(pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
 	pos.y = clamp(pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
 	
+	save_undo_state()
+	
 	var crashpad = crashpad_scene.instantiate()
 	crashpad.global_position = pos
 	crashpads_container.add_child(crashpad)
@@ -716,6 +745,8 @@ func place_crashpad(pos: Vector2) -> bool:
 	return true
 
 func delete_crashpad(crashpad: Node2D):
+	save_undo_state()
+	
 	if crashpad == dragging_crashpad:
 		dragging_crashpad = null
 	crashpad.queue_free()
@@ -967,6 +998,8 @@ func place_hold(pos: Vector2) -> bool:
 		play_sound(pitch_error)
 		return false
 	
+	save_undo_state()
+	
 	var hold = loaded_scenes[selected_hold_type].instantiate()
 	
 	if hold.has_method("set_hold_type_from_string"):
@@ -1018,6 +1051,8 @@ func is_position_reachable(pos: Vector2, exclude_hold: Node2D) -> bool:
 	return nearest_dist <= MAX_REACH_DISTANCE
 
 func delete_hold(hold: Node2D):
+	save_undo_state()
+	
 	if hold == dragging_hold:
 		dragging_hold = null
 	hold.queue_free()
@@ -1262,6 +1297,7 @@ func _on_clear():
 	update_wall_bounds()
 	play_sound(pitch_clear)
 	idle_timer = 0.0
+	undo_stack.clear()
 	
 	show_notification("Editor cleared")
 
@@ -1276,6 +1312,117 @@ func _on_back_pressed():
 	clear_preview()
 	
 	Transition.to("res://scenes/menus/main_menu.tscn")
+
+func toggle_grid(button: Button):
+	grid_enabled = !grid_enabled
+	if grid_enabled:
+		button.text = "Grid: ON"
+	else:
+		button.text = "Grid: OFF"
+	queue_redraw()
+
+func _on_toggle_wall_edit():
+	if not wall:
+		show_notification("No wall found!", true)
+		play_sound(pitch_error)
+		return
+	
+	if not wall.has_method("enable_edit_mode"):
+		show_notification("Wall doesn't support editing", true)
+		play_sound(pitch_error)
+		return
+	
+	var is_editing = false
+	if "edit_mode" in wall:
+		is_editing = wall.edit_mode
+	
+	wall.enable_edit_mode(!is_editing)
+	
+	if !is_editing:
+		show_notification("Wall edit mode ON - Drag points or right-click to remove")
+	else:
+		show_notification("Wall edit mode OFF")
+
+# =============================================================================
+# UNDO SYSTEM
+# =============================================================================
+
+func save_undo_state():
+	var state = {
+		"holds": [],
+		"crashpads": [],
+		"belayer_position": belayer_position
+	}
+	
+	# Save all holds
+	for hold in holds_container.get_children():
+		var hold_type_str = get_hold_type(hold)
+		state.holds.append({
+			"type": hold_type_str,
+			"x": hold.global_position.x,
+			"y": hold.global_position.y
+		})
+	
+	# Save all crashpads
+	for crashpad in crashpads_container.get_children():
+		state.crashpads.append({
+			"x": crashpad.global_position.x,
+			"y": crashpad.global_position.y
+		})
+	
+	undo_stack.append(state)
+	
+	# Limit stack size
+	if undo_stack.size() > MAX_UNDO_STACK:
+		undo_stack.pop_front()
+
+func undo_last_action():
+	if undo_stack.is_empty():
+		show_notification("Nothing to undo")
+		return
+	
+	var state = undo_stack.pop_back()
+	
+	# Clear current holds
+	for hold in holds_container.get_children():
+		hold.queue_free()
+	
+	# Clear current crashpads
+	for crashpad in crashpads_container.get_children():
+		crashpad.queue_free()
+	
+	# Restore holds
+	for hold_data in state.holds:
+		var type_name = hold_data.type
+		if type_name not in loaded_scenes:
+			continue
+		
+		var hold = loaded_scenes[type_name].instantiate()
+		if hold.has_method("set_hold_type_from_string"):
+			hold.set_hold_type_from_string(type_name)
+		
+		hold.global_position = Vector2(hold_data.x, hold_data.y)
+		holds_container.add_child(hold)
+		hold.add_to_group("holds")
+		hold.set_meta("editor_type", type_name)
+	
+	# Restore crashpads
+	if crashpad_scene:
+		for crashpad_data in state.crashpads:
+			var crashpad = crashpad_scene.instantiate()
+			crashpad.global_position = Vector2(crashpad_data.x, crashpad_data.y)
+			crashpads_container.add_child(crashpad)
+			crashpad.add_to_group("crashpads")
+	
+	# Restore belayer
+	if state.belayer_position != Vector2.ZERO:
+		_create_belayer_marker(state.belayer_position)
+	else:
+		_clear_belayer_marker()
+	
+	update_wall_bounds()
+	play_sound(pitch_success)
+	show_notification("Undo successful")
 
 # =============================================================================
 # AUTO-RESET & INFO

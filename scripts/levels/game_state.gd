@@ -16,77 +16,76 @@ var climb_metadata: Dictionary = {}  # level_path: {name: String, grade: String}
 # Collection definitions
 const COLLECTIONS = {
 	"tutorial": {
-		"name": "First Moves",
+		"name": "Intro Gym",
 		"description": "Learn the basics of climbing",
-		"unlock_requirement": {"type": "always"},  # Always unlocked
+		"unlock_requirement": {"type": "always"},
 		"levels": [
 			"res://scenes/levels/tutorial/ladder.json",
-			"res://scenes/levels/tutorial/granite.json",
-			"res://scenes/levels/tutorial/pocket-galore.json",
-			"res://scenes/levels/tutorial/longer-ascent.json",
+			"res://scenes/levels/tutorial/pockets.json",
+			"res://scenes/levels/tutorial/first-roped.json",
 			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/outdoor-sloper.json",
 			"res://scenes/levels/tutorial/long-way-up.json",
+			"res://scenes/levels/tutorial/first-speed.json",
 			"res://scenes/levels/tutorial/crimp.json",
 		]
 	},
-	"flow": {
-		"name": "Flow State",
-		"description": "Smooth, continuous climbing",
-		"unlock_requirement": {"type": "always"},  # Also unlocked from start
-		"levels": [
-			"res://scenes/levels/flow/gentle_start.json",
-			"res://scenes/levels/flow/rhythm.json",
-			"res://scenes/levels/flow/momentum.json",
-			"res://scenes/levels/flow/cascade.json",
-			"res://scenes/levels/flow/waterfall.json",
-		]
-	},
-	"precision": {
-		"name": "Precision",
-		"description": "Exact movements and careful planning",
-		"unlock_requirement": {
-			"type": "collection_complete",
-			"collection": "tutorial"
-		},
-		"levels": [
-			"res://scenes/levels/precision/careful_steps.json",
-			"res://scenes/levels/precision/finger_lock.json",
-			"res://scenes/levels/precision/crimp_master.json",
-			"res://scenes/levels/precision/micro_holds.json",
-			"res://scenes/levels/precision/perfect_balance.json",
-		]
-	},
-	"instability": {
-		"name": "Instability",
-		"description": "Dynamic movement and balance",
-		"unlock_requirement": {
-			"type": "total_levels",
-			"count": 15  # Complete 15 levels total
-		},
-		"levels": [
-			"res://scenes/levels/instability/wobble.json",
-			"res://scenes/levels/instability/dyno_intro.json",
-			"res://scenes/levels/instability/swing.json",
-			"res://scenes/levels/instability/campus.json",
-			"res://scenes/levels/instability/chaos.json",
-		]
-	},
-	"long_haul": {
-		"name": "Long Haul",
-		"description": "Endurance and stamina challenges",
-		"unlock_requirement": {
-			"type": "collections_complete",
-			"count": 2  # Complete any 2 collections
-		},
-		"levels": [
-			"res://scenes/levels/long_haul/marathon_wall.json",
-			"res://scenes/levels/long_haul/endurance_test.json",
-			"res://scenes/levels/long_haul/no_rest.json",
-			"res://scenes/levels/long_haul/final_push.json",
-			"res://scenes/levels/long_haul/everest.json",
-		]
-	},
+	#"flow": {
+		#"name": "Flow State",
+		#"description": "Smooth, continuous climbing",
+		#"unlock_requirement": {"type": "always"},  # Also unlocked from start
+		#"levels": [
+			#"res://scenes/levels/flow/gentle_start.json",
+			#"res://scenes/levels/flow/rhythm.json",
+			#"res://scenes/levels/flow/momentum.json",
+			#"res://scenes/levels/flow/cascade.json",
+			#"res://scenes/levels/flow/waterfall.json",
+		#]
+	#},
+	#"precision": {
+		#"name": "Precision",
+		#"description": "Exact movements and careful planning",
+		#"unlock_requirement": {
+			#"type": "collection_complete",
+			#"collection": "tutorial"
+		#},
+		#"levels": [
+			#"res://scenes/levels/precision/careful_steps.json",
+			#"res://scenes/levels/precision/finger_lock.json",
+			#"res://scenes/levels/precision/crimp_master.json",
+			#"res://scenes/levels/precision/micro_holds.json",
+			#"res://scenes/levels/precision/perfect_balance.json",
+		#]
+	#},
+	#"instability": {
+		#"name": "Instability",
+		#"description": "Dynamic movement and balance",
+		#"unlock_requirement": {
+			#"type": "total_levels",
+			#"count": 15  # Complete 15 levels total
+		#},
+		#"levels": [
+			#"res://scenes/levels/instability/wobble.json",
+			#"res://scenes/levels/instability/dyno_intro.json",
+			#"res://scenes/levels/instability/swing.json",
+			#"res://scenes/levels/instability/campus.json",
+			#"res://scenes/levels/instability/chaos.json",
+		#]
+	#},
+	#"long_haul": {
+		#"name": "Long Haul",
+		#"description": "Endurance and stamina challenges",
+		#"unlock_requirement": {
+			#"type": "collections_complete",
+			#"count": 2  # Complete any 2 collections
+		#},
+		#"levels": [
+			#"res://scenes/levels/long_haul/marathon_wall.json",
+			#"res://scenes/levels/long_haul/endurance_test.json",
+			#"res://scenes/levels/long_haul/no_rest.json",
+			#"res://scenes/levels/long_haul/final_push.json",
+			#"res://scenes/levels/long_haul/everest.json",
+		#]
+	#},
 }
 
 func _ready():
