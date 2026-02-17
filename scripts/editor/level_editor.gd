@@ -31,11 +31,13 @@ var selected_hold_type: String = ""
 var preview_hold: Node2D = null
 var dragging_hold: Node2D = null
 var drag_offset: Vector2 = Vector2.ZERO
+var drag_start_position: Vector2 = Vector2.ZERO  # Track position before drag
 
 # Crashpad state
 var placing_crashpad: bool = false
 var preview_crashpad: Node2D = null
 var dragging_crashpad: Node2D = null
+var crashpad_drag_start_position: Vector2 = Vector2.ZERO
 
 # Climb metadata
 var climb_name: String = ""
@@ -49,10 +51,6 @@ var belayer_position: Vector2 = Vector2.ZERO
 # Grid
 var grid_enabled: bool = true
 var grid_size: float = 32.0
-
-# Auto-reset timer
-var idle_timer: float = 0.0
-const IDLE_RESET_TIME: float = 300.0  # 5 minutes instead of 50 minutes
 
 # Undo system
 var undo_stack: Array = []
@@ -186,7 +184,6 @@ func _process(delta):
 	update_camera(delta)
 	update_preview()
 	update_info_label()
-	update_idle_timer(delta)
 	queue_redraw()
 
 # =============================================================================
@@ -220,18 +217,18 @@ func setup_ui():
 	ui_layer.name = "UI"
 	add_child(ui_layer)
 	
-	# Simple flat background bar at top - fill entire width
+	# Simple flat background bar at top - fill entire width and extend height
 	var top_bar = ColorRect.new()
 	top_bar.color = Color(0.12, 0.12, 0.14, 0.92)
 	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	top_bar.size.y = 120
+	top_bar.size.y = 200
 	top_bar.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(top_bar)
 	
 	# Margin container for content
 	var margin = MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	margin.size.y = 120
+	margin.size.y = 160
 	margin.add_theme_constant_override("margin_left", 20)
 	margin.add_theme_constant_override("margin_right", 20)
 	margin.add_theme_constant_override("margin_top", 20)
@@ -445,7 +442,7 @@ func create_simple_label(text: String) -> Label:
 func add_vertical_separator(parent: HBoxContainer):
 	var sep = ColorRect.new()
 	sep.color = Color(0.3, 0.3, 0.35, 0.4)
-	sep.custom_minimum_size = Vector2(2, 80)
+	sep.custom_minimum_size = Vector2(2, 120)
 	parent.add_child(sep)
 
 func create_flat_button(button_text: String, min_size: Vector2) -> Button:
@@ -489,8 +486,6 @@ func populate_grade_dropdown():
 # =============================================================================
 
 func _on_discipline_changed(index: int):
-	reset_idle_timer()
-	
 	match index:
 		0:  # Bouldering
 			current_discipline = "bouldering"
@@ -522,7 +517,6 @@ func _on_discipline_changed(index: int):
 
 func _on_speed_time_changed(value: float):
 	speed_time_limit = value
-	reset_idle_timer()
 
 func _on_place_belayer_pressed():
 	placing_belayer = true
@@ -589,7 +583,6 @@ func _on_hold_type_selected(index: int):
 	placing_crashpad = false
 	placing_belayer = false
 	clear_preview()
-	reset_idle_timer()
 
 func _on_place_crashpad_pressed():
 	if current_discipline != "bouldering":
@@ -601,7 +594,6 @@ func _on_place_crashpad_pressed():
 	selected_hold_type = ""
 	placing_belayer = false
 	clear_preview()
-	reset_idle_timer()
 
 # =============================================================================
 # INPUT HANDLING
@@ -636,12 +628,17 @@ func _input(event):
 		return
 	
 	if event is InputEventMouseButton:
-		reset_idle_timer()
-		
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				handle_left_click()
 			else:
+				# Save undo state when releasing a dragged hold or crashpad (only if moved)
+				if dragging_hold and dragging_hold.global_position != drag_start_position:
+					save_undo_state()
+					update_wall_bounds()
+				elif dragging_crashpad and dragging_crashpad.global_position != crashpad_drag_start_position:
+					save_undo_state()
+				
 				dragging_hold = null
 				dragging_crashpad = null
 		
@@ -664,26 +661,21 @@ func _input(event):
 			camera.zoom = camera.zoom.clamp(Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
 	
 	elif event is InputEventMagnifyGesture:
-		reset_idle_timer()
 		var zoom_change = (event.factor - 1.0) * TRACKPAD_ZOOM_SPEED
 		camera.zoom *= (1.0 + zoom_change)
 		camera.zoom = camera.zoom.clamp(Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
 	
 	elif event is InputEventPanGesture:
-		reset_idle_timer()
 		camera.position += event.delta * 50.0 / camera.zoom.x
 	
 	elif event is InputEventMouseMotion:
 		if dragging_hold:
-			reset_idle_timer()
 			var new_pos = snap_to_grid(get_global_mouse_position() + drag_offset)
 			new_pos.x = clamp(new_pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
 			new_pos.y = clamp(new_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
 			dragging_hold.global_position = new_pos
-			update_wall_bounds()
 		
 		elif dragging_crashpad:
-			reset_idle_timer()
 			var new_pos = snap_to_grid(get_global_mouse_position() + drag_offset)
 			new_pos.x = clamp(new_pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
 			new_pos.y = clamp(new_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
@@ -695,6 +687,7 @@ func handle_left_click():
 	# Place belayer for roped climbing
 	if placing_belayer:
 		var snapped_pos = snap_to_grid(pos)
+		save_undo_state()
 		_create_belayer_marker(snapped_pos)
 		placing_belayer = false
 		return
@@ -708,13 +701,17 @@ func handle_left_click():
 	else:
 		var hold = get_hold_at_position(pos)
 		if hold:
+			save_undo_state()
 			dragging_hold = hold
 			drag_offset = hold.global_position - pos
+			drag_start_position = hold.global_position
 		else:
 			var crashpad = get_crashpad_at_position(pos)
 			if crashpad:
+				save_undo_state()
 				dragging_crashpad = crashpad
 				drag_offset = crashpad.global_position - pos
+				crashpad_drag_start_position = crashpad.global_position
 
 # =============================================================================
 # CRASHPAD MANAGEMENT
@@ -957,8 +954,7 @@ func get_hold_type(hold: Node2D) -> String:
 
 func is_mouse_over_ui() -> bool:
 	var mouse_pos = get_viewport().get_mouse_position()
-	# Check if mouse is over the top bar (first 120 pixels)
-	if mouse_pos.y < 120:
+	if mouse_pos.y < 160:
 		return true
 	return false
 
@@ -1096,7 +1092,6 @@ func update_camera(delta):
 		move.x += 1
 	
 	if move.length() > 0:
-		reset_idle_timer()
 		camera.position += move.normalized() * PAN_SPEED * delta / camera.zoom.x
 
 # =============================================================================
@@ -1171,12 +1166,9 @@ func clear_preview():
 # =============================================================================
 
 func _on_climb_name_changed(new_text: String):
-	reset_idle_timer()
 	climb_name = new_text
 
 func _on_grade_changed(index: int):
-	reset_idle_timer()
-	
 	if current_discipline == "bouldering":
 		if index >= 0 and index < V_GRADES.size():
 			climb_grade = V_GRADES[index]
@@ -1185,8 +1177,6 @@ func _on_grade_changed(index: int):
 			climb_grade = YDS_GRADES[index]
 
 func on_environment_changed(index: int):
-	reset_idle_timer()
-	
 	var env_config = get_node_or_null("/root/EnvironmentConfig")
 	if not env_config:
 		return
@@ -1243,6 +1233,7 @@ func _on_preview():
 	player.name = "PreviewPlayer"
 	add_child(player)
 	
+	# Spawn position based on START holds only — never FOOT holds
 	var spawn_pos = Vector2.ZERO
 	if start_holds.size() == 1:
 		var hold_point = start_holds[0].get_node_or_null("HoldPoint")
@@ -1261,7 +1252,15 @@ func _on_preview():
 		spawn_pos = (sum / start_holds.size()) + Vector2(0, 80)
 	
 	player.global_position = spawn_pos
-	camera.position = player.global_position
+	
+	# Center camera on the route bounds, not the player spawn position.
+	# Matches main.gd center_camera_on_route() behaviour.
+	var bounds = get_route_bounds()
+	if bounds.valid:
+		var center_x = (bounds.min.x + bounds.max.x) / 2.0
+		var center_y = (bounds.min.y + bounds.max.y) / 2.0
+		camera.position = Vector2(center_x, center_y)
+		camera.zoom = Vector2(1.0, 1.0)
 	
 	play_sound(pitch_preview)
 	show_notification("Testing route - Press ESC to exit")
@@ -1296,7 +1295,6 @@ func _on_clear():
 	
 	update_wall_bounds()
 	play_sound(pitch_clear)
-	idle_timer = 0.0
 	undo_stack.clear()
 	
 	show_notification("Editor cleared")
@@ -1336,11 +1334,15 @@ func _on_toggle_wall_edit():
 	if "edit_mode" in wall:
 		is_editing = wall.edit_mode
 	
+	if not is_editing:
+		save_undo_state()
+	
 	wall.enable_edit_mode(!is_editing)
 	
 	if !is_editing:
-		show_notification("Wall edit mode ON - Drag points or right-click to remove")
+		show_notification("Wall edit: Click line to add point, drag to move, right-click to delete")
 	else:
+		save_undo_state()
 		show_notification("Wall edit mode OFF")
 
 # =============================================================================
@@ -1351,10 +1353,10 @@ func save_undo_state():
 	var state = {
 		"holds": [],
 		"crashpads": [],
-		"belayer_position": belayer_position
+		"belayer_position": belayer_position,
+		"wall_polygon": null
 	}
 	
-	# Save all holds
 	for hold in holds_container.get_children():
 		var hold_type_str = get_hold_type(hold)
 		state.holds.append({
@@ -1363,16 +1365,17 @@ func save_undo_state():
 			"y": hold.global_position.y
 		})
 	
-	# Save all crashpads
 	for crashpad in crashpads_container.get_children():
 		state.crashpads.append({
 			"x": crashpad.global_position.x,
 			"y": crashpad.global_position.y
 		})
 	
+	if wall and wall.has_method("get_polygon_data"):
+		state.wall_polygon = wall.get_polygon_data()
+	
 	undo_stack.append(state)
 	
-	# Limit stack size
 	if undo_stack.size() > MAX_UNDO_STACK:
 		undo_stack.pop_front()
 
@@ -1383,15 +1386,12 @@ func undo_last_action():
 	
 	var state = undo_stack.pop_back()
 	
-	# Clear current holds
 	for hold in holds_container.get_children():
 		hold.queue_free()
 	
-	# Clear current crashpads
 	for crashpad in crashpads_container.get_children():
 		crashpad.queue_free()
 	
-	# Restore holds
 	for hold_data in state.holds:
 		var type_name = hold_data.type
 		if type_name not in loaded_scenes:
@@ -1406,7 +1406,6 @@ func undo_last_action():
 		hold.add_to_group("holds")
 		hold.set_meta("editor_type", type_name)
 	
-	# Restore crashpads
 	if crashpad_scene:
 		for crashpad_data in state.crashpads:
 			var crashpad = crashpad_scene.instantiate()
@@ -1414,45 +1413,30 @@ func undo_last_action():
 			crashpads_container.add_child(crashpad)
 			crashpad.add_to_group("crashpads")
 	
-	# Restore belayer
 	if state.belayer_position != Vector2.ZERO:
 		_create_belayer_marker(state.belayer_position)
 	else:
 		_clear_belayer_marker()
+	
+	if state.wall_polygon and wall and wall.has_method("set_polygon_data"):
+		wall.set_polygon_data(state.wall_polygon)
 	
 	update_wall_bounds()
 	play_sound(pitch_success)
 	show_notification("Undo successful")
 
 # =============================================================================
-# AUTO-RESET & INFO
+# INFO
 # =============================================================================
-
-func update_idle_timer(delta: float):
-	if get_node_or_null("PreviewPlayer") != null:
-		idle_timer = 0.0
-		return
-	
-	idle_timer += delta
-	
-	if idle_timer >= IDLE_RESET_TIME:
-		show_notification("Auto-clearing due to inactivity")
-		await get_tree().create_timer(2.0).timeout
-		_on_clear()
-		idle_timer = 0.0
-
-func reset_idle_timer():
-	idle_timer = 0.0
 
 func show_notification(text: String, is_error: bool = false):
 	var old_notif = ui_layer.get_node_or_null("NotificationLabel")
 	if old_notif:
 		old_notif.queue_free()
 	
-	# Simple notification bar
 	var notif_bar = ColorRect.new()
 	notif_bar.name = "NotificationLabel"
-	notif_bar.position = Vector2(get_viewport_rect().size.x / 2 - 200, 140)
+	notif_bar.position = Vector2(get_viewport_rect().size.x / 2 - 200, 180)
 	notif_bar.size = Vector2(400, 40)
 	
 	if is_error:
@@ -1571,7 +1555,6 @@ func _draw():
 			3.0
 		)
 	
-	# Draw belayer position indicator
 	if belayer_position != Vector2.ZERO:
 		draw_circle(belayer_position, 15, Color(1, 0.5, 0, 0.3))
 		draw_arc(belayer_position, 20, 0, TAU, 32, Color.ORANGE, 2.0)

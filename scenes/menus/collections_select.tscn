@@ -24,7 +24,7 @@ script = ExtResource("2_rcboh")
 [node name="Locations" type="Control" parent="."]
 anchors_preset = 0
 
-[node name="TutorialGym" type="Button" parent="Locations"]
+[node name="IntroGym" type="Button" parent="Locations"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 0
 offset_left = 148.0
@@ -36,7 +36,7 @@ text = "Tutorial
 Gym"
 script = ExtResource("2_rcboh")
 
-[node name="Chapter2" type="Button" parent="Locations"]
+[node name="GraniteCrag" type="Button" parent="Locations"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 0
 offset_left = 219.0
@@ -44,48 +44,9 @@ offset_top = 299.0
 offset_right = 318.0
 offset_bottom = 376.0
 size_flags_vertical = 4
-text = "Outdoor
-Location 1"
-script = ExtResource("2_rcboh")
-
-[node name="Chapter3" type="Button" parent="Locations"]
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 0
-offset_left = 449.0
-offset_top = 142.0
-offset_right = 537.0
-offset_bottom = 219.0
-size_flags_vertical = 4
-text = "Outdoor
-Location 2"
-script = ExtResource("2_rcboh")
-
-[node name="Chapter4" type="Button" parent="Locations"]
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 0
-offset_left = 784.0
-offset_top = 98.0
-offset_right = 872.0
-offset_bottom = 175.0
-size_flags_vertical = 4
-text = "Outdoor
-Location 3"
-script = ExtResource("2_rcboh")
-
-[node name="Chapter5" type="Button" parent="Locations"]
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 0
-offset_left = 1062.0
-offset_top = 255.0
-offset_right = 1150.0
-offset_bottom = 332.0
-size_flags_vertical = 4
-text = "Gym 2"
+text = "Granite Crag"
 script = ExtResource("2_rcboh")
 
 [connection signal="pressed" from="Back" to="." method="_on_back_pressed"]
-[connection signal="pressed" from="Locations/TutorialGym" to="." method="_on_tutorial_collection_pressed"]
-[connection signal="pressed" from="Locations/Chapter2" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="Locations/Chapter3" to="." method="_on_precision_collection_pressed"]
-[connection signal="pressed" from="Locations/Chapter4" to="." method="_on_instability_collection_pressed"]
-[connection signal="pressed" from="Locations/Chapter5" to="." method="_on_long_haul_collection_pressed"]
+[connection signal="pressed" from="Locations/IntroGym" to="." method="_on_tutorial_collection_pressed"]
+[connection signal="pressed" from="Locations/GraniteCrag" to="." method="_on_flow_collection_pressed"]

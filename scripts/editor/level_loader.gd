@@ -270,6 +270,15 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 	var hold = loaded_scenes[type_name].instantiate()
 	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
 	
+	# CRITICAL FIX: Set hold_type property on the hold instance
+	# This is needed for is_start_hold() and is_top_out() to work
+	if "hold_type" in hold:
+		hold.hold_type = type_name
+		print("  Spawned %s hold at (%.1f, %.1f)" % [type_name, hold.global_position.x, hold.global_position.y])
+	else:
+		print("  WARNING: Hold at (%.1f, %.1f) missing 'hold_type' property!" % [hold.global_position.x, hold.global_position.y])
+	
+	# Also call the method if it exists (for backward compatibility)
 	if hold.has_method("set_hold_type_from_string"):
 		hold.set_hold_type_from_string(type_name)
 	
@@ -311,26 +320,60 @@ func get_top_holds() -> Array[Node2D]:
 	return tops
 
 func get_player_spawn_position() -> Vector2:
-	var starts = get_start_holds()
-	if starts.size() == 0:
-		print("WARNING: No START holds found!")
-		return Vector2(400, 300)
+	"""Get spawn position from START holds"""
 	
+	print("\n=== GET_PLAYER_SPAWN_POSITION ===")
+	
+	var starts = get_start_holds()
+	print("Found %d START holds" % starts.size())
+	
+	if starts.size() == 0:
+		print("⚠️  WARNING: No START holds found!")
+		
+		# DEBUG: Show what holds we DO have
+		print("Available holds in container:")
+		if holds_container:
+			for i in min(10, holds_container.get_child_count()):
+				var hold = holds_container.get_child(i)
+				var has_method = hold.has_method("is_start_hold")
+				var is_start = has_method and hold.is_start_hold()
+				var hold_type = hold.get("hold_type") if "hold_type" in hold else "NO_TYPE"
+				print("  [%d] hold_type='%s', has_method=%s, is_start=%s, pos=(%.1f, %.1f)" % [
+					i, hold_type, has_method, is_start, hold.global_position.x, hold.global_position.y
+				])
+		
+		# FIXED: Return Vector2.ZERO instead of hardcoded position
+		# This will trigger the fallback logic in main.gd
+		return Vector2.ZERO
+	
+	# Calculate spawn position from start holds
 	if starts.size() == 1:
 		var hold_point = starts[0].get_node_or_null("HoldPoint")
+		var spawn_pos: Vector2
 		if hold_point:
-			return hold_point.global_position + Vector2(0, 80)
-		return starts[0].global_position + Vector2(0, 80)
+			spawn_pos = hold_point.global_position + Vector2(0, 80)
+		else:
+			spawn_pos = starts[0].global_position + Vector2(0, 80)
+		
+		print("Single start hold spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+		return spawn_pos
 	
+	# Multiple start holds - use average position
 	var sum = Vector2.ZERO
 	for hold in starts:
 		var hold_point = hold.get_node_or_null("HoldPoint")
 		if hold_point:
 			sum += hold_point.global_position
+			print("  Start hold with HoldPoint at: (%.1f, %.1f)" % [hold_point.global_position.x, hold_point.global_position.y])
 		else:
 			sum += hold.global_position
+			print("  Start hold (no HoldPoint) at: (%.1f, %.1f)" % [hold.global_position.x, hold.global_position.y])
 	
-	return sum / starts.size() + Vector2(0, 80)
+	var spawn_pos = sum / starts.size() + Vector2(0, 80)
+	print("Average spawn position: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+	print("===============================\n")
+	
+	return spawn_pos
 
 func validate_level() -> Dictionary:
 	var result = {

@@ -300,13 +300,70 @@ func _on_speed_timer_started():
 
 func position_player_at_spawn():
 	if not player:
+		print("ERROR: No player found in position_player_at_spawn!")
+		return
+	
+	if not level_loader:
+		print("ERROR: No level_loader found in position_player_at_spawn!")
 		return
 	
 	var spawn_pos = level_loader.get_player_spawn_position()
+	print("\n═══ PLAYER SPAWN ═══")
+	print("Spawn position retrieved: ", spawn_pos)
+	
+	if spawn_pos == Vector2.ZERO:
+		print("⚠️  WARNING: Spawn position is (0,0) - start hold may not be found!")
+		print("Attempting manual start hold search...")
+		
+		# Try to find start holds manually as fallback
+		var holds_container = level_loader.get_node_or_null("Holds")
+		if holds_container:
+			var hold_count = holds_container.get_child_count()
+			print("Found holds container with ", hold_count, " children")
+			
+			var start_holds_found = []
+			for hold in holds_container.get_children():
+				if hold.has_method("is_start_hold") and hold.is_start_hold():
+					start_holds_found.append(hold)
+			
+			if start_holds_found.size() > 0:
+				print("✓ Found ", start_holds_found.size(), " start hold(s)")
+				# Use the center of all start holds
+				var total_pos = Vector2.ZERO
+				for hold in start_holds_found:
+					total_pos += hold.global_position
+					print("  - Start hold at: ", hold.global_position)
+				spawn_pos = total_pos / start_holds_found.size()
+				print("✓ Using average position: ", spawn_pos)
+			else:
+				print("✗ No start holds found in manual search!")
+				if hold_count > 0:
+					print("Listing first 5 holds and their types:")
+					for i in min(5, hold_count):
+						var hold = holds_container.get_child(i)
+						var is_start = hold.has_method("is_start_hold") and hold.is_start_hold()
+						var hold_type = hold.get("hold_type") if "hold_type" in hold else "unknown"
+						print("  [%d] Position: %s, Type: %s, IsStart: %s" % [i, hold.global_position, hold_type, is_start])
+		else:
+			print("✗ ERROR: No holds container found!")
+		
+		if spawn_pos == Vector2.ZERO:
+			print("✗ CRITICAL: Could not find any start holds! Player will spawn at origin (0,0)")
+			print("  Check that:")
+			print("  1. Level JSON has holds marked as 'start'")
+			print("  2. Hold script has is_start_hold() method")
+			print("  3. Holds are being loaded correctly")
+	else:
+		print("✓ Valid spawn position found")
+	
 	player.global_position = spawn_pos
+	print("Player positioned at: ", player.global_position)
 	
 	if player.has_method("set_spawn_position"):
 		player.set_spawn_position(spawn_pos)
+		print("✓ Spawn position set on player")
+	
+	print("═══════════════════\n")
 
 # =============================================================================
 # CAMERA

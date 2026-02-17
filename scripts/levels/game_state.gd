@@ -15,7 +15,7 @@ var climb_metadata: Dictionary = {}  # level_path: {name: String, grade: String}
 
 # Collection definitions
 const COLLECTIONS = {
-	"tutorial": {
+	"intro-gym": {
 		"name": "Intro Gym",
 		"description": "Learn the basics of climbing",
 		"unlock_requirement": {"type": "always"},
@@ -24,10 +24,28 @@ const COLLECTIONS = {
 			"res://scenes/levels/tutorial/tutorial_02.json",
 			"res://scenes/levels/tutorial/tutorial_03.json",
 			"res://scenes/levels/tutorial/tutorial_04.json",
-			"res://scenes/levels/tutorial/far-reach.json",
-			"res://scenes/levels/tutorial/long-way-up.json",
-			"res://scenes/levels/tutorial/first-speed.json",
-			"res://scenes/levels/tutorial/crimp.json",
+			"res://scenes/levels/tutorial/tutorial_05.json",
+			"res://scenes/levels/tutorial/tutorial_06.json",
+			"res://scenes/levels/tutorial/tutorial_07.json",
+			"res://scenes/levels/tutorial/tutorial_08.json",
+		]
+	},
+	"granite-crag": {
+		"name": "Granite Crag",
+		"description": "",
+		"unlock_requirement": {
+			"type": "collection_complete",
+			"collection": "intro-gym"
+		},
+		"levels": [
+			#"res://scenes/levels/tutorial/granite-c.json",
+			#"res://scenes/levels/tutorial/tutorial_02.json",
+			#"res://scenes/levels/tutorial/tutorial_03.json",
+			#"res://scenes/levels/tutorial/tutorial_04.json",
+			#"res://scenes/levels/tutorial/tutorial_05.json",
+			#"res://scenes/levels/tutorial/tutorial_06.json",
+			#"res://scenes/levels/tutorial/tutorial_07.json",
+			"res://scenes/levels/tutorial/tutorial_018.json",
 		]
 	},
 	#"flow": {

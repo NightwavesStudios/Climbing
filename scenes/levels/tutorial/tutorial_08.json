@@ -6,7 +6,7 @@
 	"crashpads": [],
 	"discipline": "roped",
 	"environment": "gym",
-	"grade": "V2",
+	"grade": "5.7",
 	"holds": [
 		{
 			"type": "START",
@@ -155,11 +155,6 @@
 		},
 		{
 			"type": "FOOT",
-			"x": 128.0,
-			"y": -736.0
-		},
-		{
-			"type": "FOOT",
 			"x": 352.0,
 			"y": -352.0
 		},
@@ -195,16 +190,86 @@
 		},
 		{
 			"type": "FOOT",
+			"x": 384.0,
+			"y": -1568.0
+		},
+		{
+			"type": "FOOT",
 			"x": 160.0,
-			"y": -1440.0
+			"y": -736.0
+		},
+		{
+			"type": "SLOPER",
+			"x": 320.0,
+			"y": -896.0
+		},
+		{
+			"type": "FOOT",
+			"x": 416.0,
+			"y": -1344.0
+		},
+		{
+			"type": "FOOT",
+			"x": 288.0,
+			"y": -1056.0
+		},
+		{
+			"type": "FOOT",
+			"x": 224.0,
+			"y": -1472.0
+		},
+		{
+			"type": "FOOT",
+			"x": 96.0,
+			"y": -1504.0
+		},
+		{
+			"type": "FOOT",
+			"x": 224.0,
+			"y": -608.0
 		},
 		{
 			"type": "FOOT",
 			"x": 384.0,
-			"y": -1568.0
+			"y": -512.0
+		},
+		{
+			"type": "FOOT",
+			"x": 288.0,
+			"y": -768.0
+		},
+		{
+			"type": "FOOT",
+			"x": 128.0,
+			"y": -1056.0
+		},
+		{
+			"type": "FOOT",
+			"x": 448.0,
+			"y": -1216.0
+		},
+		{
+			"type": "FOOT",
+			"x": 64.0,
+			"y": -1280.0
+		},
+		{
+			"type": "FOOT",
+			"x": 256.0,
+			"y": -1600.0
+		},
+		{
+			"type": "FOOT",
+			"x": 288.0,
+			"y": -1696.0
+		},
+		{
+			"type": "FOOT",
+			"x": 160.0,
+			"y": -1632.0
 		}
 	],
-	"name": "Long Way Up",
+	"name": "Unnamed Route",
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 3,
