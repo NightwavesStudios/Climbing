@@ -1,7 +1,7 @@
 extends Area2D
 class_name ClimbingHold
 
-enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET }
+enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET, WINDOW }
 
 @export var hold_type: HoldType = HoldType.JUG
 

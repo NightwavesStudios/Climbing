@@ -48,7 +48,6 @@ var columns: int = 4
 # ─────────────────────────────────────────────
 @onready var scroll_container: ScrollContainer = $CenterContainer/ScrollContainer
 @onready var map_layer: Control        = $CenterContainer/ScrollContainer/MapLayer
-@onready var path_canvas: Control      = $CenterContainer/ScrollContainer/MapLayer/PathCanvas
 @onready var nodes_layer: Control      = $CenterContainer/ScrollContainer/MapLayer/NodesLayer
 @onready var collection_title: Label   = $CollectionTitle
 @onready var progress_label: Label     = $ProgressLabel

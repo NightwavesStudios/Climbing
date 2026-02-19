@@ -17,7 +17,7 @@
 	"grade": "VB",
 	"holds": [
 		{
-			"type": "START",
+			"type": "JUG",
 			"x": -32.0,
 			"y": 0.0
 		},

@@ -38,14 +38,7 @@ const COLLECTIONS = {
 			"collection": "intro-gym"
 		},
 		"levels": [
-			#"res://scenes/levels/tutorial/granite-c.json",
-			#"res://scenes/levels/tutorial/tutorial_02.json",
-			#"res://scenes/levels/tutorial/tutorial_03.json",
-			#"res://scenes/levels/tutorial/tutorial_04.json",
-			#"res://scenes/levels/tutorial/tutorial_05.json",
-			#"res://scenes/levels/tutorial/tutorial_06.json",
-			#"res://scenes/levels/tutorial/tutorial_07.json",
-			"res://scenes/levels/tutorial/tutorial_018.json",
+			"res://scenes/levels/granite.json",
 		]
 	},
 	#"flow": {

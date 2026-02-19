@@ -3,13 +3,6 @@ class_name DynamicWall
 ## Dynamic wall with click-to-select top edges
 
 # =============================================================================
-# ENVIRONMENT COLORS
-# =============================================================================
-var gym_wall_color := Color(0.82, 0.75, 0.62)
-var granite_wall_color := Color(0.607, 0.607, 0.655, 1.0)
-var background_color := Color(0.53, 0.81, 0.92)
-
-# =============================================================================
 # TEXTURE SETTINGS
 # =============================================================================
 var wall_texture_enabled := true
@@ -77,10 +70,12 @@ var hovered_edge: int = -1
 
 # =============================================================================
 # ENVIRONMENT STATE
+# Read from EnvironmentConfig - do not hardcode values here.
 # =============================================================================
-var current_wall_color: Color = gym_wall_color
+var current_wall_color: Color = Color(0.82, 0.75, 0.62)
+var background_color: Color = Color(0.53, 0.81, 0.92)
 var show_bolt_holes: bool = true
-var is_granite := false
+var is_granite: bool = false  # True only when show_granite_texture is set in env data
 var current_environment: String = "gym"
 
 # NEW: Editor mode detection
@@ -111,32 +106,54 @@ func set_editor_mode(enabled: bool):
 	queue_redraw()
 
 # =============================================================================
+# ENVIRONMENT SYSTEM
+# Reads all values from EnvironmentConfig - no hardcoded match/if chains needed.
+# =============================================================================
+func update_environment_settings():
+	var env_config := get_node_or_null("/root/EnvironmentConfig")
+	if env_config == null:
+		call_deferred("update_environment_settings")
+		return
+
+	var data = env_config.get_environment_data()
+	current_wall_color = data.get("wall_color", Color(0.82, 0.75, 0.62))
+	background_color = data.get("background_color", Color(0.53, 0.81, 0.92))
+	show_bolt_holes = data.get("show_bolt_holes", false)
+	is_granite = data.get("show_granite_texture", false)
+	current_environment = env_config.get_current_environment_name().to_lower()
+
+	if not top_edge_indices.is_empty():
+		_create_top_edge_holds()
+
+	queue_redraw()
+
+# =============================================================================
 # INPUT - Polygon Editing (EDITOR ONLY)
 # =============================================================================
 func _input(event: InputEvent):
 	# ONLY process input in editor when edit mode is active
 	if not is_in_editor or not edit_mode:
 		return
-	
+
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				_try_start_drag()
 			else:
 				_end_drag()
-		
+
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			var mouse_pos = get_global_mouse_position()
-			
+
 			# Check if clicking on a point to remove it
 			for i in range(control_points.size()):
 				if i == ground_left_index or i == ground_right_index:
 					continue
-					
+
 				if mouse_pos.distance_to(control_points[i]) < POINT_GRAB_RADIUS:
 					remove_point(i)
 					return
-			
+
 			# Check if clicking near an edge to add point OR toggle top edge
 			if hovered_edge >= 0:
 				# If CTRL/CMD/SHIFT held, toggle top edge
@@ -144,36 +161,32 @@ func _input(event: InputEvent):
 					toggle_top_edge(hovered_edge)
 				else:
 					add_point_between_nearest_edge(mouse_pos)
-	
+
 	elif event is InputEventMouseMotion:
 		if dragging_point >= 0:
 			_update_drag()
 		else:
 			_update_hover()
 
-# FIX: Better debug output and feedback
 func toggle_top_edge(edge_index: int):
 	"""Toggle whether an edge is marked as a top-out edge"""
 	if _is_ground_edge(edge_index):
 		print("❌ Cannot mark ground edge as top-out")
 		return
-	
+
 	if edge_index in top_edge_indices:
-		# Remove from top edges
 		top_edge_indices.erase(edge_index)
 		print("✓ Unmarked edge ", edge_index, " as top-out | Remaining: ", top_edge_indices)
 	else:
-		# Add to top edges
 		top_edge_indices.append(edge_index)
 		print("✓ Marked edge ", edge_index, " as top-out | All marked: ", top_edge_indices)
-	
-	# Recreate top edge holds
+
 	_create_top_edge_holds()
 	queue_redraw()
 
 func _try_start_drag():
 	var mouse_pos = get_global_mouse_position()
-	
+
 	for i in range(control_points.size()):
 		var point = control_points[i]
 		if mouse_pos.distance_to(point) < POINT_GRAB_RADIUS:
@@ -185,28 +198,27 @@ func _try_start_drag():
 func _update_drag():
 	if dragging_point < 0 or dragging_point >= control_points.size():
 		return
-	
+
 	var mouse_pos = get_global_mouse_position()
 	var new_pos = mouse_pos + drag_offset
-	
+
 	# Ground points can only move horizontally
 	if dragging_point == ground_left_index or dragging_point == ground_right_index:
 		new_pos.y = ground_y
-		
+
 		if dragging_point == ground_left_index:
 			var right_x = control_points[ground_right_index].x
 			new_pos.x = min(new_pos.x, right_x - 50.0)
 		else:
 			var left_x = control_points[ground_left_index].x
 			new_pos.x = max(new_pos.x, left_x + 50.0)
-	
+
 	control_points[dragging_point] = new_pos
 	_update_bounds_from_polygon()
-	
-	# Recreate top edge holds if any are marked
+
 	if not top_edge_indices.is_empty():
 		_create_top_edge_holds()
-	
+
 	queue_redraw()
 
 func _end_drag():
@@ -219,7 +231,7 @@ func _update_hover():
 	var old_hover_edge = hovered_edge
 	hovered_point = -1
 	hovered_edge = -1
-	
+
 	for i in range(control_points.size()):
 		var point = control_points[i]
 		if mouse_pos.distance_to(point) < POINT_GRAB_RADIUS:
@@ -227,28 +239,28 @@ func _update_hover():
 			if old_hover_point != hovered_point or old_hover_edge != hovered_edge:
 				queue_redraw()
 			return
-	
+
 	for i in range(control_points.size()):
 		if _is_ground_edge(i):
 			continue
-			
+
 		var p1 = control_points[i]
 		var p2 = control_points[(i + 1) % control_points.size()]
-		
+
 		var dist = _point_to_segment_distance(mouse_pos, p1, p2)
 		if dist < EDGE_CLICK_DISTANCE:
 			hovered_edge = i
 			break
-	
+
 	if old_hover_point != hovered_point or old_hover_edge != hovered_edge:
 		queue_redraw()
 
 func _is_ground_edge(edge_index: int) -> bool:
 	if ground_left_index < 0 or ground_right_index < 0:
 		return false
-	
+
 	var next_index = (edge_index + 1) % control_points.size()
-	
+
 	return (edge_index == ground_left_index and next_index == ground_right_index) or \
 		   (edge_index == ground_right_index and next_index == ground_left_index)
 
@@ -258,48 +270,47 @@ func _is_ground_edge(edge_index: int) -> bool:
 func _draw():
 	if not wall_valid:
 		return
-	
-	# Background
+
+	# Background - uses color from EnvironmentConfig via update_environment_settings()
 	var bg_min = wall_min - Vector2(BACKGROUND_EXPANSION, BACKGROUND_EXPANSION)
 	var bg_max = wall_max + Vector2(BACKGROUND_EXPANSION, BACKGROUND_EXPANSION)
 	draw_rect(Rect2(bg_min, bg_max - bg_min), background_color, true)
-	
+
 	# Wall (polygon or rectangle)
 	if use_polygon_mode and control_points.size() >= 3:
 		_draw_polygon_wall()
 	else:
 		_draw_rectangle_wall()
-	
-	# Bolt holes (gym only) - NOW USES POLYGON
-	if show_bolt_holes and not is_granite:
+
+	# Bolt holes - controlled by show_bolt_holes from EnvironmentConfig
+	if show_bolt_holes:
 		if use_polygon_mode and control_points.size() >= 3:
 			draw_bolt_holes_on_polygon()
 		else:
 			draw_bolt_holes(wall_min, wall_max)
-	
-	# Granite texture - ONLY in granite mode AND NOT in polygon mode
-	# FIX: Don't draw granite lines in polygon mode
+
+	# Granite texture - controlled by is_granite from EnvironmentConfig
 	if is_granite and not use_polygon_mode:
 		draw_granite_texture()
-	
+
 	# Ground
 	if ground_enabled:
 		_draw_ground()
-	
+
 	# Edges (with special color for top edges - EDITOR ONLY)
 	draw_edges()
-	
+
 	# ONLY show control points in editor
 	if is_in_editor and use_polygon_mode and control_points.size() > 0:
 		_draw_control_points()
-		
+
 	# Only show edge highlights when editing
 	if is_in_editor and edit_mode and use_polygon_mode:
 		_draw_edge_highlights()
 
 func _draw_rectangle_wall():
 	var wall_size = wall_max - wall_min
-	
+
 	if wall_texture_enabled:
 		draw_textured_wall(wall_min, wall_size)
 	else:
@@ -309,54 +320,47 @@ func _draw_polygon_wall():
 	var poly_points = PackedVector2Array(control_points)
 	draw_colored_polygon(poly_points, current_wall_color)
 
-# FIX: Much better visual feedback for edge selection
 func _draw_edge_highlights():
 	if hovered_edge < 0 or control_points.size() < 2:
 		return
-	
+
 	if _is_ground_edge(hovered_edge):
 		return
-	
+
 	var p1 = control_points[hovered_edge]
 	var p2 = control_points[(hovered_edge + 1) % control_points.size()]
-	
-	# Show whether this edge is a top edge
+
 	var color = edge_hover_color
 	var label_text = "RIGHT-CLICK: Add point | SHIFT+RIGHT-CLICK: Mark as TOP-OUT"
-	
+
 	if hovered_edge in top_edge_indices:
-		color = Color(1.0, 0.5, 0.0, 0.9)  # Orange if already marked
+		color = Color(1.0, 0.5, 0.0, 0.9)
 		label_text = "MARKED AS TOP-OUT | SHIFT+RIGHT-CLICK: Unmark"
-	
-	# Draw thick highlight
+
 	draw_line(p1, p2, color, 8.0)
-	
-	# Draw hover indicator at mouse position
+
 	var mouse_pos = get_global_mouse_position()
 	var segment = p2 - p1
 	var segment_length_sq = segment.length_squared()
-	
+
 	if segment_length_sq > 0:
 		var t = clamp((mouse_pos - p1).dot(segment) / segment_length_sq, 0.0, 1.0)
 		var nearest_point = p1 + t * segment
 		draw_circle(nearest_point, 8.0, color)
-		
-		# Draw label above the line
+
 		var label_pos = nearest_point + Vector2(0, -30)
 		var label_size = ThemeDB.fallback_font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_CENTER, -1, 14)
-		draw_rect(Rect2(label_pos - Vector2(label_size.x/2 + 8, 8), 
-						label_size + Vector2(16, 16)), 
+		draw_rect(Rect2(label_pos - Vector2(label_size.x/2 + 8, 8),
+						label_size + Vector2(16, 16)),
 				  Color(0, 0, 0, 0.9), true)
 		draw_string(ThemeDB.fallback_font, label_pos, label_text,
 					HORIZONTAL_ALIGNMENT_CENTER, -1, 14, color)
 
-# FIX: Show which edges are marked as top-out in the instructions
 func _draw_control_points():
 	for i in range(control_points.size()):
 		var point = control_points[i]
 		var color = point_color
-		
-		# Color coding
+
 		if i == ground_left_index or i == ground_right_index:
 			color = ground_point_color
 		elif edit_mode:
@@ -364,30 +368,25 @@ func _draw_control_points():
 				color = point_drag_color
 			elif hovered_point == i:
 				color = point_hover_color
-		
-		# Shadow
+
 		draw_circle(point, POINT_RADIUS + 3, Color(0, 0, 0, 0.5))
-		# Point
 		draw_circle(point, POINT_RADIUS, color)
-		
-		# Number label
+
 		var label = str(i + 1)
-		draw_string(ThemeDB.fallback_font, point + Vector2(-5, 6), label, 
+		draw_string(ThemeDB.fallback_font, point + Vector2(-5, 6), label,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
-	
-	# Instructions (only when editing)
+
 	if edit_mode and control_points.size() > 0:
-		# NEW: Show current marked edges
 		var marked_edges_text = ""
 		if not top_edge_indices.is_empty():
 			marked_edges_text = " | MARKED TOP EDGES: " + str(top_edge_indices)
-		
+
 		var text = "LEFT-DRAG: Move | RIGHT-CLICK: Add Point | SHIFT+RIGHT-CLICK on EDGE: Mark Top Edge" + marked_edges_text
 		var pos = Vector2(wall_min.x, wall_min.y - 40)
-		
+
 		var size = ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
 		draw_rect(Rect2(pos - Vector2(8, 22), size + Vector2(16, 30)), Color(0, 0, 0, 0.8), true)
-		
+
 		draw_string(ThemeDB.fallback_font, pos, text,
 					HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 0.6))
 
@@ -398,21 +397,21 @@ func draw_textured_wall(start_pos: Vector2, size: Vector2):
 	var tile := 128.0
 	var cols := int(ceil(size.x / tile)) + 1
 	var rows := int(ceil(size.y / tile)) + 1
-	
+
 	var gx = floor(start_pos.x / tile) * tile
 	var gy = floor(start_pos.y / tile) * tile
-	
+
 	for x in cols:
 		for y in rows:
 			var px = gx + x * tile
 			var py = gy + y * tile
 			var seed := int(px / tile) + int(py / tile) * 1000
 			var v := (hash_to_float(seed) - 0.5) * texture_variation
-			
+
 			var tile_rect = Rect2(Vector2(px, py), Vector2(tile, tile))
 			var wall_rect = Rect2(wall_min, wall_max - wall_min)
 			var clipped_rect = tile_rect.intersection(wall_rect)
-			
+
 			if clipped_rect.has_area():
 				draw_rect(clipped_rect,
 					Color(current_wall_color.r + v,
@@ -429,12 +428,12 @@ func draw_bolt_holes(start_pos: Vector2, end_pos: Vector2):
 	var draw_max_x = end_pos.x - margin
 	var draw_min_y = start_pos.y + margin
 	var draw_max_y = end_pos.y - margin
-	
+
 	var sx = floor(draw_min_x / hole_spacing.x) * hole_spacing.x
 	var sy = floor(draw_min_y / hole_spacing.y) * hole_spacing.y
 	var ex = ceil(draw_max_x / hole_spacing.x) * hole_spacing.x
 	var ey = ceil(draw_max_y / hole_spacing.y) * hole_spacing.y
-	
+
 	var x = sx
 	while x <= ex:
 		var y = sy
@@ -445,30 +444,29 @@ func draw_bolt_holes(start_pos: Vector2, end_pos: Vector2):
 				(hash_to_float(seed + 1) - 0.5) * hole_jitter
 			)
 			var hole_pos = Vector2(x, y) + jitter
-			
+
 			if hole_pos.x >= draw_min_x and hole_pos.x <= draw_max_x and \
 			   hole_pos.y >= draw_min_y and hole_pos.y <= draw_max_y:
 				draw_circle(hole_pos, hole_radius, hole_color)
 			y += hole_spacing.y
 		x += hole_spacing.x
 
-# FIX: Only check polygon containment, not bounding box
 func draw_bolt_holes_on_polygon():
 	"""Draw bolt holes only within the custom polygon area"""
 	if control_points.size() < 3:
 		return
-	
+
 	var margin = 15.0
 	var draw_min_x = wall_min.x + margin
 	var draw_max_x = wall_max.x - margin
 	var draw_min_y = wall_min.y + margin
 	var draw_max_y = wall_max.y - margin
-	
+
 	var sx = floor(draw_min_x / hole_spacing.x) * hole_spacing.x
 	var sy = floor(draw_min_y / hole_spacing.y) * hole_spacing.y
 	var ex = ceil(draw_max_x / hole_spacing.x) * hole_spacing.x
 	var ey = ceil(draw_max_y / hole_spacing.y) * hole_spacing.y
-	
+
 	var x = sx
 	while x <= ex:
 		var y = sy
@@ -479,30 +477,27 @@ func draw_bolt_holes_on_polygon():
 				(hash_to_float(seed + 1) - 0.5) * hole_jitter
 			)
 			var hole_pos = Vector2(x, y) + jitter
-			
-			# FIX: Only check polygon containment - remove bounding box pre-filter
-			# This ensures holes only appear within the actual polygon shape
+
 			if _point_in_polygon(hole_pos):
 				draw_circle(hole_pos, hole_radius, hole_color)
 			y += hole_spacing.y
 		x += hole_spacing.x
 
-# Helper function to check if a point is inside the polygon
 func _point_in_polygon(point: Vector2) -> bool:
 	"""Ray casting algorithm to check if point is inside polygon"""
 	var inside = false
 	var j = control_points.size() - 1
-	
+
 	for i in range(control_points.size()):
 		var pi = control_points[i]
 		var pj = control_points[j]
-		
+
 		if ((pi.y > point.y) != (pj.y > point.y)) and \
 		   (point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y) + pi.x):
 			inside = not inside
-		
+
 		j = i
-	
+
 	return inside
 
 # =============================================================================
@@ -510,18 +505,17 @@ func _point_in_polygon(point: Vector2) -> bool:
 # =============================================================================
 func draw_granite_texture():
 	"""Draw subtle granite cracks - ONLY for rectangle mode"""
-	# FIX: This should only be called in rectangle mode now
 	var wall_size = wall_max - wall_min
 	var rng_seed = int(wall_min.x + wall_min.y)
 	var num_cracks = int(wall_size.x / 200.0) + 2
-	
+
 	for i in range(num_cracks):
 		var x_offset = (float(i) / num_cracks) * wall_size.x
 		var x_pos = wall_min.x + x_offset + (hash(rng_seed + i) % 50 - 25)
-		
+
 		var start_y = wall_min.y
 		var end_y = wall_max.y
-		
+
 		if x_pos >= wall_min.x and x_pos <= wall_max.x:
 			draw_line(Vector2(x_pos, start_y),
 					  Vector2(x_pos, end_y),
@@ -533,66 +527,23 @@ func draw_granite_texture():
 # =============================================================================
 func draw_edges():
 	if use_polygon_mode and control_points.size() >= 3:
-		# Draw each edge individually
 		for i in range(control_points.size()):
 			var p1 = control_points[i]
 			var p2 = control_points[(i + 1) % control_points.size()]
-			
-			# ONLY show orange color in editor
+
 			var color = edge_color
 			var thickness = edge_thickness
-			
+
 			if is_in_editor and i in top_edge_indices:
 				color = top_edge_color
-				thickness = edge_thickness + 2.0  # Slightly thicker
-			
+				thickness = edge_thickness + 2.0
+
 			draw_line(p1, p2, color, thickness)
 	else:
-		# Rectangle mode - standard edges
 		draw_line(wall_min, Vector2(wall_min.x, wall_max.y), edge_color.darkened(0.3), edge_thickness)
 		draw_line(Vector2(wall_max.x, wall_min.y), wall_max, edge_color.darkened(0.3), edge_thickness)
 		draw_line(wall_min, Vector2(wall_max.x, wall_min.y), edge_color, 4.0)
 		draw_line(Vector2(wall_min.x, wall_max.y), wall_max, edge_color.darkened(0.3), 6.0)
-
-# =============================================================================
-# ENVIRONMENT SYSTEM
-# =============================================================================
-func update_environment_settings():
-	var env_config := get_node_or_null("/root/EnvironmentConfig")
-	if env_config == null:
-		call_deferred("update_environment_settings")
-		return
-	
-	if env_config.has_method("get_current_environment_name"):
-		set_environment_by_name(env_config.get_current_environment_name())
-	elif env_config.has_method("get_current_environment"):
-		var env_id = env_config.get_current_environment()
-		is_granite = (env_id == 1)
-		set_environment_by_name("granite" if is_granite else "gym")
-	else:
-		set_environment_by_name("gym")
-
-func set_environment_by_name(env_name: String):
-	current_environment = env_name.to_lower()
-	match current_environment:
-		"gym":
-			current_wall_color = gym_wall_color
-			show_bolt_holes = true
-			is_granite = false
-		"granite":
-			current_wall_color = granite_wall_color
-			show_bolt_holes = false
-			is_granite = true
-		_:
-			current_wall_color = gym_wall_color
-			show_bolt_holes = true
-			is_granite = false
-	
-	# Recreate top edge holds
-	if not top_edge_indices.is_empty():
-		_create_top_edge_holds()
-	
-	queue_redraw()
 
 # =============================================================================
 # BOUNDS MANAGEMENT
@@ -600,15 +551,14 @@ func set_environment_by_name(env_name: String):
 func calculate_bounds_from_holds(holds_container: Node2D):
 	if not holds_container or holds_container.get_child_count() == 0:
 		wall_valid = false
-		# Don't reset polygon - keep it for when holds are added back
 		queue_redraw()
 		return
-	
+
 	var min_x = INF
 	var max_x = -INF
 	var min_y = INF
 	var max_y = -INF
-	
+
 	for hold in holds_container.get_children():
 		if not hold is Node2D:
 			continue
@@ -617,52 +567,49 @@ func calculate_bounds_from_holds(holds_container: Node2D):
 		max_x = max(max_x, pos.x)
 		min_y = min(min_y, pos.y)
 		max_y = max(max_y, pos.y)
-	
+
 	wall_min = Vector2(min_x - WALL_PADDING_SIDES, min_y - WALL_PADDING_TOP)
 	wall_max = Vector2(max_x + WALL_PADDING_SIDES, max_y + WALL_PADDING_BOTTOM)
 	wall_valid = true
-	
+
 	ground_y = wall_max.y
-	
-	# ALWAYS auto-initialize 4 corner points if not in polygon mode
+
 	if control_points.is_empty():
 		control_points = [
-			wall_min,                           # 0: Top-left
-			Vector2(wall_max.x, wall_min.y),    # 1: Top-right
-			Vector2(wall_max.x, wall_max.y),    # 2: Bottom-right (ground)
-			Vector2(wall_min.x, wall_max.y)     # 3: Bottom-left (ground)
+			wall_min,
+			Vector2(wall_max.x, wall_min.y),
+			Vector2(wall_max.x, wall_max.y),
+			Vector2(wall_min.x, wall_max.y)
 		]
 		ground_left_index = 3
 		ground_right_index = 2
-		use_polygon_mode = true  # Auto-enable polygon mode
+		use_polygon_mode = true
 	else:
-		# Update existing polygon to fit new bounds
 		if ground_left_index >= 0 and ground_left_index < control_points.size():
 			control_points[ground_left_index].y = ground_y
 		if ground_right_index >= 0 and ground_right_index < control_points.size():
 			control_points[ground_right_index].y = ground_y
-	
-	# Create top edge holds if any are marked
+
 	if not top_edge_indices.is_empty():
 		_create_top_edge_holds()
-	
+
 	queue_redraw()
 
 func _update_bounds_from_polygon():
 	if control_points.is_empty():
 		return
-	
+
 	var min_x = INF
 	var max_x = -INF
 	var min_y = INF
 	var max_y = -INF
-	
+
 	for point in control_points:
 		min_x = min(min_x, point.x)
 		max_x = max(max_x, point.x)
 		min_y = min(min_y, point.y)
 		max_y = max(max_y, point.y)
-	
+
 	wall_min = Vector2(min_x, min_y)
 	wall_max = Vector2(max_x, max_y)
 	wall_valid = true
@@ -677,34 +624,32 @@ func add_point_between_nearest_edge(pos: Vector2):
 		_update_bounds_from_polygon()
 		queue_redraw()
 		return
-	
+
 	var nearest_edge_index = -1
 	var nearest_dist = INF
-	
+
 	for i in range(control_points.size()):
 		if _is_ground_edge(i):
 			continue
-			
+
 		var p1 = control_points[i]
 		var p2 = control_points[(i + 1) % control_points.size()]
 		var dist = _point_to_segment_distance(pos, p1, p2)
 		if dist < nearest_dist:
 			nearest_dist = dist
 			nearest_edge_index = i
-	
+
 	if nearest_edge_index < 0:
 		return
-	
+
 	var new_index = nearest_edge_index + 1
 	control_points.insert(new_index, pos)
-	
-	# Update indices after insertion
+
 	if ground_left_index >= new_index:
 		ground_left_index += 1
 	if ground_right_index >= new_index:
 		ground_right_index += 1
-	
-	# Update top edge indices (they shift too)
+
 	var updated_top_edges: Array[int] = []
 	for edge_idx in top_edge_indices:
 		if edge_idx >= nearest_edge_index:
@@ -712,13 +657,12 @@ func add_point_between_nearest_edge(pos: Vector2):
 		else:
 			updated_top_edges.append(edge_idx)
 	top_edge_indices = updated_top_edges
-	
+
 	_update_bounds_from_polygon()
-	
-	# Recreate top edge holds
+
 	if not top_edge_indices.is_empty():
 		_create_top_edge_holds()
-	
+
 	queue_redraw()
 
 func remove_point(index: int):
@@ -726,52 +670,50 @@ func remove_point(index: int):
 	if index == ground_left_index or index == ground_right_index:
 		push_warning("Cannot remove ground points")
 		return
-	
+
 	if control_points.size() <= 4:
 		push_warning("Cannot remove - need at least 4 points")
 		return
-	
+
 	if index >= 0 and index < control_points.size():
 		control_points.remove_at(index)
-		
+
 		if ground_left_index > index:
 			ground_left_index -= 1
 		if ground_right_index > index:
 			ground_right_index -= 1
-		
+
 		if dragging_point == index:
 			dragging_point = -1
 		elif dragging_point > index:
 			dragging_point -= 1
-		
+
 		if hovered_point == index:
 			hovered_point = -1
 		elif hovered_point > index:
 			hovered_point -= 1
-		
-		# Update top edge indices
+
 		var updated_top_edges: Array[int] = []
 		for edge_idx in top_edge_indices:
 			if edge_idx == index:
-				continue  # Remove this edge
+				continue
 			elif edge_idx > index:
 				updated_top_edges.append(edge_idx - 1)
 			else:
 				updated_top_edges.append(edge_idx)
 		top_edge_indices = updated_top_edges
-		
+
 		_update_bounds_from_polygon()
-		
-		# Recreate top edge holds
+
 		if not top_edge_indices.is_empty():
 			_create_top_edge_holds()
-		
+
 		queue_redraw()
 
 func enable_polygon_mode(enabled: bool = true):
 	"""Switch to custom polygon"""
 	use_polygon_mode = enabled
-	
+
 	if enabled and control_points.is_empty() and wall_valid:
 		control_points = [
 			wall_min,
@@ -782,18 +724,18 @@ func enable_polygon_mode(enabled: bool = true):
 		ground_left_index = 3
 		ground_right_index = 2
 		ground_y = wall_max.y
-	
+
 	queue_redraw()
 
 func enable_edit_mode(enabled: bool = true):
 	"""Show/hide control points"""
 	edit_mode = enabled
-	
+
 	if not enabled:
 		dragging_point = -1
 		hovered_point = -1
 		hovered_edge = -1
-	
+
 	queue_redraw()
 
 func reset_polygon():
@@ -807,45 +749,42 @@ func reset_polygon():
 	dragging_point = -1
 	hovered_point = -1
 	hovered_edge = -1
-	
-	# Remove all top edge holds
+
 	for child in get_children():
 		if child.has_meta("is_top_edge_hold"):
 			child.queue_free()
-	
+
 	queue_redraw()
 
 func _point_to_segment_distance(point: Vector2, seg_start: Vector2, seg_end: Vector2) -> float:
 	var segment = seg_end - seg_start
 	var segment_length_sq = segment.length_squared()
-	
+
 	if segment_length_sq == 0:
 		return point.distance_to(seg_start)
-	
+
 	var t = clamp((point - seg_start).dot(segment) / segment_length_sq, 0.0, 1.0)
 	var projection = seg_start + t * segment
 	return point.distance_to(projection)
 
 # =============================================================================
-# TOP EDGE HOLDS - User-selected edges become grabbable
+# TOP EDGE HOLDS
 # =============================================================================
 func _create_top_edge_holds():
 	"""Create grabbable holds for user-marked top edges"""
-	# Remove old ones
 	for child in get_children():
 		if child.has_meta("is_top_edge_hold"):
 			child.queue_free()
-	
+
 	if not use_polygon_mode or top_edge_indices.is_empty():
 		return
-	
+
 	print("Creating top edge holds for edges: ", top_edge_indices)
-	
-	# Create hold for each marked top edge
+
 	for edge_idx in top_edge_indices:
 		if edge_idx >= control_points.size():
 			continue
-		
+
 		var p1 = control_points[edge_idx]
 		var p2 = control_points[(edge_idx + 1) % control_points.size()]
 		_create_edge_hold(p1, p2)
@@ -861,14 +800,14 @@ func _create_top_hold_at(position: Vector2, width: float):
 	"""Create a top-out hold at given position"""
 	var top_hold = Area2D.new()
 	top_hold.set_meta("is_top_edge_hold", true)
-	top_hold.collision_layer = 2  # Same as regular holds
+	top_hold.collision_layer = 2
 	top_hold.collision_mask = 0
-	top_hold.monitoring = false  # Don't need to detect other areas
-	top_hold.monitorable = true  # BUT must be detectable by limbs
+	top_hold.monitoring = false
+	top_hold.monitorable = true
 	top_hold.name = "TopEdgeHold"
 
 	var shape = RectangleShape2D.new()
-	shape.size = Vector2(width, 50)  # Use size instead of extents for Godot 4
+	shape.size = Vector2(width, 50)
 	var collision = CollisionShape2D.new()
 	collision.shape = shape
 	top_hold.add_child(collision)
@@ -880,11 +819,10 @@ func _create_top_hold_at(position: Vector2, width: float):
 
 	top_hold.global_position = position
 
-	# Add immediately, not deferred - this ensures collision is set up properly
 	add_child(top_hold)
 	top_hold.add_to_group("holds")
 	call_deferred("_assign_top_hold_script", top_hold)
-	
+
 	print("    DEBUG: Created top hold at ", position, " with width ", width)
 
 func _assign_top_hold_script(top_hold):
@@ -908,7 +846,6 @@ func can_grab(limb: Node2D, is_foot: bool) -> bool:
 
 func try_claim(limb: Node2D, is_foot: bool, snap_pos: Vector2) -> bool:
 	if not can_grab(limb, is_foot): return false
-	
 	var limb_name = limb.name
 	if limb_name == 'LeftHand':
 		claimed_left_hand = limb
@@ -916,7 +853,6 @@ func try_claim(limb: Node2D, is_foot: bool, snap_pos: Vector2) -> bool:
 	elif limb_name == 'RightHand':
 		claimed_right_hand = limb
 		right_hand_x = snap_pos.x
-	
 	return true
 
 func release(limb: Node2D) -> void:
@@ -931,12 +867,10 @@ func release(limb: Node2D) -> void:
 func get_limb_anchor(limb: Node2D) -> Vector2:
 	var limb_name = limb.name
 	var x_pos = limb.global_position.x
-	
 	if limb_name == 'LeftHand' and claimed_left_hand == limb:
 		x_pos = left_hand_x
 	elif limb_name == 'RightHand' and claimed_right_hand == limb:
 		x_pos = right_hand_x
-	
 	return Vector2(x_pos, global_position.y)
 
 func get_state_pressure(delta: float, body_offset: float, static_time: float,
@@ -981,7 +915,6 @@ func get_bounds() -> Dictionary:
 	return {"min": wall_min, "max": wall_max, "valid": wall_valid}
 
 func get_top_edge_y() -> float:
-	# Find lowest Y from all top edge points
 	if use_polygon_mode and not top_edge_indices.is_empty():
 		var top_y = INF
 		for edge_idx in top_edge_indices:
@@ -992,7 +925,7 @@ func get_top_edge_y() -> float:
 			top_y = min(top_y, p1.y)
 			top_y = min(top_y, p2.y)
 		return top_y if top_y != INF else wall_min.y
-	
+
 	return wall_min.y
 
 func get_wall_height() -> float:
@@ -1011,57 +944,54 @@ func get_polygon_data() -> Dictionary:
 	"""Export polygon data for JSON"""
 	if not use_polygon_mode or control_points.is_empty():
 		return {}
-	
+
 	var points_data = []
 	for point in control_points:
 		points_data.append({"x": point.x, "y": point.y})
-	
+
 	return {
 		"enabled": true,
 		"points": points_data,
 		"ground_left_index": ground_left_index,
 		"ground_right_index": ground_right_index,
-		"top_edge_indices": top_edge_indices.duplicate()  # Save user-selected top edges
+		"top_edge_indices": top_edge_indices.duplicate()
 	}
 
 func set_polygon_data(data: Dictionary):
 	"""Load polygon data from JSON"""
 	if not data or data.is_empty():
 		return
-	
+
 	if not data.get("enabled", false):
 		return
-	
+
 	use_polygon_mode = true
 	control_points.clear()
-	
+
 	for point_data in data.get("points", []):
 		var point = Vector2(point_data.get("x", 0), point_data.get("y", 0))
 		control_points.append(point)
-	
+
 	ground_left_index = data.get("ground_left_index", -1)
 	ground_right_index = data.get("ground_right_index", -1)
-	
-	# Load user-selected top edges
+
 	top_edge_indices.clear()
 	if "top_edge_indices" in data:
 		var loaded_edges = data.get("top_edge_indices", [])
 		for edge_idx in loaded_edges:
-			# JSON may load numbers as float or int, so convert to int
 			if edge_idx is float or edge_idx is int:
 				top_edge_indices.append(int(edge_idx))
-		
+
 		print("  DEBUG: Loaded top edge indices: ", top_edge_indices)
-	
+
 	if ground_left_index >= 0 and ground_left_index < control_points.size():
 		ground_y = control_points[ground_left_index].y
-	
+
 	_update_bounds_from_polygon()
-	
-	# Create top edge holds
+
 	if not top_edge_indices.is_empty():
 		_create_top_edge_holds()
-	
+
 	queue_redraw()
-	
+
 	print("  Polygon loaded: " + str(control_points.size()) + " points, " + str(top_edge_indices.size()) + " top edges")
