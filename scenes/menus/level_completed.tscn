@@ -3,17 +3,10 @@
 [ext_resource type="Script" uid="uid://nsfftbyrolbv" path="res://scripts/menus/level_completed.gd" id="1_hw4ma"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_qpkrs"]
 
-[node name="LevelCompleted" type="Control"]
-layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
+[node name="LevelCompleted" type="CanvasLayer"]
 script = ExtResource("1_hw4ma")
 
 [node name="NextButton" type="Button" parent="."]
-layout_mode = 0
 offset_left = 565.0
 offset_top = 660.0
 offset_right = 715.0

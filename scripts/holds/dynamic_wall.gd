@@ -98,7 +98,6 @@ var _env: Dictionary = {}
 # SCENERY SEED — randomized each session so mountains/terrain never repeat
 # =============================================================================
 var _scenery_seed: int = 0
-var _bg_hold_textures: Array[Texture2D] = []
 
 # =============================================================================
 # LIFECYCLE
@@ -108,7 +107,6 @@ func _ready():
 	add_to_group("environment_walls")
 	_scenery_seed = randi()  # Random each session — mountains/terrain never repeat
 	_init_clouds()
-	_load_bg_hold_textures()
 	call_deferred("update_environment_settings")
 
 var _redraw_timer: float = 0.0
@@ -119,7 +117,8 @@ func _process(delta: float):
 	if _redraw_timer < REDRAW_INTERVAL:
 		return
 	_redraw_timer = 0.0
-	var has_animation = _env.get("has_stars", false) or (_env.get("cloud_color", Color(1,1,1)).a > 0.02)
+	var has_animation = _env.get("has_stars", false) or (_env.get("cloud_color", Color(1,1,1)).a > 0.02) \
+		or _env.get("has_gym_interior", false)
 	if has_animation:
 		_cloud_time += REDRAW_INTERVAL
 		_update_clouds(REDRAW_INTERVAL)
@@ -235,7 +234,6 @@ func _apply_environment_theme():
 				"cloud_color": Color(1.0, 1.0, 1.0, 0.0),
 				"has_sun": false, "has_mountains": false,
 				"has_gym_interior": true,
-				"has_bg_walls": true,
 				"ground_type": "gym_floor",
 				"ground_top": Color(0.22, 0.22, 0.24),
 				"ground_mid": Color(0.16, 0.16, 0.18),
@@ -377,7 +375,6 @@ func _draw():
 	_draw_clouds()
 	_draw_fog()
 	if _env.get("has_gym_interior", false): _draw_gym_interior()
-	if _env.get("has_bg_walls", false): _draw_gym_bg_walls()
 	if _env.get("has_scaffold", false): _draw_scaffold()
 	if use_polygon_mode and control_points.size() >= 3: _draw_polygon_wall()
 	else: _draw_rectangle_wall()
@@ -466,10 +463,11 @@ func _draw_mountains():
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var hs: Color = _env.get("sky_horizon", background_color)
 	var ht: Color = _env.get("sky_top", background_color)
-	# Each layer gets a unique seed derived from _scenery_seed — always different each session
-	_draw_hill_layer(bl, br, ground_y - 20.0, 160.0, 420.0, 80, hs.lerp(ht, 0.4).darkened(0.10), _scenery_seed ^ 0x1A2B3C)
-	_draw_hill_layer(bl, br, ground_y - 5.0,  90.0,  230.0, 55, hs.darkened(0.25),                _scenery_seed ^ 0x4D5E6F)
-	_draw_hill_layer(bl, br, ground_y,         40.0,  110.0, 45, hs.darkened(0.42),                _scenery_seed ^ 0x7F8A9B)
+	# Extra far layer for more vertical depth
+	_draw_hill_layer(bl, br, ground_y - 60.0,  240.0, 600.0, 90, hs.lerp(ht, 0.6).darkened(0.06), _scenery_seed ^ 0x0A1B2C)
+	_draw_hill_layer(bl, br, ground_y - 20.0,  160.0, 420.0, 80, hs.lerp(ht, 0.4).darkened(0.10), _scenery_seed ^ 0x1A2B3C)
+	_draw_hill_layer(bl, br, ground_y - 5.0,    90.0, 230.0, 55, hs.darkened(0.25),                _scenery_seed ^ 0x4D5E6F)
+	_draw_hill_layer(bl, br, ground_y,           40.0, 110.0, 45, hs.darkened(0.42),                _scenery_seed ^ 0x7F8A9B)
 
 func _draw_hill_layer(left: float, right: float, base_y: float,
 					  min_h: float, max_h: float, segs: int, color: Color, seed: int):
@@ -564,62 +562,181 @@ func _draw_gym_interior():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var width = br - bl
-	var ceiling_y = wall_min.y - BACKGROUND_EXPANSION
-	var wall_h = ground_y - ceiling_y
+	var vis_top = wall_min.y
+	var vis_bot = ground_y
+	var vis_h   = vis_bot - vis_top
 
-	# Wall — clean white with a gentle top-to-bottom warmth gradient
-	for i in range(6):
-		var t = float(i) / 6.0
-		draw_rect(Rect2(Vector2(bl, ceiling_y + t * wall_h), Vector2(width, wall_h / 6.0 + 1.0)),
-				  Color(0.97 - t * 0.05, 0.97 - t * 0.04, 0.98 - t * 0.04), true)
+	# ── BACK WALL ─────────────────────────────────────────────────────────────
+	for i in range(8):
+		var t = float(i) / 8.0
+		draw_rect(Rect2(Vector2(bl, vis_top + t*vis_h), Vector2(width, vis_h/8.0+2.0)),
+				  Color(0.93-t*0.03, 0.93-t*0.025, 0.94-t*0.02), true)
 
-	# Thin blue accent stripe — single confident line
-	var accent_y = ceiling_y + wall_h * 0.40
-	draw_rect(Rect2(Vector2(bl, accent_y), Vector2(width, 5.0)),
-			  Color(0.22, 0.48, 0.90, 1.0), true)
-	draw_rect(Rect2(Vector2(bl, accent_y + 5.0), Vector2(width, 2.0)),
-			  Color(0.14, 0.32, 0.65, 0.4), true)
+	# ── WINDOW LAYOUT ─────────────────────────────────────────────────────────
+	var win_top    = vis_top + vis_h * 0.10
+	var win_h      = vis_h * 0.78
+	var win_bot    = win_top + win_h
+	var win_w      = 400.0
+	var win_gap    = 150.0
+	var win_stride = win_w + win_gap
+	var win_count  = int(ceil(width / win_stride)) + 2
+	var wall_col   = Color(0.93, 0.93, 0.94)
 
-	# Skirting board — dark strip at floor level
-	draw_rect(Rect2(Vector2(bl, ground_y - 18.0), Vector2(width, 18.0)),
-			  Color(0.62, 0.62, 0.64), true)
-	draw_line(Vector2(bl, ground_y - 18.0), Vector2(br, ground_y - 18.0),
-			  Color(0.78, 0.78, 0.80), 1.5, true)
+	# ── PARALLAX ──────────────────────────────────────────────────────────────
+	var ct    = get_viewport().get_canvas_transform()
+	var zoom  = ct.x.x
+	var cam_x = -ct.origin.x / zoom
+	var cam_y = -ct.origin.y / zoom
 
-	# Ceiling — slightly warm grey, clean soffit edge
-	draw_rect(Rect2(Vector2(bl, ceiling_y), Vector2(width, 52.0)),
-			  Color(0.76, 0.76, 0.77), true)
-	draw_rect(Rect2(Vector2(bl, ceiling_y + 46.0), Vector2(width, 8.0)),
-			  Color(0.58, 0.58, 0.60, 0.95), true)
-	draw_line(Vector2(bl, ceiling_y + 54.0), Vector2(br, ceiling_y + 54.0),
-			  Color(1.0, 1.0, 1.0, 0.45), 1.5, true)
+	var sky_top_c  = Color(0.20, 0.44, 0.84)
+	var sky_mid_c  = Color(0.44, 0.70, 0.93)
+	var sky_haze_c = Color(0.70, 0.86, 0.97)
 
-	# Vertical panel joints — every 500px, double-line shadow/highlight
-	var panel_count = int(ceil(width / 500.0)) + 1
-	for pi in range(panel_count):
-		var px = bl + float(pi) * 500.0
-		draw_line(Vector2(px, ceiling_y + 54.0), Vector2(px, ground_y - 18.0),
-				  Color(0.78, 0.78, 0.80, 0.45), 1.5, true)
-		draw_line(Vector2(px + 2.0, ceiling_y + 54.0), Vector2(px + 2.0, ground_y - 18.0),
-				  Color(1.0, 1.0, 1.0, 0.35), 1.0, true)
+	# Sun — one, world-anchored, drifts at 3% of camera speed
+	var sun_wx = wall_min.x + (wall_max.x - wall_min.x) * 0.68 + cam_x * 0.03
 
-	# Flush LED light panels — long white strips sitting at ceiling join
-	var light_count = int(ceil(width / 420.0)) + 1
-	for li in range(light_count):
-		var lx = bl + float(li) * 420.0 + 210.0
-		# Housing
-		draw_rect(Rect2(Vector2(lx - 140.0, ceiling_y + 52.0), Vector2(280.0, 10.0)),
-				  Color(0.91, 0.91, 0.89), true)
-		# Bright tube
-		draw_line(Vector2(lx - 136.0, ceiling_y + 57.0), Vector2(lx + 136.0, ceiling_y + 57.0),
-				  Color(1.0, 1.0, 0.97, 1.0), 4.0, true)
-		# Glow bleed onto ceiling
-		draw_rect(Rect2(Vector2(lx - 144.0, ceiling_y + 44.0), Vector2(288.0, 10.0)),
-				  Color(1.0, 1.0, 0.96, 0.10), true)
-		# Very soft downward wash — not a cone, just a wide faint rect
-		draw_rect(Rect2(Vector2(lx - 200.0, ceiling_y + 62.0), Vector2(400.0, wall_h - 62.0)),
-				  Color(1.0, 1.0, 0.97, 0.018), true)
+	for wi in range(win_count):
+		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
+		var wx2 = wx + win_w
 
+		# ── SKY ───────────────────────────────────────────────────────────────
+		for gi in range(10):
+			var gt = float(gi) / 10.0
+			var sc: Color
+			if gt < 0.5:
+				sc = sky_top_c.lerp(sky_mid_c, gt * 2.0)
+			else:
+				sc = sky_mid_c.lerp(sky_haze_c, (gt-0.5)*2.0)
+			draw_rect(Rect2(Vector2(wx, win_top + gt*win_h), Vector2(win_w, win_h/10.0+1.0)), sc, true)
+
+		# ── SUN ───────────────────────────────────────────────────────────────
+		if sun_wx >= wx + 20.0 and sun_wx <= wx2 - 20.0:
+			var sun_y = win_top + win_h * 0.15
+			for ri in range(6):
+				draw_circle(Vector2(sun_wx, sun_y), 8.0 + ri*20.0,
+							Color(1.0, 0.96, 0.72, 0.048 - ri*0.007))
+			draw_circle(Vector2(sun_wx, sun_y), 10.0, Color(1.0, 0.97, 0.80, 0.72))
+			draw_circle(Vector2(sun_wx, sun_y), 55.0, Color(1.0, 0.95, 0.65, 0.07))
+
+		# ── MOUNTAINS ─────────────────────────────────────────────────────────
+		# Mountains are drawn using the full horizontal range (mtn_span wide),
+		# centred on the window but offset by parallax. We DON'T clamp x —
+		# instead we only emit points that actually fall within wx..wx2,
+		# plus we always anchor left=wx and right=wx2 at the base so the
+		# polygon is never degenerate.
+		var mtn_span = win_w * 8.0   # wide enough that parallax never reveals edge
+		var msegs    = 80            # many segments so clipping is smooth
+		for mi in range(4):
+			var mseed  = (_scenery_seed ^ (0xC001 + mi * 0x999)) + wi * 61
+			var mpar   = cam_x * (0.04 + mi * 0.055)  # 0.04 / 0.095 / 0.15 / 0.205
+			var mhmin  = win_h * (0.06 + mi * 0.09)
+			var mhmax  = win_h * (0.20 + mi * 0.11)
+			var mleft  = wx + win_w * 0.5 - mtn_span * 0.5 + mpar
+			var mstep  = mtn_span / float(msegs)
+			var mbase  = win_bot + 6.0
+			var mcol: Color
+			match mi:
+				0: mcol = Color(0.72, 0.82, 0.91)
+				1: mcol = Color(0.54, 0.67, 0.80)
+				2: mcol = Color(0.38, 0.52, 0.66)
+				_: mcol = Color(0.24, 0.38, 0.53)
+
+			# Collect ridge points that fall inside the window
+			var ridge: Array = []
+			for si in range(msegs + 1):
+				var px = mleft + si * mstep
+				if px < wx - mstep or px > wx2 + mstep:
+					continue
+				var mh0 = _hf(mseed+(si-1)*7)*(mhmax-mhmin)+mhmin
+				var mh1 = _hf(mseed+si*7)    *(mhmax-mhmin)+mhmin
+				var mh2 = _hf(mseed+(si+1)*7)*(mhmax-mhmin)+mhmin
+				var py  = mbase - (mh0*0.2+mh1*0.6+mh2*0.2)
+				ridge.append(Vector2(clamp(px, wx, wx2), py))
+
+			if ridge.size() < 2:
+				continue
+			# Build closed polygon: base-left, ridge, base-right
+			var mpts = PackedVector2Array()
+			mpts.append(Vector2(wx, mbase))
+			for rp in ridge:
+				mpts.append(rp)
+			mpts.append(Vector2(wx2, mbase))
+			if mpts.size() >= 4:
+				draw_colored_polygon(mpts, mcol)
+
+		# ── DISTANT HILLS / GROUND PLANE ──────────────────────────────────────
+		# Solid dark band at bottom — represents forested ground, no trees
+		var gnd_h   = win_h * 0.09
+		var gnd_par = cam_x * 0.22
+		# Irregular ground horizon — gentle bumps
+		var gsegs = 40
+		var gstep = win_w / float(gsegs)
+		var gpts  = PackedVector2Array()
+		gpts.append(Vector2(wx, win_bot + 4.0))
+		for gi2 in range(gsegs + 1):
+			var gseed = (_scenery_seed ^ 0x9F01) + wi*37 + gi2*5
+			var gx2   = wx + gi2 * gstep
+			gx2 = clamp(gx2, wx, wx2)
+			var gh    = gnd_h * (0.6 + _hf(gseed) * 0.4)
+			gpts.append(Vector2(gx2, win_bot - gh))
+		gpts.append(Vector2(wx2, win_bot + 4.0))
+		if gpts.size() >= 4:
+			draw_colored_polygon(gpts, Color(0.18, 0.26, 0.19))
+		# Darker fill below horizon
+		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
+				  Color(0.13, 0.19, 0.14), true)
+
+		# ── FROSTED GLASS ─────────────────────────────────────────────────────
+		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w, win_h)),
+				  Color(1.0, 1.0, 1.0, 0.10), true)
+		# Left-edge reflection band
+		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.10, win_h)),
+				  Color(1.0, 1.0, 1.0, 0.07), true)
+		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.04, win_h)),
+				  Color(1.0, 1.0, 1.0, 0.05), true)
+
+	# ── OVERDRAW GAPS BETWEEN WINDOWS ─────────────────────────────────────────
+	for wi in range(win_count + 1):
+		var gx = bl + float(wi) * win_stride + win_gap * 0.5 - win_gap
+		draw_rect(Rect2(Vector2(gx, vis_top), Vector2(win_gap + 4.0, vis_h)), wall_col, true)
+	draw_rect(Rect2(Vector2(bl, vis_top), Vector2(width, win_top - vis_top + 1.0)), wall_col, true)
+	draw_rect(Rect2(Vector2(bl, win_bot - 1.0), Vector2(width, vis_bot - win_bot + 2.0)), wall_col, true)
+
+	# ── WINDOW FRAMES — border only ────────────────────────────────────────────
+	for wi in range(win_count):
+		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
+		var fc  = Color(0.15, 0.16, 0.19)
+		var ft  = 10.0
+		draw_rect(Rect2(Vector2(wx-ft,       win_top-ft), Vector2(win_w+ft*2.0, ft)), fc, true)
+		draw_rect(Rect2(Vector2(wx-ft,       win_bot),    Vector2(win_w+ft*2.0, ft)), fc, true)
+		draw_rect(Rect2(Vector2(wx-ft,       win_top-ft), Vector2(ft, win_h+ft*2.0)), fc, true)
+		draw_rect(Rect2(Vector2(wx+win_w,    win_top-ft), Vector2(ft, win_h+ft*2.0)), fc, true)
+		# Inner bright edge — light catching frame lip
+		draw_line(Vector2(wx, win_top), Vector2(wx+win_w, win_top), Color(0.55,0.57,0.62), 2.0, true)
+		draw_line(Vector2(wx, win_top), Vector2(wx, win_bot),       Color(0.55,0.57,0.62), 2.0, true)
+		# Glass specular
+		draw_line(Vector2(wx+12.0, win_top+14.0), Vector2(wx+62.0, win_top+14.0),
+				  Color(1.0,1.0,1.0,0.24), 3.0, true)
+		draw_line(Vector2(wx+14.0, win_top+25.0), Vector2(wx+40.0, win_top+25.0),
+				  Color(1.0,1.0,1.0,0.11), 2.0, true)
+
+	# ── FLOOR ──────────────────────────────────────────────────────────────────
+	draw_rect(Rect2(Vector2(bl, vis_bot-28.0), Vector2(width, 28.0)),
+			  Color(0.22, 0.22, 0.24), true)
+	for mi in range(int(ceil(width/900.0))+1):
+		draw_line(Vector2(bl+mi*900.0, vis_bot-28.0), Vector2(bl+mi*900.0, vis_bot),
+				  Color(0.17, 0.17, 0.19), 2.0, true)
+
+	# ── CEILING TRUSS ──────────────────────────────────────────────────────────
+	draw_rect(Rect2(Vector2(bl, vis_top-16.0), Vector2(width, 16.0)),
+			  Color(0.48, 0.48, 0.50), true)
+	draw_rect(Rect2(Vector2(bl, vis_top-18.0), Vector2(width, 2.0)),
+			  Color(0.32, 0.32, 0.34), true)
+	for ti in range(int(ceil(width/600.0))+1):
+		draw_rect(Rect2(Vector2(bl+ti*600.0-9.0, vis_top-16.0), Vector2(18.0, 16.0)),
+				  Color(0.36, 0.36, 0.38), true)
+	draw_rect(Rect2(Vector2(bl, vis_top-1.0), Vector2(width, 4.0)),
+			  Color(1.0, 1.0, 0.93, 0.86), true)
 
 func _draw_scaffold():
 	# A simple freestanding timber frame: two vertical posts on each side,
@@ -724,95 +841,6 @@ func draw_edges():
 # =============================================================================
 # GYM BACKGROUND WALLS
 # =============================================================================
-func _load_bg_hold_textures():
-	_bg_hold_textures.clear()
-	var paths = [
-		"res://assets/images/holds/gym/jug.png",
-		"res://assets/images/holds/gym/crimp.png",
-		"res://assets/images/holds/gym/sloper.png",
-		"res://assets/images/holds/gym/pocket.png",
-		"res://assets/images/holds/gym/foothold.png",
-		"res://assets/images/holds/gym/start_hold.png",
-		"res://assets/images/holds/gym/finish_hold.png",
-	]
-	for p in paths:
-		if ResourceLoader.exists(p):
-			_bg_hold_textures.append(load(p))
-
-func _draw_gym_bg_walls():
-	var bl = wall_min.x - BACKGROUND_EXPANSION
-	var br = wall_max.x + BACKGROUND_EXPANSION
-	var wc = current_wall_color
-	_draw_gym_wall_layer(bl, br, 0.18, 0.28, wc.darkened(0.38).blend(Color(0.80,0.82,0.90,0.5)), _scenery_seed ^ 0xAA11, 0.012)
-	_draw_gym_wall_layer(bl, br, 0.28, 0.42, wc.darkened(0.22).blend(Color(0.85,0.86,0.92,0.4)), _scenery_seed ^ 0xBB22, 0.018)
-	_draw_gym_wall_layer(bl, br, 0.40, 0.58, wc.darkened(0.10).blend(Color(0.90,0.90,0.94,0.3)), _scenery_seed ^ 0xCC33, 0.025)
-
-func _draw_gym_wall_layer(bl: float, br: float, min_hf: float, max_hf: float,
-						   color: Color, seed: int, hold_scale: float):
-	var main_h = ground_y - wall_min.y
-	var main_w = wall_max.x - wall_min.x
-	var main_cx = (wall_min.x + wall_max.x) * 0.5
-
-	# Walls cluster around the main wall — spread within ~2x main wall width
-	# Some overlap with the main wall, some to the sides
-	var wall_count = 7
-	for wi in range(wall_count):
-		var ws = seed + wi * 137
-		var hf = min_hf + _hf(ws) * (max_hf - min_hf)
-		var bh = main_h * hf
-		var bw = main_w * (0.45 + _hf(ws+1) * 0.45)
-		# cx within ±1.4 main wall widths of main wall centre — overlapping included
-		var cx = main_cx + (_hf(ws+2) * 2.8 - 1.4) * main_w
-		var bx = cx - bw * 0.5
-		var by = ground_y - bh
-
-		draw_rect(Rect2(Vector2(bx, by), Vector2(bw, bh)), color, true)
-
-		var et = max(1.0, edge_thickness * hf)
-		draw_line(Vector2(bx,    by),       Vector2(bx,    ground_y), edge_color, et, true)
-		draw_line(Vector2(bx+bw, by),       Vector2(bx+bw, ground_y), edge_color, et, true)
-		draw_line(Vector2(bx,    by),       Vector2(bx+bw, by),       edge_color, et, true)
-
-		if show_bolt_holes:
-			var hsp = hole_spacing * hf
-			var hcx = floor((bx + hsp.x) / hsp.x) * hsp.x
-			while hcx <= bx + bw - hsp.x:
-				var hcy = floor((by + hsp.y) / hsp.y) * hsp.y
-				while hcy <= by + bh - hsp.y:
-					var hs = int(hcx/hsp.x)*7 + int(hcy/hsp.y)*1003
-					var hp = Vector2(hcx + (_hf(hs)-0.5)*hole_jitter*hf,
-									 hcy + (_hf(hs+1)-0.5)*hole_jitter*hf)
-					if hp.x > bx+hsp.x and hp.x < bx+bw-hsp.x \
-					and hp.y > by+hsp.y and hp.y < by+bh-hsp.y:
-						draw_circle(hp, hole_radius*hf, Color(hole_color.r, hole_color.g, hole_color.b))
-					hcy += hsp.y
-				hcx += hsp.x
-
-		if _bg_hold_textures.size() > 0:
-			var n = 8
-			var rcx = bx + bw * (0.35 + _hf(ws+10) * 0.30)
-			var ry  = by + bh * 0.88
-			var sth = bh * 0.76 / float(n)
-			var placed: Array[Vector2] = []
-			for hi in range(n):
-				var s = seed + wi*1000 + hi*79
-				rcx += (_hf(s+5) - 0.5) * bw * 0.30
-				rcx  = clamp(rcx, bx+bw*0.12, bx+bw*0.88)
-				ry  -= sth + (_hf(s+6)-0.5)*sth*0.35
-				var tex = _bg_hold_textures[int(_hf(s)*_bg_hold_textures.size()) % _bg_hold_textures.size()]
-				var ts  = tex.get_size()
-				var dw  = ts.x * hold_scale
-				var dh  = ts.y * hold_scale
-				var pos = Vector2(rcx, ry)
-				var skip = false
-				for prev in placed:
-					if pos.distance_to(prev) < max(dw, dh) * 0.9: skip = true; break
-				if skip: continue
-				placed.append(pos)
-				draw_texture_rect(tex,
-					Rect2(Vector2(pos.x - dw*0.5, pos.y - dh*0.5), Vector2(dw, dh)),
-					false, Color(color.r*1.1, color.g*1.1, color.b*1.1))
-
 func _draw_ground():
 	if not wall_valid: return
 	match _env.get("ground_type", "grass"):
@@ -913,42 +941,31 @@ func _draw_ground_stone():
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), ct.lightened(0.18), 2.0, true)
 
 func _draw_ground_gym():
-	var left = wall_min.x - BACKGROUND_EXPANSION
+	var left  = wall_min.x - BACKGROUND_EXPANSION
 	var right = wall_max.x + BACKGROUND_EXPANSION
 	var width = right - left
 	var ct: Color = _env.get("ground_top",  Color(0.22, 0.22, 0.24))
 	var cd: Color = _env.get("ground_deep", Color(0.11, 0.11, 0.12))
 
+	# Main floor surface
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, ground_height)), ct, true)
 
+	# Rubber mat tiles with subtle variation
 	var tile_w = 200.0
 	var tile_count = int(ceil(width / tile_w)) + 1
 	for ti in range(tile_count):
-		var tx = left + float(ti) * tile_w
+		var tx   = left + float(ti) * tile_w
 		var seed = (_scenery_seed ^ 0xAABB) + ti * 7
-		var v = (_hf(seed) - 0.5) * 0.018
-		draw_rect(Rect2(Vector2(tx + 2.0, ground_y + 1.0), Vector2(tile_w - 4.0, 40.0)),
-				  Color(ct.r + v, ct.g + v, ct.b + v + 0.01), true)
-		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y + 42.0),
+		var v    = (_hf(seed) - 0.5) * 0.018
+		draw_rect(Rect2(Vector2(tx+2.0, ground_y+1.0), Vector2(tile_w-4.0, 40.0)),
+				  Color(ct.r+v, ct.g+v, ct.b+v+0.01), true)
+		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y+42.0),
 				  Color(cd.r, cd.g, cd.b, 0.8), 2.0, true)
 
-	draw_line(Vector2(wall_min.x - 30.0, ground_y + 4.0),
-			  Vector2(wall_max.x + 30.0, ground_y + 4.0),
-			  Color(0.25, 0.52, 0.88, 0.7), 3.5, true)
-
-	for ci in range(8):
-		var seed = (_scenery_seed ^ 0xCAAA) + ci * 59
-		var cx = wall_min.x + _hf(seed) * (wall_max.x - wall_min.x)
-		_draw_oval(cx, ground_y + 5.0, 12.0 + _hf(seed + 1) * 28.0, 3.0,
-				   Color(0.95, 0.95, 0.95, 0.09 + _hf(seed + 2) * 0.07))
-
+	# Floor/wall join line
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y),
 			  Color(0.50, 0.50, 0.52, 0.9), 2.0, true)
 
-
-# =============================================================================
-# WALL TEXTURE
-# =============================================================================
 func draw_textured_wall(start_pos: Vector2, size: Vector2):
 	var tile := 128.0
 	var cols := int(ceil(size.x / tile)) + 1

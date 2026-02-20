@@ -322,89 +322,83 @@ func _draw():
 	
 	var b = to_local(belayer_position)
 	var black = Color.BLACK
-	var line_width = 4.0
-	
-	var side_mult = 1.0 if belayer_facing_right else -1.0
-	var lean_offset = Vector2(belayer_lean, 0)
-	
-	# Head
-	var head_pos = b + Vector2(0, HEAD_OFFSET) + lean_offset * 0.6
-	draw_circle(head_pos, 12, black)
-	
-	# Torso
-	var neck = b + Vector2(0, HEAD_OFFSET + 12) + lean_offset * 0.6
-	var hips = b + Vector2(0, HIP_DOWN) + lean_offset * 0.25
-	draw_line(neck, hips, black, line_width)
-	
-	# Shoulders
-	var left_shoulder = neck + Vector2(-SHOULDER_OFFSET * side_mult, 0)
-	var right_shoulder = neck + Vector2(SHOULDER_OFFSET * side_mult, 0)
-	
-	# Arms - belayer holding rope
-	if belayer_facing_right:
-		# Right = guide hand
-		var guide_reach = 12.0
-		var guide_y = -5.0 + guide_hand_pull
-		var right_elbow = right_shoulder + Vector2(guide_reach * 0.5, guide_y * 0.6)
-		var right_hand = right_shoulder + Vector2(guide_reach, guide_y)
-		
-		# Left = brake hand
-		var brake_y = 18.0
-		var left_elbow = left_shoulder + Vector2(-6, brake_y * 0.6)
-		var left_hand = left_shoulder + Vector2(-8, brake_y)
-		
-		draw_line(right_shoulder, right_elbow, black, line_width)
-		draw_line(right_elbow, right_hand, black, line_width - 1)
-		draw_line(left_shoulder, left_elbow, black, line_width)
-		draw_line(left_elbow, left_hand, black, line_width - 1)
-		
-		draw_circle(right_hand, 6, black)
-		draw_circle(right_hand, 5, black)
-		draw_circle(left_hand, 6, black)
-		draw_circle(left_hand, 5, black)
-	else:
-		# Left = guide hand
-		var guide_reach = -12.0
-		var guide_y = -5.0 + guide_hand_pull
-		var left_elbow = left_shoulder + Vector2(guide_reach * 0.5, guide_y * 0.6)
-		var left_hand = left_shoulder + Vector2(guide_reach, guide_y)
-		
-		# Right = brake hand
-		var brake_y = 18.0
-		var right_elbow = right_shoulder + Vector2(6, brake_y * 0.6)
-		var right_hand = right_shoulder + Vector2(8, brake_y)
-		
-		draw_line(left_shoulder, left_elbow, black, line_width)
-		draw_line(left_elbow, left_hand, black, line_width - 1)
-		draw_line(right_shoulder, right_elbow, black, line_width)
-		draw_line(right_elbow, right_hand, black, line_width - 1)
-		
-		draw_circle(left_hand, 6, black)
-		draw_circle(left_hand, 5, black)
-		draw_circle(right_hand, 6, black)
-		draw_circle(right_hand, 5, black)
-	
-	# Legs - standing stance
-	var left_hip = hips + Vector2(-HIP_OFFSET, 0)
-	var right_hip = hips + Vector2(HIP_OFFSET, 0)
-	
-	var left_knee = b + Vector2(-HIP_OFFSET - 3, HIP_DOWN + LEG_UPPER_LENGTH * 0.55)
-	var left_foot = b + Vector2(-HIP_OFFSET - 5, HIP_DOWN + LEG_UPPER_LENGTH + LEG_LOWER_LENGTH * 0.5)
-	
-	var right_knee = b + Vector2(HIP_OFFSET + 3, HIP_DOWN + LEG_UPPER_LENGTH * 0.55)
-	var right_foot = b + Vector2(HIP_OFFSET + 5, HIP_DOWN + LEG_UPPER_LENGTH + LEG_LOWER_LENGTH * 0.5)
-	
-	draw_line(left_hip, left_knee, black, line_width)
-	draw_line(left_knee, left_foot, black, line_width - 1)
-	draw_line(right_hip, right_knee, black, line_width)
-	draw_line(right_knee, right_foot, black, line_width - 1)
-	
-	draw_circle(left_foot, 6, black)
-	draw_circle(left_foot, 5, black)
-	draw_circle(right_foot, 6, black)
-	draw_circle(right_foot, 5, black)
-	
-	# Anchor at top
+	var skin  = Color(0.9, 0.75, 0.6)
+	var shirt = Color(0.25, 0.45, 0.75)
+	var pant  = Color(0.2, 0.2, 0.35)
+	var shoe  = Color(0.15, 0.1, 0.1)
+	var lw    = 4.0
+
+	# sm: +1 = facing right (wall is to the right of belayer)
+	# All offsets are expressed as "toward wall" (sm) or "away from wall" (-sm)
+	# This means the same code works for both directions — no if/else needed.
+	var sm = 1.0 if belayer_facing_right else -1.0
+
+	# ── Body anchor points ────────────────────────────────────────────────
+	var head_c  = b + Vector2(sm * 3,  HEAD_OFFSET)          # head tilted toward wall
+	var neck    = b + Vector2(sm * 1,  HEAD_OFFSET + 12)
+	var hips_c  = b + Vector2(0,       HIP_DOWN)
+
+	var near_shoulder = neck    + Vector2( sm * SHOULDER_OFFSET,  2)  # toward wall
+	var far_shoulder  = neck    + Vector2(-sm * SHOULDER_OFFSET,  2)  # away from wall
+	var near_hip      = hips_c  + Vector2( sm * HIP_OFFSET,       0)
+	var far_hip       = hips_c  + Vector2(-sm * HIP_OFFSET,       0)
+
+	# ── LEGS (far leg drawn first = behind) ───────────────────────────────
+	var far_knee  = b + Vector2(-sm * (HIP_OFFSET + 2),  HIP_DOWN + LEG_UPPER_LENGTH * 0.50)
+	var far_foot  = b + Vector2(-sm * (HIP_OFFSET + 3),  HIP_DOWN + LEG_UPPER_LENGTH + LEG_LOWER_LENGTH * 0.50)
+
+	var near_knee = b + Vector2( sm * (HIP_OFFSET + 5),  HIP_DOWN + LEG_UPPER_LENGTH * 0.55)
+	var near_foot = b + Vector2( sm * (HIP_OFFSET + 9),  HIP_DOWN + LEG_UPPER_LENGTH + LEG_LOWER_LENGTH * 0.55)
+
+	draw_line(far_hip,   far_knee,   pant, lw + 1)
+	draw_line(far_knee,  far_foot,   pant, lw)
+	draw_circle(far_foot, 7, shoe)
+
+	draw_line(near_hip,  near_knee,  pant, lw + 1)
+	draw_line(near_knee, near_foot,  pant, lw)
+	draw_circle(near_foot, 7, shoe)
+
+	# ── TORSO ─────────────────────────────────────────────────────────────
+	draw_line(neck,          hips_c,       shirt, lw + 2)
+	draw_line(near_hip,      far_hip,      pant,  lw)
+	draw_line(near_shoulder, far_shoulder, shirt, lw)
+
+	# ── ARMS ──────────────────────────────────────────────────────────────
+	# Guide hand (near/toward-wall arm): reaches UP toward the rope coming from anchor
+	var guide_elbow = near_shoulder + Vector2( sm * 10,  -6 + guide_hand_pull * 0.4)
+	var guide_hand  = near_shoulder + Vector2( sm * 20,  -14 + guide_hand_pull)
+
+	# Brake hand (far arm): points DOWN to lock off the rope
+	var brake_elbow = far_shoulder + Vector2(-sm * 6,   14)
+	var brake_hand  = far_shoulder + Vector2(-sm * 10,  26)
+
+	# Brake arm behind torso
+	draw_line(far_shoulder,  brake_elbow, shirt, lw)
+	draw_line(brake_elbow,   brake_hand,  skin,  lw - 1)
+	draw_circle(brake_hand, 5, skin)
+
+	# Guide arm in front
+	draw_line(near_shoulder, guide_elbow, shirt, lw)
+	draw_line(guide_elbow,   guide_hand,  skin,  lw - 1)
+	draw_circle(guide_hand, 5, skin)
+
+	# ── BELAY DEVICE (ATC) ────────────────────────────────────────────────
+	var device_pos = guide_hand + Vector2(sm * 2, 5)
+	draw_rect(Rect2(device_pos - Vector2(4, 3), Vector2(8, 6)), Color(0.4, 0.4, 0.4))
+	draw_rect(Rect2(device_pos - Vector2(4, 3), Vector2(8, 6)), black, false, 1.5)
+
+	# ── HARNESS hint ──────────────────────────────────────────────────────
+	draw_arc(hips_c, 11, 0, PI, 12, Color(0.9, 0.7, 0.1), 3)
+
+	# ── HEAD ──────────────────────────────────────────────────────────────
+	draw_circle(head_c, 12, skin)
+	# Helmet (top half arc + brim line)
+	draw_arc(head_c, 13, PI, 2 * PI, 14, Color(0.8, 0.3, 0.1), 4)
+	draw_line(head_c + Vector2(-13, 0), head_c + Vector2(13, 0), Color(0.8, 0.3, 0.1), 3)
+	# Eye toward wall
+	draw_circle(head_c + Vector2(sm * 5, 1), 2, black)
+
+	# ── ANCHOR ────────────────────────────────────────────────────────────
 	var anchor_local = to_local(anchor_position)
 	draw_circle(anchor_local, 8, black)
 	draw_circle(anchor_local, 6, Color.WHITE)

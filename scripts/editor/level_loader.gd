@@ -465,3 +465,10 @@ func is_roped() -> bool:
 
 func is_speed() -> bool:
 	return current_level_discipline == "speed"
+
+func unload_level() -> void:
+	var holds = get_node_or_null("Holds")
+	if holds:
+		for child in holds.get_children():
+			child.queue_free()
+	print("LevelLoader: level unloaded")
