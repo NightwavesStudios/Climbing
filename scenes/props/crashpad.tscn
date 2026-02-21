@@ -2,11 +2,11 @@
 
 [ext_resource type="Script" uid="uid://cvjpqvmksm6r5" path="res://scripts/holds/crashpad.gd" id="1_otgl3"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_hwxua"]
-[ext_resource type="Texture2D" uid="uid://brtyrl0roikuu" path="res://assets/images/crashpad.png" id="2_otgl3"]
+[ext_resource type="Texture2D" uid="uid://dhsrgaidqxku0" path="res://assets/images/crashpad.png" id="2_otgl3"]
 [ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_v7m37"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_fajlm"]
-size = Vector2(476, 113)
+size = Vector2(476, 119.41632)
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_bvhi4"]
 shader = ExtResource("2_hwxua")
@@ -21,7 +21,7 @@ scale = Vector2(0.48000246, 0.48000246)
 script = ExtResource("1_otgl3")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Crashpad"]
-position = Vector2(8, -2.5)
+position = Vector2(8, 0.70819503)
 shape = SubResource("RectangleShape2D_fajlm")
 
 [node name="Sprite2D" type="Sprite2D" parent="Crashpad"]

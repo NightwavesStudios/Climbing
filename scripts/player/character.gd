@@ -96,9 +96,8 @@ const MAX_JOINT_STRETCH := 1.15
 const MAX_LIMB_STRETCH := 1.15
 const PREVENT_UPSIDE_DOWN := false
 
-# NEW: Stricter leg stretch limits to prevent overstretching
-const MAX_LEG_TOTAL_STRETCH := 1.06  # Legs can only stretch 6% beyond natural length (was 1.08)
-const LEG_FORCE_RELEASE_THRESHOLD := 1.03  # Release foot if leg exceeds 103% of natural length (was 1.05)
+const MAX_LEG_TOTAL_STRETCH := 1.06
+const LEG_FORCE_RELEASE_THRESHOLD := 1.03
 
 const COM_OFFSET_Y := 15.0
 const FOOT_CUT_THRESHOLD := 150.0
@@ -106,11 +105,10 @@ const HAND_LOAD_TOLERANCE := 1.5
 const MOMENTUM_TRANSFER_STRENGTH := 0.3
 const DYNO_VELOCITY_BOOST := 1.1
 
-# Natural stick figure pose constants
-const ARM_NATURAL_ANGLE_DEG := 55.0  # Degrees outward from vertical
-const ARM_NATURAL_BEND := 0.7  # How much the elbow bends (0=straight, 1=fully bent)
-const LEG_NATURAL_SPLAY_DEG := 40.0  # Degrees outward from vertical
-const FREE_LIMB_RELAXATION_SPEED := 0.15  # Natural limb movement speed (was 0.08)
+const ARM_NATURAL_ANGLE_DEG := 55.0
+const ARM_NATURAL_BEND := 0.7
+const LEG_NATURAL_SPLAY_DEG := 55.0
+const FREE_LIMB_RELAXATION_SPEED := 0.15
 
 const ENABLE_ADAPTIVE_LEGS := true
 const LEG_ASSIST_THRESHOLD := 0.8
@@ -165,17 +163,14 @@ const ALLOW_ARM_CROSSING := true
 const ALLOW_FOOT_CROSSING := true
 const MIN_HAND_SEPARATION := 20.0
 const MIN_FOOT_SEPARATION := 15.0
-# Grab animations now instant - no sliding
 
 const BASE_HAND_MOVE_SPEED := 0.92
 const BASE_REACH_DISTANCE := 200.0
 
-# Grab radius - how close limb must be to hold to grab it
-@export var GRAB_RADIUS := 35.0  # Adjustable grab radius - gives some leeway for grabbing holds
+@export var GRAB_RADIUS := 35.0
 
-# Hold separation distances when sharing holds
-const SHARED_HOLD_HAND_OFFSET := 15.0  # Horizontal separation for two hands on same hold
-const SHARED_HOLD_HAND_FOOT_OFFSET := 20.0  # Separation when hand and foot share hold
+const SHARED_HOLD_HAND_OFFSET := 15.0
+const SHARED_HOLD_HAND_FOOT_OFFSET := 20.0
 
 func get_hand_modifiers(state: GripState) -> Dictionary:
 	match state:
@@ -187,7 +182,6 @@ func get_hand_modifiers(state: GripState) -> Dictionary:
 			return {"reach_mult": 0.75, "speed_mult": 0.7, "latency": 0.15, "shake": 0.35}
 		GripState.FAIL:
 			return {"reach_mult": 0.0, "speed_mult": 0.0, "latency": 1.0, "shake": 1.0}
-	
 	return get_hand_modifiers(GripState.RELAXED)
 
 func get_foot_modifiers(state: GripState) -> Dictionary:
@@ -200,7 +194,6 @@ func get_foot_modifiers(state: GripState) -> Dictionary:
 			return {"shake": 0.25}
 		GripState.FAIL:
 			return {"shake": 0.8}
-	
 	return get_foot_modifiers(GripState.RELAXED)
 
 var body_velocity := Vector2.ZERO
@@ -250,7 +243,7 @@ var right_hand_visual_offset := Vector2.ZERO
 var left_foot_visual_offset := Vector2.ZERO
 var right_foot_visual_offset := Vector2.ZERO
 
-const VISUAL_ANIMATION_SPEED := 0.4  # Quick but smooth visual animation
+const VISUAL_ANIMATION_SPEED := 0.35
 
 var left_hand_shake_lerp: float = 0.0
 var right_hand_shake_lerp: float = 0.0
@@ -260,6 +253,21 @@ var right_foot_shake_lerp: float = 0.0
 const SHAKE_LERP_SPEED := 3.0
 
 var fall_timer: float = 0.0
+
+# ── Ragdoll state ─────────────────────────────────────────────────────────────
+var _ragdoll_active: bool = false
+var _ragdoll_elapsed: float = 0.0
+var _ragdoll_max_time: float = 2.0
+
+# Saved local positions to restore after ragdoll
+var _saved_lh_pos:  Vector2
+var _saved_rh_pos:  Vector2
+var _saved_lf_pos:  Vector2
+var _saved_rf_pos:  Vector2
+var _saved_lhj_pos: Vector2
+var _saved_rhj_pos: Vector2
+var _saved_lfj_pos: Vector2
+var _saved_rfj_pos: Vector2
 
 func _ready():
 	spawn_position = global_position
@@ -289,19 +297,70 @@ func _ready():
 	call_deferred("initial_grab")
 
 func _process(delta):
+	if _ragdoll_active:
+		_ragdoll_elapsed += delta
+		if _ragdoll_elapsed >= _ragdoll_max_time:
+			_ragdoll_active = false
+		update_camera()
+		queue_redraw()
+		return
+
 	handle_input()
 	update_grip_states(delta)
 	update_shake_effects(delta)
 	update_momentum_system(delta)
 	simulate_physics(delta)
-	
+
 	if AUTO_FOOT_PLACEMENT:
 		auto_place_feet(delta)
-	
-	check_fall_detection(delta)
+
 	check_climb_completion()
 	update_camera()
 	queue_redraw()
+
+# Called by crashpad when player lands
+func play_crashpad_ragdoll(duration: float) -> void:
+	if _ragdoll_active:
+		return
+	_ragdoll_active   = true
+	_ragdoll_elapsed  = 0.0
+	_ragdoll_max_time = duration
+
+	# Release holds
+	if left_hand_hold:  left_hand_hold.release(left_hand);   left_hand_hold  = null
+	if right_hand_hold: right_hand_hold.release(right_hand); right_hand_hold = null
+	if left_foot_hold:  left_foot_hold.release(left_foot);   left_foot_hold  = null
+	if right_foot_hold: right_foot_hold.release(right_foot); right_foot_hold = null
+	selected_limbs.clear()
+	use_mouse_aim = false
+	com_velocity  = Vector2.ZERO
+	body_velocity = Vector2.ZERO
+
+	# Single tween — splat immediately, then settle after a short delay
+	var t := create_tween()
+	t.set_parallel(true)
+
+	# Splat pose (fast)
+	t.tween_property(left_hand_joint,  "position", Vector2(-55,  5),  0.10)
+	t.tween_property(left_hand,        "position", Vector2(-85, 30),  0.10)
+	t.tween_property(right_hand_joint, "position", Vector2( 55,  5),  0.10)
+	t.tween_property(right_hand,       "position", Vector2( 85, 30),  0.10)
+	t.tween_property(left_foot_joint,  "position", Vector2(-28, 35),  0.10)
+	t.tween_property(left_foot,        "position", Vector2(-38, 80),  0.10)
+	t.tween_property(right_foot_joint, "position", Vector2( 28, 35),  0.10)
+	t.tween_property(right_foot,       "position", Vector2( 38, 80),  0.10)
+
+	# Settle pose (slower, after 0.3s delay)
+	t.tween_property(left_hand_joint,  "position", Vector2(-32, 12),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
+	t.tween_property(left_hand,        "position", Vector2(-48, 52),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
+	t.tween_property(right_hand_joint, "position", Vector2( 32, 12),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
+	t.tween_property(right_hand,       "position", Vector2( 48, 52),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
+	t.tween_property(left_foot_joint,  "position", Vector2(-14, 28),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
+	t.tween_property(left_foot,        "position", Vector2(-18, 68),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
+	t.tween_property(right_foot_joint, "position", Vector2( 14, 28),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
+	t.tween_property(right_foot,       "position", Vector2( 18, 68),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 func update_grip_states(delta: float):
 	update_hand_grip_state(Limb.LEFT_HAND, delta)
@@ -359,7 +418,6 @@ func update_hand_grip_state(hand: Limb, delta: float):
 		
 		var force_multiplier = 1.0 + (force * 0.01)
 		hold_pressure *= force_multiplier
-		
 		hold_pressure *= loading_multiplier
 		hold_pressure *= lock_off_mult
 		
@@ -448,7 +506,6 @@ func update_foot_grip_state(foot: Limb, delta: float):
 		
 		var force_multiplier = 1.0 + (force * 0.005)
 		hold_pressure *= force_multiplier
-		
 		hold_pressure *= FOOT_PRESSURE_REDUCTION
 		hold_pressure *= loading_multiplier
 		
@@ -501,16 +558,11 @@ func count_held_limbs() -> int:
 
 func get_loading_multiplier(held_limbs: int) -> float:
 	match held_limbs:
-		1:
-			return ONE_ARM_PRESSURE_MULTIPLIER
-		2:
-			return TWO_ARM_PRESSURE_MULTIPLIER
-		3:
-			return THREE_LIMB_PRESSURE_MULTIPLIER
-		4:
-			return FOUR_LIMB_PRESSURE_MULTIPLIER
-		_:
-			return 1.0
+		1: return ONE_ARM_PRESSURE_MULTIPLIER
+		2: return TWO_ARM_PRESSURE_MULTIPLIER
+		3: return THREE_LIMB_PRESSURE_MULTIPLIER
+		4: return FOUR_LIMB_PRESSURE_MULTIPLIER
+		_: return 1.0
 
 func calculate_arm_extension(hand: Limb) -> float:
 	var shoulder_pos: Vector2
@@ -525,7 +577,6 @@ func calculate_arm_extension(hand: Limb) -> float:
 	
 	var current_dist = shoulder_pos.distance_to(hand_pos)
 	var max_dist = ARM_UPPER_LENGTH + ARM_LOWER_LENGTH
-	
 	return clamp(current_dist / max_dist, 0.0, 1.0)
 
 func calculate_body_offset(limb: Limb) -> float:
@@ -548,33 +599,26 @@ func calculate_body_offset(limb: Limb) -> float:
 	
 	var ideal_body = anchor + Vector2(0, 60)
 	var offset = com_position.distance_to(ideal_body)
-	
 	return clamp(offset / 100.0, 0.0, 1.0)
 
 func calculate_body_balance() -> float:
 	var balance = 0.0
-	
 	if left_foot_hold and right_foot_hold:
 		balance += 0.5
 	elif left_foot_hold or right_foot_hold:
 		balance += 0.25
-	
 	if left_hand_hold and right_hand_hold:
 		balance += 0.3
-	
 	var vel_factor = clamp(1.0 - (com_velocity.length() / 100.0), 0.0, 0.2)
 	balance += vel_factor
-	
 	return clamp(balance, 0.0, 1.0)
 
 func calculate_foot_support_ratio() -> float:
 	var support = 0.0
-	
 	if left_foot_hold:
 		support += 0.5
 	if right_foot_hold:
 		support += 0.5
-	
 	return support
 
 func update_momentum_system(delta: float):
@@ -583,10 +627,8 @@ func update_momentum_system(delta: float):
 func get_limb_swing_velocity(limb: Limb, delta: float) -> Vector2:
 	if delta <= 0:
 		return Vector2.ZERO
-	
 	var current_pos := Vector2.ZERO
 	var previous_pos := Vector2.ZERO
-	
 	match limb:
 		Limb.LEFT_HAND:
 			current_pos = left_hand.global_position
@@ -600,67 +642,50 @@ func get_limb_swing_velocity(limb: Limb, delta: float) -> Vector2:
 		Limb.RIGHT_FOOT:
 			current_pos = right_foot.global_position
 			previous_pos = previous_right_foot_pos
-	
 	return (current_pos - previous_pos) / delta
 
 func update_shake_effects(delta: float):
 	var left_hand_mods = get_hand_modifiers(left_hand_state)
 	var target_left_hand_shake = left_hand_mods.shake
 	left_hand_shake_lerp = lerp(left_hand_shake_lerp, target_left_hand_shake, SHAKE_LERP_SPEED * delta)
-	
 	if left_hand_shake_lerp > 0.01:
 		var shake_freq = 30.0 + (left_hand_shake_lerp * 20.0)
 		var shake_amp = left_hand_shake_lerp * 3.0
 		var t = Time.get_ticks_msec() * 0.001
-		left_hand_shake_offset = Vector2(
-			sin(t * shake_freq) * shake_amp,
-			sin(t * shake_freq * 1.3 + 1.7) * shake_amp
-		)
+		left_hand_shake_offset = Vector2(sin(t * shake_freq) * shake_amp, sin(t * shake_freq * 1.3 + 1.7) * shake_amp)
 	else:
 		left_hand_shake_offset = Vector2.ZERO
 	
 	var right_hand_mods = get_hand_modifiers(right_hand_state)
 	var target_right_hand_shake = right_hand_mods.shake
 	right_hand_shake_lerp = lerp(right_hand_shake_lerp, target_right_hand_shake, SHAKE_LERP_SPEED * delta)
-	
 	if right_hand_shake_lerp > 0.01:
 		var shake_freq = 30.0 + (right_hand_shake_lerp * 20.0)
 		var shake_amp = right_hand_shake_lerp * 3.0
 		var t = Time.get_ticks_msec() * 0.001
-		right_hand_shake_offset = Vector2(
-			sin(t * shake_freq + 0.5) * shake_amp,
-			sin(t * shake_freq * 1.3 + 2.2) * shake_amp
-		)
+		right_hand_shake_offset = Vector2(sin(t * shake_freq + 0.5) * shake_amp, sin(t * shake_freq * 1.3 + 2.2) * shake_amp)
 	else:
 		right_hand_shake_offset = Vector2.ZERO
 	
 	var left_foot_mods = get_foot_modifiers(left_foot_state)
 	var target_left_foot_shake = left_foot_mods.shake
 	left_foot_shake_lerp = lerp(left_foot_shake_lerp, target_left_foot_shake, SHAKE_LERP_SPEED * delta)
-	
 	if left_foot_shake_lerp > 0.01:
 		var shake_freq = 25.0 + (left_foot_shake_lerp * 15.0)
 		var shake_amp = left_foot_shake_lerp * 2.5
 		var t = Time.get_ticks_msec() * 0.001
-		left_foot_shake_offset = Vector2(
-			sin(t * shake_freq + 1.0) * shake_amp,
-			sin(t * shake_freq * 1.2 + 0.8) * shake_amp
-		)
+		left_foot_shake_offset = Vector2(sin(t * shake_freq + 1.0) * shake_amp, sin(t * shake_freq * 1.2 + 0.8) * shake_amp)
 	else:
 		left_foot_shake_offset = Vector2.ZERO
 	
 	var right_foot_mods = get_foot_modifiers(right_foot_state)
 	var target_right_foot_shake = right_foot_mods.shake
 	right_foot_shake_lerp = lerp(right_foot_shake_lerp, target_right_foot_shake, SHAKE_LERP_SPEED * delta)
-	
 	if right_foot_shake_lerp > 0.01:
 		var shake_freq = 25.0 + (right_foot_shake_lerp * 15.0)
 		var shake_amp = right_foot_shake_lerp * 2.5
 		var t = Time.get_ticks_msec() * 0.001
-		right_foot_shake_offset = Vector2(
-			sin(t * shake_freq + 1.5) * shake_amp,
-			sin(t * shake_freq * 1.2 + 1.3) * shake_amp
-		)
+		right_foot_shake_offset = Vector2(sin(t * shake_freq + 1.5) * shake_amp, sin(t * shake_freq * 1.2 + 1.3) * shake_amp)
 	else:
 		right_foot_shake_offset = Vector2.ZERO
 
@@ -670,7 +695,6 @@ func handle_input():
 		return
 	
 	building_momentum = false
-	
 	var shift_held = Input.is_key_pressed(KEY_SHIFT)
 	
 	if Input.is_action_just_pressed("select_left"):
@@ -679,11 +703,8 @@ func handle_input():
 		else:
 			selected_limbs.clear()
 			selected_limbs.append(Limb.LEFT_HAND)
-		
-		# Release hold immediately when selecting
 		if left_hand_hold != null and Limb.LEFT_HAND in selected_limbs:
 			release_limb(Limb.LEFT_HAND)
-			# Cancel any ongoing grab animation
 			left_hand_grabbing = false
 	
 	elif Input.is_action_just_pressed("select_right"):
@@ -692,11 +713,8 @@ func handle_input():
 		else:
 			selected_limbs.clear()
 			selected_limbs.append(Limb.RIGHT_HAND)
-		
-		# Release hold immediately when selecting
 		if right_hand_hold != null and Limb.RIGHT_HAND in selected_limbs:
 			release_limb(Limb.RIGHT_HAND)
-			# Cancel any ongoing grab animation
 			right_hand_grabbing = false
 	
 	if Input.is_action_just_pressed("select_left_foot"):
@@ -706,12 +724,9 @@ func handle_input():
 			if Limb.LEFT_HAND not in selected_limbs and Limb.RIGHT_HAND not in selected_limbs:
 				selected_limbs.clear()
 			selected_limbs.append(Limb.LEFT_FOOT)
-		
 		left_foot_auto_disabled = true
-		# Release hold immediately when selecting
 		if left_foot_hold != null and Limb.LEFT_FOOT in selected_limbs:
 			release_limb(Limb.LEFT_FOOT)
-			# Cancel any ongoing grab animation
 			left_foot_grabbing = false
 	
 	elif Input.is_action_just_pressed("select_right_foot"):
@@ -721,19 +736,15 @@ func handle_input():
 			if Limb.LEFT_HAND not in selected_limbs and Limb.RIGHT_HAND not in selected_limbs:
 				selected_limbs.clear()
 			selected_limbs.append(Limb.RIGHT_FOOT)
-		
 		right_foot_auto_disabled = true
-		# Release hold immediately when selecting
 		if right_foot_hold != null and Limb.RIGHT_FOOT in selected_limbs:
 			release_limb(Limb.RIGHT_FOOT)
-			# Cancel any ongoing grab animation
 			right_foot_grabbing = false
 	
 	if MOUSE_CONTROL_ENABLED and selected_limbs.size() > 0:
 		var mouse_global = get_global_mouse_position()
 		var centroid = get_selected_limbs_centroid()
 		var dist_to_mouse = centroid.distance_to(mouse_global)
-		
 		if dist_to_mouse > MOUSE_DEADZONE:
 			use_mouse_aim = true
 			mouse_aim_position = mouse_global
@@ -786,11 +797,9 @@ func toggle_limb_selection(limb: Limb):
 func get_selected_limbs_centroid() -> Vector2:
 	if selected_limbs.size() == 0:
 		return global_position
-	
 	var sum = Vector2.ZERO
 	for limb in selected_limbs:
 		sum += get_limb_position(limb)
-	
 	return sum / selected_limbs.size()
 
 func get_limb_position(limb: Limb) -> Vector2:
@@ -853,6 +862,8 @@ func reset_climb():
 	right_hand_grabbing = false
 	left_foot_grabbing = false
 	right_foot_grabbing = false
+	_ragdoll_active = false
+	_ragdoll_elapsed = 0.0
 	climb_started = false
 	climb_completed = false
 	
@@ -914,7 +925,6 @@ func simulate_physics(delta):
 		com_velocity.y += GRAVITY * delta * 0.15
 	else:
 		com_velocity.y += GRAVITY * delta * 2.0
-		
 		if left_foot_hold:
 			left_foot_hold.release(left_foot)
 			left_foot_hold = null
@@ -969,49 +979,36 @@ func simulate_physics(delta):
 	
 	apply_limb_velocities(delta)
 	
-	# NEW: Check for leg overstretch BEFORE constraints
 	check_leg_overstretch()
-	
 	check_limb_overload(held_hand_count, held_foot_count)
 	
 	for i in range(5):
 		apply_joint_constraints()
 	
 	apply_natural_limb_positions(delta)
-	
 	update_grab_animations()
 	pin_held_limbs()
 	
 	com_velocity *= BODY_DRAG
 	apply_limb_drag()
 
-# NEW: Function to check and release overstretched legs
 func check_leg_overstretch():
-	"""Release feet if legs are stretched beyond safe limits"""
 	var left_hip := global_position + Vector2(-HIP_OFFSET, HIP_DOWN)
 	var right_hip := global_position + Vector2(HIP_OFFSET, HIP_DOWN)
 	var leg_natural_length := LEG_UPPER_LENGTH + LEG_LOWER_LENGTH
 	var max_safe_length := leg_natural_length * LEG_FORCE_RELEASE_THRESHOLD
 	
-	# Check left leg
 	if left_foot_hold and not left_foot_grabbing:
 		var left_anchor = left_foot_hold.get_limb_anchor(left_foot)
-		var left_stretch = left_hip.distance_to(left_anchor)
-		
-		if left_stretch > max_safe_length:
-			print("⚠️ Left leg overstretched (", left_stretch, " > ", max_safe_length, ") - releasing")
+		if left_hip.distance_to(left_anchor) > max_safe_length:
 			left_foot_hold.release(left_foot)
 			left_foot_hold = null
 			left_foot_manual = false
 			left_foot_auto_disabled = false
 	
-	# Check right leg
 	if right_foot_hold and not right_foot_grabbing:
 		var right_anchor = right_foot_hold.get_limb_anchor(right_foot)
-		var right_stretch = right_hip.distance_to(right_anchor)
-		
-		if right_stretch > max_safe_length:
-			print("⚠️ Right leg overstretched (", right_stretch, " > ", max_safe_length, ") - releasing")
+		if right_hip.distance_to(right_anchor) > max_safe_length:
 			right_foot_hold.release(right_foot)
 			right_foot_hold = null
 			right_foot_manual = false
@@ -1022,70 +1019,61 @@ func pin_held_limbs():
 		left_hand.global_position = left_hand_hold.get_limb_anchor(left_hand)
 		left_hand_velocity = Vector2.ZERO
 		left_hand_joint_velocity = Vector2.ZERO
-	
 	if right_hand_hold and not right_hand_grabbing:
 		right_hand.global_position = right_hand_hold.get_limb_anchor(right_hand)
 		right_hand_velocity = Vector2.ZERO
 		right_hand_joint_velocity = Vector2.ZERO
-	
 	if left_foot_hold and not left_foot_grabbing:
 		left_foot.global_position = left_foot_hold.get_limb_anchor(left_foot)
 		left_foot_velocity = Vector2.ZERO
 		left_foot_joint_velocity = Vector2.ZERO
-	
 	if right_foot_hold and not right_foot_grabbing:
 		right_foot.global_position = right_foot_hold.get_limb_anchor(right_foot)
 		right_foot_velocity = Vector2.ZERO
 		right_foot_joint_velocity = Vector2.ZERO
 
 func apply_limb_gravity(delta: float):
-	if left_hand_hold == null and Limb.LEFT_HAND not in selected_limbs and not left_hand_grabbing:
+	# Only apply gravity to limbs that are actively selected/being moved by the player
+	# Free limbs are handled smoothly by apply_natural_limb_positions instead
+	if left_hand_hold == null and Limb.LEFT_HAND in selected_limbs and not left_hand_grabbing:
 		left_hand_velocity.y += GRAVITY * delta * 0.4
 		left_hand_joint_velocity.y += GRAVITY * delta * 0.3
-	
-	if right_hand_hold == null and Limb.RIGHT_HAND not in selected_limbs and not right_hand_grabbing:
+	if right_hand_hold == null and Limb.RIGHT_HAND in selected_limbs and not right_hand_grabbing:
 		right_hand_velocity.y += GRAVITY * delta * 0.4
 		right_hand_joint_velocity.y += GRAVITY * delta * 0.3
-	
-	if left_foot_hold == null and Limb.LEFT_FOOT not in selected_limbs and not left_foot_grabbing:
+	if left_foot_hold == null and Limb.LEFT_FOOT in selected_limbs and not left_foot_grabbing:
 		left_foot_velocity.y += GRAVITY * delta * 0.5
 		left_foot_joint_velocity.y += GRAVITY * delta * 0.4
-	
-	if right_foot_hold == null and Limb.RIGHT_FOOT not in selected_limbs and not right_foot_grabbing:
+	if right_foot_hold == null and Limb.RIGHT_FOOT in selected_limbs and not right_foot_grabbing:
 		right_foot_velocity.y += GRAVITY * delta * 0.5
 		right_foot_joint_velocity.y += GRAVITY * delta * 0.4
 
 func apply_limb_velocities(delta: float):
-	if left_hand_hold == null and Limb.LEFT_HAND not in selected_limbs and not left_hand_grabbing:
+	# Only move limbs that are actively selected/being moved by the player
+	if left_hand_hold == null and Limb.LEFT_HAND in selected_limbs and not left_hand_grabbing:
 		left_hand.global_position += left_hand_velocity * delta
 		left_hand_joint.global_position += left_hand_joint_velocity * delta
-	
-	if right_hand_hold == null and Limb.RIGHT_HAND not in selected_limbs and not right_hand_grabbing:
+	if right_hand_hold == null and Limb.RIGHT_HAND in selected_limbs and not right_hand_grabbing:
 		right_hand.global_position += right_hand_velocity * delta
 		right_hand_joint.global_position += right_hand_joint_velocity * delta
-	
-	if left_foot_hold == null and Limb.LEFT_FOOT not in selected_limbs and not left_foot_grabbing:
+	if left_foot_hold == null and Limb.LEFT_FOOT in selected_limbs and not left_foot_grabbing:
 		left_foot.global_position += left_foot_velocity * delta
 		left_foot_joint.global_position += left_foot_joint_velocity * delta
-	
-	if right_foot_hold == null and Limb.RIGHT_FOOT not in selected_limbs and not right_foot_grabbing:
+	if right_foot_hold == null and Limb.RIGHT_FOOT in selected_limbs and not right_foot_grabbing:
 		right_foot.global_position += right_foot_velocity * delta
 		right_foot_joint.global_position += right_foot_joint_velocity * delta
 
 func apply_limb_drag():
-	if left_hand_hold == null and Limb.LEFT_HAND not in selected_limbs:
+	if left_hand_hold == null and Limb.LEFT_HAND in selected_limbs:
 		left_hand_velocity *= LIMB_DRAG
 		left_hand_joint_velocity *= LIMB_DRAG
-	
-	if right_hand_hold == null and Limb.RIGHT_HAND not in selected_limbs:
+	if right_hand_hold == null and Limb.RIGHT_HAND in selected_limbs:
 		right_hand_velocity *= LIMB_DRAG
 		right_hand_joint_velocity *= LIMB_DRAG
-	
-	if left_foot_hold == null and Limb.LEFT_FOOT not in selected_limbs:
+	if left_foot_hold == null and Limb.LEFT_FOOT in selected_limbs:
 		left_foot_velocity *= LIMB_DRAG
 		left_foot_joint_velocity *= LIMB_DRAG
-	
-	if right_foot_hold == null and Limb.RIGHT_FOOT not in selected_limbs:
+	if right_foot_hold == null and Limb.RIGHT_FOOT in selected_limbs:
 		right_foot_velocity *= LIMB_DRAG
 		right_foot_joint_velocity *= LIMB_DRAG
 
@@ -1097,36 +1085,26 @@ func get_foot_move_speed(limb: Limb) -> float:
 
 func apply_mouse_control_multi(delta):
 	var target_pos = mouse_aim_position
-	
 	for limb in selected_limbs:
 		match limb:
 			Limb.LEFT_HAND:
 				if left_hand_hold == null and not left_hand_grabbing:
-					apply_hand_control(left_hand, left_hand_state, Vector2(-SHOULDER_OFFSET, 0), 
-									   target_pos, true, delta)
-			
+					apply_hand_control(left_hand, left_hand_state, Vector2(-SHOULDER_OFFSET, 0), target_pos, true, delta)
 			Limb.RIGHT_HAND:
 				if right_hand_hold == null and not right_hand_grabbing:
-					apply_hand_control(right_hand, right_hand_state, Vector2(SHOULDER_OFFSET, 0), 
-									   target_pos, false, delta)
-			
+					apply_hand_control(right_hand, right_hand_state, Vector2(SHOULDER_OFFSET, 0), target_pos, false, delta)
 			Limb.LEFT_FOOT:
 				if left_foot_hold == null and not left_foot_grabbing:
-					apply_foot_control(left_foot, Vector2(-HIP_OFFSET, HIP_DOWN), 
-									   target_pos, true, delta)
-			
+					apply_foot_control(left_foot, Vector2(-HIP_OFFSET, HIP_DOWN), target_pos, true, delta)
 			Limb.RIGHT_FOOT:
 				if right_foot_hold == null and not right_foot_grabbing:
-					apply_foot_control(right_foot, Vector2(HIP_OFFSET, HIP_DOWN), 
-									   target_pos, false, delta)
+					apply_foot_control(right_foot, Vector2(HIP_OFFSET, HIP_DOWN), target_pos, false, delta)
 
-func apply_hand_control(hand: Node2D, state: GripState, shoulder_offset: Vector2, 
+func apply_hand_control(hand: Node2D, state: GripState, shoulder_offset: Vector2,
 						target: Vector2, is_left: bool, delta: float):
 	var mods = get_hand_modifiers(state)
-	
 	var move_speed = BASE_HAND_MOVE_SPEED * mods.speed_mult
 	hand.global_position = hand.global_position.lerp(target, move_speed)
-	
 	if is_left:
 		left_hand_velocity = Vector2.ZERO
 		left_hand_joint_velocity = Vector2.ZERO
@@ -1136,12 +1114,10 @@ func apply_hand_control(hand: Node2D, state: GripState, shoulder_offset: Vector2
 		right_hand_joint_velocity = Vector2.ZERO
 		apply_limb_momentum(right_hand.global_position, previous_right_hand_pos, delta)
 
-func apply_foot_control(foot: Node2D, hip_offset: Vector2, target: Vector2, 
+func apply_foot_control(foot: Node2D, hip_offset: Vector2, target: Vector2,
 						is_left: bool, delta: float):
 	var foot_speed = get_foot_move_speed(Limb.LEFT_FOOT if is_left else Limb.RIGHT_FOOT)
-	
 	foot.global_position = foot.global_position.lerp(target, foot_speed)
-	
 	if is_left:
 		left_foot_velocity = Vector2.ZERO
 		left_foot_joint_velocity = Vector2.ZERO
@@ -1152,76 +1128,46 @@ func apply_foot_control(foot: Node2D, hip_offset: Vector2, target: Vector2,
 		apply_limb_momentum(right_foot.global_position, previous_right_foot_pos, delta)
 
 func apply_natural_limb_positions(delta):
-	"""Apply natural stick figure pose - angled upper limbs, straight lower limbs"""
-	
-	# Left arm - angled upper arm, straight forearm down
+	var relax = 0.25
 	if left_hand_hold == null and Limb.LEFT_HAND not in selected_limbs and not left_hand_grabbing:
 		var shoulder = global_position + Vector2(-SHOULDER_OFFSET, 0)
 		var angle_rad = deg_to_rad(ARM_NATURAL_ANGLE_DEG)
-		
-		# Elbow: angled outward from shoulder
-		var target_elbow = shoulder + Vector2(
-			-ARM_UPPER_LENGTH * sin(angle_rad),
-			ARM_UPPER_LENGTH * cos(angle_rad)
-		)
-		
-		# Hand: straight down from elbow
+		var target_elbow = shoulder + Vector2(-ARM_UPPER_LENGTH * sin(angle_rad), ARM_UPPER_LENGTH * cos(angle_rad))
 		var target_hand = target_elbow + Vector2(0, ARM_LOWER_LENGTH)
-		
-		# Apply to BOTH joint and hand
-		left_hand_joint.global_position = left_hand_joint.global_position.lerp(target_elbow, FREE_LIMB_RELAXATION_SPEED)
-		left_hand.global_position = left_hand.global_position.lerp(target_hand, FREE_LIMB_RELAXATION_SPEED)
-	
-	# Right arm - angled upper arm, straight forearm down
+		left_hand_joint.global_position = left_hand_joint.global_position.lerp(target_elbow, relax)
+		left_hand.global_position = left_hand.global_position.lerp(target_hand, relax)
+		left_hand_velocity = Vector2.ZERO
+		left_hand_joint_velocity = Vector2.ZERO
+
 	if right_hand_hold == null and Limb.RIGHT_HAND not in selected_limbs and not right_hand_grabbing:
 		var shoulder = global_position + Vector2(SHOULDER_OFFSET, 0)
 		var angle_rad = deg_to_rad(ARM_NATURAL_ANGLE_DEG)
-		
-		# Elbow: angled outward from shoulder
-		var target_elbow = shoulder + Vector2(
-			ARM_UPPER_LENGTH * sin(angle_rad),
-			ARM_UPPER_LENGTH * cos(angle_rad)
-		)
-		
-		# Hand: straight down from elbow
+		var target_elbow = shoulder + Vector2(ARM_UPPER_LENGTH * sin(angle_rad), ARM_UPPER_LENGTH * cos(angle_rad))
 		var target_hand = target_elbow + Vector2(0, ARM_LOWER_LENGTH)
-		
-		right_hand_joint.global_position = right_hand_joint.global_position.lerp(target_elbow, FREE_LIMB_RELAXATION_SPEED)
-		right_hand.global_position = right_hand.global_position.lerp(target_hand, FREE_LIMB_RELAXATION_SPEED)
-	
-	# Left leg - angled upper leg, straight lower leg
+		right_hand_joint.global_position = right_hand_joint.global_position.lerp(target_elbow, relax)
+		right_hand.global_position = right_hand.global_position.lerp(target_hand, relax)
+		right_hand_velocity = Vector2.ZERO
+		right_hand_joint_velocity = Vector2.ZERO
+
+	# Legs hang straight down with a small outward offset at the knee only
+	var leg_splay = 8.0  # pixels outward at knee, looks natural
 	if left_foot_hold == null and Limb.LEFT_FOOT not in selected_limbs and not left_foot_grabbing:
 		var hip = global_position + Vector2(-HIP_OFFSET, HIP_DOWN)
-		var angle_rad = deg_to_rad(LEG_NATURAL_SPLAY_DEG)
-		
-		# Knee: angled outward from hip
-		var target_knee = hip + Vector2(
-			-LEG_UPPER_LENGTH * sin(angle_rad),
-			LEG_UPPER_LENGTH * cos(angle_rad)
-		)
-		
-		# Foot: straight down from knee
-		var target_foot = target_knee + Vector2(0, LEG_LOWER_LENGTH)
-		
-		left_foot_joint.global_position = left_foot_joint.global_position.lerp(target_knee, FREE_LIMB_RELAXATION_SPEED)
-		left_foot.global_position = left_foot.global_position.lerp(target_foot, FREE_LIMB_RELAXATION_SPEED)
-	
-	# Right leg - angled upper leg, straight lower leg
+		var target_knee = hip + Vector2(-leg_splay, LEG_UPPER_LENGTH)
+		var target_foot = target_knee + Vector2(-leg_splay * 0.5, LEG_LOWER_LENGTH)
+		left_foot_joint.global_position = left_foot_joint.global_position.lerp(target_knee, relax)
+		left_foot.global_position = left_foot.global_position.lerp(target_foot, relax)
+		left_foot_velocity = Vector2.ZERO
+		left_foot_joint_velocity = Vector2.ZERO
+
 	if right_foot_hold == null and Limb.RIGHT_FOOT not in selected_limbs and not right_foot_grabbing:
 		var hip = global_position + Vector2(HIP_OFFSET, HIP_DOWN)
-		var angle_rad = deg_to_rad(LEG_NATURAL_SPLAY_DEG)
-		
-		# Knee: angled outward from hip
-		var target_knee = hip + Vector2(
-			LEG_UPPER_LENGTH * sin(angle_rad),
-			LEG_UPPER_LENGTH * cos(angle_rad)
-		)
-		
-		# Foot: straight down from knee
-		var target_foot = target_knee + Vector2(0, LEG_LOWER_LENGTH)
-		
-		right_foot_joint.global_position = right_foot_joint.global_position.lerp(target_knee, FREE_LIMB_RELAXATION_SPEED)
-		right_foot.global_position = right_foot.global_position.lerp(target_foot, FREE_LIMB_RELAXATION_SPEED)
+		var target_knee = hip + Vector2(leg_splay, LEG_UPPER_LENGTH)
+		var target_foot = target_knee + Vector2(leg_splay * 0.5, LEG_LOWER_LENGTH)
+		right_foot_joint.global_position = right_foot_joint.global_position.lerp(target_knee, relax)
+		right_foot.global_position = right_foot.global_position.lerp(target_foot, relax)
+		right_foot_velocity = Vector2.ZERO
+		right_foot_joint_velocity = Vector2.ZERO
 
 func apply_adaptive_leg_assistance(delta):
 	if not use_mouse_aim:
@@ -1247,86 +1193,65 @@ func apply_adaptive_leg_assistance(delta):
 		var left_anchor = left_foot_hold.get_limb_anchor(left_foot)
 		var current_dist = left_hip.distance_to(left_anchor)
 		var max_leg_len = LEG_UPPER_LENGTH + LEG_LOWER_LENGTH
-		var current_extension = current_dist / max_leg_len
-		
-		if current_extension < LEG_ASSIST_MAX_EXTENSION:
-			var leg_push = reach_direction * assist_amount * LEG_ASSIST_SPEED * 100.0
-			com_velocity += leg_push
+		if current_dist / max_leg_len < LEG_ASSIST_MAX_EXTENSION:
+			com_velocity += reach_direction * assist_amount * LEG_ASSIST_SPEED * 100.0
 	
 	if right_foot_hold:
 		var right_hip = body_pos + Vector2(HIP_OFFSET, HIP_DOWN)
 		var right_anchor = right_foot_hold.get_limb_anchor(right_foot)
 		var current_dist = right_hip.distance_to(right_anchor)
 		var max_leg_len = LEG_UPPER_LENGTH + LEG_LOWER_LENGTH
-		var current_extension = current_dist / max_leg_len
-		
-		if current_extension < LEG_ASSIST_MAX_EXTENSION:
-			var leg_push = reach_direction * assist_amount * LEG_ASSIST_SPEED * 100.0
-			com_velocity += leg_push
+		if current_dist / max_leg_len < LEG_ASSIST_MAX_EXTENSION:
+			com_velocity += reach_direction * assist_amount * LEG_ASSIST_SPEED * 100.0
 	
 	if left_foot_hold and right_foot_hold:
-		var lean_push = reach_direction * assist_amount * LEG_ASSIST_SPEED * 50.0
-		com_velocity += lean_push
+		com_velocity += reach_direction * assist_amount * LEG_ASSIST_SPEED * 50.0
 
 func update_grab_animations():
-	# SNAP to hold position in code, but animate visually for smoothness
 	if left_hand_grabbing:
-		# Store the visual offset (how far we are from target)
 		left_hand_visual_offset = left_hand.global_position - left_hand_grab_target
-		# SNAP to actual position immediately
 		left_hand.global_position = left_hand_grab_target
 		left_hand_grabbing = false
-	
 	if right_hand_grabbing:
 		right_hand_visual_offset = right_hand.global_position - right_hand_grab_target
 		right_hand.global_position = right_hand_grab_target
 		right_hand_grabbing = false
-	
 	if left_foot_grabbing:
 		left_foot_visual_offset = left_foot.global_position - left_foot_grab_target
 		left_foot.global_position = left_foot_grab_target
 		left_foot_grabbing = false
-	
 	if right_foot_grabbing:
 		right_foot_visual_offset = right_foot.global_position - right_foot_grab_target
 		right_foot.global_position = right_foot_grab_target
 		right_foot_grabbing = false
 	
-	# Smoothly lerp visual offsets to zero for subtle animation
 	left_hand_visual_offset = left_hand_visual_offset.lerp(Vector2.ZERO, VISUAL_ANIMATION_SPEED)
 	right_hand_visual_offset = right_hand_visual_offset.lerp(Vector2.ZERO, VISUAL_ANIMATION_SPEED)
 	left_foot_visual_offset = left_foot_visual_offset.lerp(Vector2.ZERO, VISUAL_ANIMATION_SPEED)
 	right_foot_visual_offset = right_foot_visual_offset.lerp(Vector2.ZERO, VISUAL_ANIMATION_SPEED)
 	
-	# Zero out if very small
-	if left_hand_visual_offset.length() < 0.5:
-		left_hand_visual_offset = Vector2.ZERO
-	if right_hand_visual_offset.length() < 0.5:
-		right_hand_visual_offset = Vector2.ZERO
-	if left_foot_visual_offset.length() < 0.5:
-		left_foot_visual_offset = Vector2.ZERO
-	if right_foot_visual_offset.length() < 0.5:
-		right_foot_visual_offset = Vector2.ZERO
+	if left_hand_visual_offset.length() < 0.5: left_hand_visual_offset = Vector2.ZERO
+	if right_hand_visual_offset.length() < 0.5: right_hand_visual_offset = Vector2.ZERO
+	if left_foot_visual_offset.length() < 0.5: left_foot_visual_offset = Vector2.ZERO
+	if right_foot_visual_offset.length() < 0.5: right_foot_visual_offset = Vector2.ZERO
 
 func apply_limb_momentum(current_pos: Vector2, previous_pos: Vector2, delta: float):
 	if delta <= 0:
 		return
-	
 	var limb_velocity = (current_pos - previous_pos) / delta
 	com_velocity += limb_velocity * MOMENTUM_TRANSFER_STRENGTH * delta * DYNO_VELOCITY_BOOST
 
 func apply_foot_support(delta):
 	var support_force := Vector2.ZERO
 	var total_foot_count := 0
-	
 	var foot_center := Vector2.ZERO
+	
 	if left_foot_hold:
 		foot_center += left_foot_hold.get_limb_anchor(left_foot)
 		total_foot_count += 1
 	if right_foot_hold:
 		foot_center += right_foot_hold.get_limb_anchor(right_foot)
 		total_foot_count += 1
-	
 	if total_foot_count > 0:
 		foot_center /= total_foot_count
 	
@@ -1334,19 +1259,14 @@ func apply_foot_support(delta):
 		var anchor = left_foot_hold.get_limb_anchor(left_foot)
 		var foot_relative_y = anchor.y - com_position.y
 		if foot_relative_y > FOOT_SUPPORT_MIN_Y:
-			var push_distance = min(foot_relative_y, FOOT_SUPPORT_MAX_PUSH)
-			support_force.y -= FOOT_SUPPORT_STRENGTH * push_distance
-	
+			support_force.y -= FOOT_SUPPORT_STRENGTH * min(foot_relative_y, FOOT_SUPPORT_MAX_PUSH)
 	if right_foot_hold:
 		var anchor = right_foot_hold.get_limb_anchor(right_foot)
 		var foot_relative_y = anchor.y - com_position.y
 		if foot_relative_y > FOOT_SUPPORT_MIN_Y:
-			var push_distance = min(foot_relative_y, FOOT_SUPPORT_MAX_PUSH)
-			support_force.y -= FOOT_SUPPORT_STRENGTH * push_distance
-	
+			support_force.y -= FOOT_SUPPORT_STRENGTH * min(foot_relative_y, FOOT_SUPPORT_MAX_PUSH)
 	if total_foot_count > 0:
-		var foot_offset_x = foot_center.x - com_position.x
-		support_force.x += FOOT_LATERAL_ASSIST * foot_offset_x
+		support_force.x += FOOT_LATERAL_ASSIST * (foot_center.x - com_position.x)
 	
 	com_velocity += support_force
 
@@ -1360,7 +1280,6 @@ func apply_limb_tension(delta, held_hand_count: int, held_foot_count: int):
 	if right_hand_hold:
 		target_pos += right_hand_hold.get_limb_anchor(right_hand) * 2.0
 		total_weight += 2.0
-	
 	if left_foot_hold:
 		target_pos += left_foot_hold.get_limb_anchor(left_foot) * 0.5
 		total_weight += 0.5
@@ -1370,26 +1289,19 @@ func apply_limb_tension(delta, held_hand_count: int, held_foot_count: int):
 	
 	if total_weight > 0:
 		target_pos /= total_weight
-		var vertical_offset = 60.0 if held_foot_count == 0 else 30.0
-		target_pos += Vector2(0, vertical_offset)
-		var pull := (target_pos - com_position) * BODY_PULL_STRENGTH
-		com_velocity += pull
+		target_pos += Vector2(0, 60.0 if held_foot_count == 0 else 30.0)
+		com_velocity += (target_pos - com_position) * BODY_PULL_STRENGTH
 
 func check_limb_overload(held_hand_count: int, held_foot_count: int):
 	if left_hand_hold:
 		var left_shoulder := global_position + Vector2(-SHOULDER_OFFSET, 0)
 		var anchor = left_hand_hold.get_limb_anchor(left_hand)
-		var stretch = left_shoulder.distance_to(anchor)
-		var max_len = (ARM_UPPER_LENGTH + ARM_LOWER_LENGTH) * HAND_LOAD_TOLERANCE
-		if stretch > max_len:
+		if left_shoulder.distance_to(anchor) > (ARM_UPPER_LENGTH + ARM_LOWER_LENGTH) * HAND_LOAD_TOLERANCE:
 			release_limb(Limb.LEFT_HAND)
-	
 	if right_hand_hold:
 		var right_shoulder := global_position + Vector2(SHOULDER_OFFSET, 0)
 		var anchor = right_hand_hold.get_limb_anchor(right_hand)
-		var stretch = right_shoulder.distance_to(anchor)
-		var max_len = (ARM_UPPER_LENGTH + ARM_LOWER_LENGTH) * HAND_LOAD_TOLERANCE
-		if stretch > max_len:
+		if right_shoulder.distance_to(anchor) > (ARM_UPPER_LENGTH + ARM_LOWER_LENGTH) * HAND_LOAD_TOLERANCE:
 			release_limb(Limb.RIGHT_HAND)
 	
 	var left_hip := global_position + Vector2(-HIP_OFFSET, HIP_DOWN)
@@ -1397,13 +1309,10 @@ func check_limb_overload(held_hand_count: int, held_foot_count: int):
 	var leg_total_len := LEG_UPPER_LENGTH + LEG_LOWER_LENGTH
 	
 	if left_foot_hold:
-		var anchor = left_foot_hold.get_limb_anchor(left_foot)
-		if left_hip.distance_to(anchor) > leg_total_len * FOOT_RELEASE_THRESHOLD:
+		if left_hip.distance_to(left_foot_hold.get_limb_anchor(left_foot)) > leg_total_len * FOOT_RELEASE_THRESHOLD:
 			release_limb(Limb.LEFT_FOOT)
-	
 	if right_foot_hold:
-		var anchor = right_foot_hold.get_limb_anchor(right_foot)
-		if right_hip.distance_to(anchor) > leg_total_len * FOOT_RELEASE_THRESHOLD:
+		if right_hip.distance_to(right_foot_hold.get_limb_anchor(right_foot)) > leg_total_len * FOOT_RELEASE_THRESHOLD:
 			release_limb(Limb.RIGHT_FOOT)
 
 func get_highest_hand_y() -> float:
@@ -1412,7 +1321,6 @@ func get_highest_hand_y() -> float:
 		y_values.append(left_hand_hold.get_limb_anchor(left_hand).y)
 	if right_hand_hold:
 		y_values.append(right_hand_hold.get_limb_anchor(right_hand).y)
-	
 	if y_values.size() > 0:
 		return y_values.min()
 	return global_position.y
@@ -1430,8 +1338,6 @@ func apply_joint_constraints():
 	
 	constrain_arm(left_hand_joint, left_hand, left_shoulder, ARM_UPPER_LENGTH, ARM_LOWER_LENGTH, left_hand_pinned, true)
 	constrain_arm(right_hand_joint, right_hand, right_shoulder, ARM_UPPER_LENGTH, ARM_LOWER_LENGTH, right_hand_pinned, false)
-	
-	# NEW: Use stricter leg constraints
 	constrain_leg_strict(left_foot_joint, left_foot, left_hip, LEG_UPPER_LENGTH, LEG_LOWER_LENGTH, left_foot_pinned, true)
 	constrain_leg_strict(right_foot_joint, right_foot, right_hip, LEG_UPPER_LENGTH, LEG_LOWER_LENGTH, right_foot_pinned, false)
 
@@ -1440,30 +1346,25 @@ func constrain_arm(elbow: Node2D, hand: Node2D, shoulder: Vector2, upper_len: fl
 	var dist := to_hand.length()
 	if dist < 0.01:
 		return
-	
 	var total_len := upper_len + lower_len
 	var max_reach := total_len * MAX_JOINT_STRETCH
-	
 	if dist > max_reach:
 		hand.global_position = shoulder + to_hand.normalized() * max_reach
 		to_hand = hand.global_position - shoulder
 		dist = max_reach
-	
 	if hand_pinned or dist >= total_len * 0.98:
 		if dist >= total_len * 0.98:
 			elbow.global_position = shoulder + to_hand * (upper_len / total_len)
 		else:
 			var dir := to_hand.normalized()
-			var a := upper_len
-			var b := lower_len
+			var a := upper_len; var b := lower_len
 			var c = clamp(dist, abs(a - b) + 0.1, a + b - 0.1)
 			var cos_angle = clamp((a * a + c * c - b * b) / (2.0 * a * c), -1.0, 1.0)
 			var angle := acos(cos_angle)
 			var forward := dir * (a * cos(angle))
 			var perpendicular := Vector2(-dir.y, dir.x)
 			var bend_dir := -1.0 if is_left else 1.0
-			var sideways := perpendicular * (a * sin(angle)) * bend_dir
-			elbow.global_position = shoulder + forward + sideways
+			elbow.global_position = shoulder + forward + perpendicular * (a * sin(angle)) * bend_dir
 	else:
 		var to_elbow := elbow.global_position - shoulder
 		var elbow_dist := to_elbow.length()
@@ -1472,9 +1373,7 @@ func constrain_arm(elbow: Node2D, hand: Node2D, shoulder: Vector2, upper_len: fl
 			if elbow_dist > max_upper:
 				elbow.global_position = shoulder + to_elbow.normalized() * max_upper
 			else:
-				var error := elbow_dist - upper_len
-				elbow.global_position -= to_elbow.normalized() * error * JOINT_STIFFNESS
-		
+				elbow.global_position -= to_elbow.normalized() * (elbow_dist - upper_len) * JOINT_STIFFNESS
 		var elbow_to_hand := hand.global_position - elbow.global_position
 		var hand_dist := elbow_to_hand.length()
 		if hand_dist > 0.01:
@@ -1482,41 +1381,31 @@ func constrain_arm(elbow: Node2D, hand: Node2D, shoulder: Vector2, upper_len: fl
 			if hand_dist > max_lower:
 				hand.global_position = elbow.global_position + elbow_to_hand.normalized() * max_lower
 			else:
-				var error := hand_dist - lower_len
-				hand.global_position -= elbow_to_hand.normalized() * error * LIMB_STIFFNESS
+				hand.global_position -= elbow_to_hand.normalized() * (hand_dist - lower_len) * LIMB_STIFFNESS
 
-# NEW: Stricter leg constraint function
 func constrain_leg_strict(knee: Node2D, foot: Node2D, hip: Vector2, upper_len: float, lower_len: float, foot_pinned: bool, is_left: bool):
-	"""Leg constraint with stricter stretch limits to prevent overstretching"""
 	var to_foot := foot.global_position - hip
 	var dist := to_foot.length()
 	if dist < 0.01:
 		return
-	
 	var total_len := upper_len + lower_len
-	# NEW: Use stricter max reach for legs
 	var max_reach := total_len * MAX_LEG_TOTAL_STRETCH
-	
 	if dist > max_reach:
 		foot.global_position = hip + to_foot.normalized() * max_reach
 		to_foot = foot.global_position - hip
 		dist = max_reach
-	
 	if foot_pinned or dist >= total_len * 0.98:
 		if dist >= total_len * 0.98:
 			knee.global_position = hip + to_foot * (upper_len / total_len)
 		else:
 			var dir := to_foot.normalized()
-			var a := upper_len
-			var b := lower_len
+			var a := upper_len; var b := lower_len
 			var c = clamp(dist, abs(a - b) + 0.1, a + b - 0.1)
 			var cos_angle = clamp((a * a + c * c - b * b) / (2.0 * a * c), -1.0, 1.0)
 			var angle := acos(cos_angle)
 			var forward := dir * (a * cos(angle))
 			var perpendicular := Vector2(-dir.y, dir.x)
-			var bend_dir := 1.0
-			var sideways := perpendicular * (a * sin(angle)) * bend_dir
-			knee.global_position = hip + forward + sideways
+			knee.global_position = hip + forward + perpendicular * (a * sin(angle)) * 1.0
 	else:
 		var to_knee := knee.global_position - hip
 		var knee_dist := to_knee.length()
@@ -1525,9 +1414,7 @@ func constrain_leg_strict(knee: Node2D, foot: Node2D, hip: Vector2, upper_len: f
 			if knee_dist > max_upper:
 				knee.global_position = hip + to_knee.normalized() * max_upper
 			else:
-				var error := knee_dist - upper_len
-				knee.global_position -= to_knee.normalized() * error * JOINT_STIFFNESS
-		
+				knee.global_position -= to_knee.normalized() * (knee_dist - upper_len) * JOINT_STIFFNESS
 		var knee_to_foot := foot.global_position - knee.global_position
 		var foot_dist := knee_to_foot.length()
 		if foot_dist > 0.01:
@@ -1535,8 +1422,7 @@ func constrain_leg_strict(knee: Node2D, foot: Node2D, hip: Vector2, upper_len: f
 			if foot_dist > max_lower:
 				foot.global_position = knee.global_position + knee_to_foot.normalized() * max_lower
 			else:
-				var error := foot_dist - lower_len
-				foot.global_position -= knee_to_foot.normalized() * error * LIMB_STIFFNESS
+				foot.global_position -= knee_to_foot.normalized() * (foot_dist - lower_len) * LIMB_STIFFNESS
 
 func auto_place_feet(delta):
 	foot_placement_timer -= delta
@@ -1544,10 +1430,8 @@ func auto_place_feet(delta):
 		return
 	
 	var held_hands := 0
-	if left_hand_hold:
-		held_hands += 1
-	if right_hand_hold:
-		held_hands += 1
+	if left_hand_hold: held_hands += 1
+	if right_hand_hold: held_hands += 1
 	
 	if held_hands == 0:
 		if left_foot_hold and not left_foot_manual:
@@ -1604,46 +1488,31 @@ func find_best_foot_hold(foot_position: Vector2, is_left: bool) -> Area2D:
 	
 	for result in results:
 		var hold: Area2D = result.collider
-		
 		if (is_left and hold == right_foot_hold) or (not is_left and hold == left_foot_hold):
 			continue
-		
 		if hold == left_hand_hold or hold == right_hand_hold:
 			continue
-		
 		var hold_point := hold.get_node_or_null("HoldPoint")
 		if hold_point == null:
 			continue
-		
 		var hold_pos = hold_point.global_position
-		
 		var relative_y = hold_pos.y - global_position.y
 		if relative_y < 0:
 			continue
-		
 		var dist := foot_position.distance_to(hold_pos)
 		var dist_score := 1.0 - (dist / FOOT_SEARCH_RADIUS)
 		var below_score = clamp(relative_y / FOOT_PREFERENCE_BELOW, 0.0, 2.0)
-		
 		var relative_x = hold_pos.x - global_position.x
 		var side_score := 0.5
-		if is_left and relative_x < 0:
-			side_score = 1.0
-		elif not is_left and relative_x > 0:
-			side_score = 1.0
-		
+		if is_left and relative_x < 0: side_score = 1.0
+		elif not is_left and relative_x > 0: side_score = 1.0
 		var max_reach := LEG_UPPER_LENGTH + LEG_LOWER_LENGTH
 		var hip_pos := global_position + Vector2(-HIP_OFFSET if is_left else HIP_OFFSET, HIP_DOWN)
-		var reach_dist := hip_pos.distance_to(hold_pos)
-		if reach_dist > max_reach * 1.2:
+		if hip_pos.distance_to(hold_pos) > max_reach * 1.2:
 			continue
-		
 		var type_bonus = 0.5
-		if hold.is_foothold():
-			type_bonus = 1.5
-		
+		if hold.is_foothold(): type_bonus = 1.5
 		var total_score = dist_score * 1.0 + below_score * 3.0 + side_score * 0.8 + type_bonus
-		
 		if total_score > best_score:
 			best_score = total_score
 			best_hold = hold
@@ -1651,43 +1520,25 @@ func find_best_foot_hold(foot_position: Vector2, is_left: bool) -> Area2D:
 	return best_hold
 
 func initial_grab():
-	"""Fixed version that ensures proper grip on start holds"""
 	print("=== INITIAL GRAB SEQUENCE START ===")
-	
 	await get_tree().process_frame
 	await get_tree().process_frame
 	
 	var start_holds := find_start_holds()
 	print("Found " + str(start_holds.size()) + " start holds")
 	
-	if left_hand_hold:
-		left_hand_hold.release(left_hand)
-		left_hand_hold = null
-	if right_hand_hold:
-		right_hand_hold.release(right_hand)
-		right_hand_hold = null
-	if left_foot_hold:
-		left_foot_hold.release(left_foot)
-		left_foot_hold = null
-	if right_foot_hold:
-		right_foot_hold.release(right_foot)
-		right_foot_hold = null
+	if left_hand_hold: left_hand_hold.release(left_hand); left_hand_hold = null
+	if right_hand_hold: right_hand_hold.release(right_hand); right_hand_hold = null
+	if left_foot_hold: left_foot_hold.release(left_foot); left_foot_hold = null
+	if right_foot_hold: right_foot_hold.release(right_foot); right_foot_hold = null
 	
-	body_velocity = Vector2.ZERO
-	com_velocity = Vector2.ZERO
-	left_hand_velocity = Vector2.ZERO
-	right_hand_velocity = Vector2.ZERO
-	left_foot_velocity = Vector2.ZERO
-	right_foot_velocity = Vector2.ZERO
-	left_hand_joint_velocity = Vector2.ZERO
-	right_hand_joint_velocity = Vector2.ZERO
-	left_foot_joint_velocity = Vector2.ZERO
-	right_foot_joint_velocity = Vector2.ZERO
-	
-	left_hand_grabbing = false
-	right_hand_grabbing = false
-	left_foot_grabbing = false
-	right_foot_grabbing = false
+	body_velocity = Vector2.ZERO; com_velocity = Vector2.ZERO
+	left_hand_velocity = Vector2.ZERO; right_hand_velocity = Vector2.ZERO
+	left_foot_velocity = Vector2.ZERO; right_foot_velocity = Vector2.ZERO
+	left_hand_joint_velocity = Vector2.ZERO; right_hand_joint_velocity = Vector2.ZERO
+	left_foot_joint_velocity = Vector2.ZERO; right_foot_joint_velocity = Vector2.ZERO
+	left_hand_grabbing = false; right_hand_grabbing = false
+	left_foot_grabbing = false; right_foot_grabbing = false
 	
 	if start_holds.size() == 1:
 		var hold = start_holds[0]
@@ -1695,112 +1546,77 @@ func initial_grab():
 		if not hold_point:
 			print("ERROR: Start hold missing HoldPoint!")
 			return
-		
 		var hold_pos = hold_point.global_position
 		print("Single start hold at: " + str(hold_pos))
-		
 		if hold.can_grab(left_hand, false):
 			if hold.try_claim(left_hand, false, hold_pos):
-				left_hand_hold = hold
-				left_hand.global_position = hold_pos
-				left_hand_anchor = hold_pos
+				left_hand_hold = hold; left_hand.global_position = hold_pos; left_hand_anchor = hold_pos
 				print("  ✓ Left hand claimed hold")
-			else:
-				print("  ✗ Left hand failed to claim hold")
-		else:
-			print("  ✗ Left hand cannot grab hold")
-		
+			else: print("  ✗ Left hand failed to claim hold")
+		else: print("  ✗ Left hand cannot grab hold")
 		if hold.can_grab(right_hand, false):
 			if hold.try_claim(right_hand, false, hold_pos):
-				right_hand_hold = hold
-				right_hand.global_position = hold_pos
-				right_hand_anchor = hold_pos
+				right_hand_hold = hold; right_hand.global_position = hold_pos; right_hand_anchor = hold_pos
 				print("  ✓ Right hand claimed hold")
-			else:
-				print("  ✗ Right hand failed to claim hold")
-		else:
-			print("  ✗ Right hand cannot grab hold")
-		
+			else: print("  ✗ Right hand failed to claim hold")
+		else: print("  ✗ Right hand cannot grab hold")
 		global_position.x = hold_pos.x
 		global_position.y = hold_pos.y + 80
-		
+	
 	elif start_holds.size() >= 2:
 		var hold_0_point: Marker2D = start_holds[0].get_node_or_null("HoldPoint")
 		var hold_1_point: Marker2D = start_holds[1].get_node_or_null("HoldPoint")
-		
 		if not hold_0_point or not hold_1_point:
 			print("ERROR: Start holds missing HoldPoint!")
 			return
-		
 		var a_x = hold_0_point.global_position.x
 		var b_x = hold_1_point.global_position.x
 		var left_start = start_holds[0] if a_x <= b_x else start_holds[1]
 		var right_start = start_holds[1] if a_x <= b_x else start_holds[0]
-		
 		var lp: Marker2D = left_start.get_node("HoldPoint")
 		var left_pos = lp.global_position
 		print("Left start hold at: " + str(left_pos))
-		
 		if left_start.can_grab(left_hand, false):
 			if left_start.try_claim(left_hand, false, left_pos):
-				left_hand_hold = left_start
-				left_hand.global_position = left_pos
-				left_hand_anchor = left_pos
+				left_hand_hold = left_start; left_hand.global_position = left_pos; left_hand_anchor = left_pos
 				print("  ✓ Left hand claimed hold")
-			else:
-				print("  ✗ Left hand failed to claim hold")
-		else:
-			print("  ✗ Left hand cannot grab hold")
-		
+			else: print("  ✗ Left hand failed to claim hold")
+		else: print("  ✗ Left hand cannot grab hold")
 		var rp: Marker2D = right_start.get_node("HoldPoint")
 		var right_pos = rp.global_position
 		print("Right start hold at: " + str(right_pos))
-		
 		if right_start.can_grab(right_hand, false):
 			if right_start.try_claim(right_hand, false, right_pos):
-				right_hand_hold = right_start
-				right_hand.global_position = right_pos
-				right_hand_anchor = right_pos
+				right_hand_hold = right_start; right_hand.global_position = right_pos; right_hand_anchor = right_pos
 				print("  ✓ Right hand claimed hold")
-			else:
-				print("  ✗ Right hand failed to claim hold")
-		else:
-			print("  ✗ Right hand cannot grab hold")
-		
+			else: print("  ✗ Right hand failed to claim hold")
+		else: print("  ✗ Right hand cannot grab hold")
 		global_position.x = (left_pos.x + right_pos.x) / 2.0
 		global_position.y = left_pos.y + 80
-		
+	
 	else:
 		print("No start holds found - using fallback")
 		var left_hold := find_nearest_hold(left_hand.global_position)
 		var right_hold := find_nearest_hold(right_hand.global_position)
-		
 		if left_hold and left_hold.can_grab(left_hand, false):
 			var snap_point: Marker2D = left_hold.get_node_or_null("HoldPoint")
 			if snap_point:
 				var pos = snap_point.global_position
 				if left_hold.try_claim(left_hand, false, pos):
-					left_hand_hold = left_hold
-					left_hand.global_position = pos
-					left_hand_anchor = pos
-		
+					left_hand_hold = left_hold; left_hand.global_position = pos; left_hand_anchor = pos
 		if right_hold and right_hold != left_hold and right_hold.can_grab(right_hand, false):
 			var snap_point: Marker2D = right_hold.get_node_or_null("HoldPoint")
 			if snap_point:
 				var pos = snap_point.global_position
 				if right_hold.try_claim(right_hand, false, pos):
-					right_hand_hold = right_hold
-					right_hand.global_position = pos
-					right_hand_anchor = pos
+					right_hand_hold = right_hold; right_hand.global_position = pos; right_hand_anchor = pos
 	
 	com_position = global_position + Vector2(0, COM_OFFSET_Y)
 	
 	var left_foot_start := find_nearest_hold(left_foot.global_position)
 	var right_foot_start := find_nearest_hold(right_foot.global_position)
 	
-	if (left_foot_start 
-			and left_foot_start != left_hand_hold 
-			and left_foot_start != right_hand_hold
+	if (left_foot_start and left_foot_start != left_hand_hold and left_foot_start != right_hand_hold
 			and left_foot_start.can_grab(left_foot, true)):
 		var snap_pos = left_foot.global_position
 		if left_foot_start.try_claim(left_foot, true, snap_pos):
@@ -1808,11 +1624,8 @@ func initial_grab():
 			left_foot.global_position = left_foot_start.get_limb_anchor(left_foot)
 			left_foot_anchor = left_foot.global_position
 	
-	if (right_foot_start 
-			and right_foot_start != left_hand_hold 
-			and right_foot_start != right_hand_hold 
-			and right_foot_start != left_foot_hold
-			and right_foot_start.can_grab(right_foot, true)):
+	if (right_foot_start and right_foot_start != left_hand_hold and right_foot_start != right_hand_hold
+			and right_foot_start != left_foot_hold and right_foot_start.can_grab(right_foot, true)):
 		var snap_pos = right_foot.global_position
 		if right_foot_start.try_claim(right_foot, true, snap_pos):
 			right_foot_hold = right_foot_start
@@ -1821,19 +1634,13 @@ func initial_grab():
 	
 	for i in range(15):
 		apply_joint_constraints()
-	
 	pin_held_limbs()
 	
-	body_velocity = Vector2.ZERO
-	com_velocity = Vector2.ZERO
-	left_hand_velocity = Vector2.ZERO
-	right_hand_velocity = Vector2.ZERO
-	left_foot_velocity = Vector2.ZERO
-	right_foot_velocity = Vector2.ZERO
-	left_hand_joint_velocity = Vector2.ZERO
-	right_hand_joint_velocity = Vector2.ZERO
-	left_foot_joint_velocity = Vector2.ZERO
-	right_foot_joint_velocity = Vector2.ZERO
+	body_velocity = Vector2.ZERO; com_velocity = Vector2.ZERO
+	left_hand_velocity = Vector2.ZERO; right_hand_velocity = Vector2.ZERO
+	left_foot_velocity = Vector2.ZERO; right_foot_velocity = Vector2.ZERO
+	left_hand_joint_velocity = Vector2.ZERO; right_hand_joint_velocity = Vector2.ZERO
+	left_foot_joint_velocity = Vector2.ZERO; right_foot_joint_velocity = Vector2.ZERO
 	
 	print("=== NOTIFYING ALL HOLDS: CLIMB START ===")
 	var notify_count = 0
@@ -1843,7 +1650,6 @@ func initial_grab():
 			notify_count += 1
 	print("Notified " + str(notify_count) + " holds that climb has started")
 	print("========================================")
-	
 	print("=== SPAWN STATE ===")
 	print("Body position: " + str(global_position))
 	print("Left hand hold: " + ("YES" if left_hand_hold else "NO"))
@@ -1854,13 +1660,9 @@ func initial_grab():
 
 func find_start_holds() -> Array[Area2D]:
 	var start_holds: Array[Area2D] = []
-	var all_holds = get_tree().get_nodes_in_group("holds")
-	
-	for hold in all_holds:
-		if hold is Area2D and hold.has_method("is_start_hold"):
-			if hold.is_start_hold():
-				start_holds.append(hold)
-	
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold is Area2D and hold.has_method("is_start_hold") and hold.is_start_hold():
+			start_holds.append(hold)
 	return start_holds
 
 func find_nearest_hold(from_position: Vector2) -> Area2D:
@@ -1873,52 +1675,31 @@ func find_nearest_hold(from_position: Vector2) -> Area2D:
 	query.collision_mask = 2
 	query.collide_with_areas = true
 	query.collide_with_bodies = false
-	
 	var results := space_state.intersect_shape(query, 32)
 	if results.size() == 0:
 		return null
-	
 	var nearest_hold: Area2D = null
 	var nearest_dist := INF
-	
 	for result in results:
 		var hold: Area2D = result.collider
 		var hold_point := hold.get_node_or_null("HoldPoint")
-		if hold_point == null:
-			continue
-		
+		if hold_point == null: continue
 		var dist := from_position.distance_to(hold_point.global_position)
 		if dist < nearest_dist:
 			nearest_dist = dist
 			nearest_hold = hold
-	
 	return nearest_hold
 
 func attempt_grab(limb: Limb):
-	"""Improved attempt_grab with tight grab radius and no overlap on shared holds"""
 	var limb_area: Area2D
 	var limb_node: Node2D
 	var is_foot := false
-	
 	match limb:
-		Limb.LEFT_HAND:
-			limb_area = left_hand_area
-			limb_node = left_hand
-			is_foot = false
-		Limb.RIGHT_HAND:
-			limb_area = right_hand_area
-			limb_node = right_hand
-			is_foot = false
-		Limb.LEFT_FOOT:
-			limb_area = left_foot_area
-			limb_node = left_foot
-			is_foot = true
-		Limb.RIGHT_FOOT:
-			limb_area = right_foot_area
-			limb_node = right_foot
-			is_foot = true
-		_:
-			return
+		Limb.LEFT_HAND:  limb_area = left_hand_area;  limb_node = left_hand;  is_foot = false
+		Limb.RIGHT_HAND: limb_area = right_hand_area; limb_node = right_hand; is_foot = false
+		Limb.LEFT_FOOT:  limb_area = left_foot_area;  limb_node = left_foot;  is_foot = true
+		Limb.RIGHT_FOOT: limb_area = right_foot_area; limb_node = right_foot; is_foot = true
+		_: return
 	
 	var overlaps := limb_area.get_overlapping_areas()
 	if overlaps.size() == 0:
@@ -1930,17 +1711,10 @@ func attempt_grab(limb: Limb):
 	
 	for hold in overlaps:
 		var hold_point := hold.get_node_or_null("HoldPoint")
-		if hold_point == null:
-			continue
-		
-		if not hold.can_grab(limb_node, is_foot):
-			continue
-		
+		if hold_point == null: continue
+		if not hold.can_grab(limb_node, is_foot): continue
 		var d := limb_node.global_position.distance_to(hold_point.global_position)
-		
-		if d > GRAB_RADIUS:
-			continue
-		
+		if d > GRAB_RADIUS: continue
 		if d < closest_dist:
 			closest_dist = d
 			closest_hold = hold
@@ -1950,140 +1724,84 @@ func attempt_grab(limb: Limb):
 		return
 	
 	var grab_pos: Vector2 = calculate_grab_position(limb, closest_hold, closest_hold_point, limb_node.global_position)
-	
 	if not closest_hold.try_claim(limb_node, is_foot, grab_pos):
 		return
 	
 	match limb:
 		Limb.LEFT_HAND:
-			left_hand_hold = closest_hold
-			left_hand_grab_target = grab_pos
-			left_hand_grabbing = true
-			left_hand_velocity = Vector2.ZERO
-			left_hand_joint_velocity = Vector2.ZERO
-		
+			left_hand_hold = closest_hold; left_hand_grab_target = grab_pos
+			left_hand_grabbing = true; left_hand_velocity = Vector2.ZERO; left_hand_joint_velocity = Vector2.ZERO
 		Limb.RIGHT_HAND:
-			right_hand_hold = closest_hold
-			right_hand_grab_target = grab_pos
-			right_hand_grabbing = true
-			right_hand_velocity = Vector2.ZERO
-			right_hand_joint_velocity = Vector2.ZERO
-		
+			right_hand_hold = closest_hold; right_hand_grab_target = grab_pos
+			right_hand_grabbing = true; right_hand_velocity = Vector2.ZERO; right_hand_joint_velocity = Vector2.ZERO
 		Limb.LEFT_FOOT:
-			left_foot_hold = closest_hold
-			left_foot_grab_target = grab_pos
-			left_foot_grabbing = true
-			left_foot_velocity = Vector2.ZERO
-			left_foot_joint_velocity = Vector2.ZERO
-		
+			left_foot_hold = closest_hold; left_foot_grab_target = grab_pos
+			left_foot_grabbing = true; left_foot_velocity = Vector2.ZERO; left_foot_joint_velocity = Vector2.ZERO
 		Limb.RIGHT_FOOT:
-			right_foot_hold = closest_hold
-			right_foot_grab_target = grab_pos
-			right_foot_grabbing = true
-			right_foot_velocity = Vector2.ZERO
-			right_foot_joint_velocity = Vector2.ZERO
+			right_foot_hold = closest_hold; right_foot_grab_target = grab_pos
+			right_foot_grabbing = true; right_foot_velocity = Vector2.ZERO; right_foot_joint_velocity = Vector2.ZERO
 	
 	if not climb_started:
 		climb_started = true
 		print("🎬 FIRST GRAB - Climb started!")
-		
 		var game_scene = get_tree().get_current_scene()
 		if game_scene and game_scene.has_method("on_climb_start"):
 			print("  Notifying game scene...")
 			game_scene.on_climb_start()
 
 func calculate_grab_position(limb: Limb, hold: Area2D, hold_point: Vector2, limb_pos: Vector2) -> Vector2:
-	"""Calculate grab position - feet overlap completely on same hold (pogo stick effect)"""
-	
-	# For top-out holds, use actual hand position (free X-axis)
 	if hold.has_method("is_top_out") and hold.is_top_out():
 		return limb_pos
 	
 	var is_hand = (limb == Limb.LEFT_HAND or limb == Limb.RIGHT_HAND)
-	
-	# Check what's already on this hold
 	var left_hand_here = (left_hand_hold == hold and not left_hand_grabbing)
 	var right_hand_here = (right_hand_hold == hold and not right_hand_grabbing)
 	var left_foot_here = (left_foot_hold == hold and not left_foot_grabbing)
 	var right_foot_here = (right_foot_hold == hold and not right_foot_grabbing)
 	
-	# === FEET ON SAME HOLD: Always overlap completely (pogo stick) ===
 	if not is_hand:
-		# This is a foot trying to grab
 		if limb == Limb.LEFT_FOOT and right_foot_here:
-			print("🦶 Left foot joining right foot - POGO STICK!")
-			return hold_point  # Exact center
+			return hold_point
 		elif limb == Limb.RIGHT_FOOT and left_foot_here:
-			print("🦶 Right foot joining left foot - POGO STICK!")
-			return hold_point  # Exact center
-		
-		# Foot grabbing with hand already there - offset slightly
+			return hold_point
 		if left_hand_here or right_hand_here:
 			var hand_pos = left_hand.global_position if left_hand_here else right_hand.global_position
-			var hand_offset = hand_pos.x - hold_point.x
-			# Put foot on opposite side
-			return hold_point + Vector2(-sign(hand_offset) * SHARED_HOLD_HAND_FOOT_OFFSET, 0)
+			return hold_point + Vector2(-sign(hand_pos.x - hold_point.x) * SHARED_HOLD_HAND_FOOT_OFFSET, 0)
 	
-	# === HANDS ON SAME HOLD: Separate horizontally ===
 	if is_hand:
-		# Hand grabbing with other hand already there
 		if limb == Limb.LEFT_HAND and right_hand_here:
-			print("👐 Left hand joining right hand - separating")
 			var right_offset = right_hand.global_position.x - hold_point.x
-			# Go opposite side from right hand
 			return hold_point + Vector2(-SHARED_HOLD_HAND_OFFSET if right_offset > 0 else SHARED_HOLD_HAND_OFFSET, 0)
 		elif limb == Limb.RIGHT_HAND and left_hand_here:
-			print("👐 Right hand joining left hand - separating")
 			var left_offset = left_hand.global_position.x - hold_point.x
-			# Go opposite side from left hand
 			return hold_point + Vector2(SHARED_HOLD_HAND_OFFSET if left_offset < 0 else -SHARED_HOLD_HAND_OFFSET, 0)
-		
-		# Hand grabbing with foot already there - offset
 		if left_foot_here or right_foot_here:
-			var is_left_hand = (limb == Limb.LEFT_HAND)
-			return hold_point + Vector2(-SHARED_HOLD_HAND_FOOT_OFFSET if is_left_hand else SHARED_HOLD_HAND_FOOT_OFFSET, 0)
+			return hold_point + Vector2(-SHARED_HOLD_HAND_FOOT_OFFSET if limb == Limb.LEFT_HAND else SHARED_HOLD_HAND_FOOT_OFFSET, 0)
 	
-	# Nothing else on hold - use center
 	return hold_point
 
 func release_limb(limb: Limb):
 	match limb:
 		Limb.LEFT_HAND:
-			if left_hand_hold:
-				left_hand_hold.release(left_hand)
-				left_hand_hold = null
-		
+			if left_hand_hold: left_hand_hold.release(left_hand); left_hand_hold = null
 		Limb.RIGHT_HAND:
-			if right_hand_hold:
-				right_hand_hold.release(right_hand)
-				right_hand_hold = null
-		
+			if right_hand_hold: right_hand_hold.release(right_hand); right_hand_hold = null
 		Limb.LEFT_FOOT:
-			if left_foot_hold:
-				left_foot_hold.release(left_foot)
-				left_foot_hold = null
-				left_foot_manual = false
-				left_foot_auto_disabled = false
-		
+			if left_foot_hold: left_foot_hold.release(left_foot); left_foot_hold = null
+			left_foot_manual = false; left_foot_auto_disabled = false
 		Limb.RIGHT_FOOT:
-			if right_foot_hold:
-				right_foot_hold.release(right_foot)
-				right_foot_hold = null
-				right_foot_manual = false
-				right_foot_auto_disabled = false
+			if right_foot_hold: right_foot_hold.release(right_foot); right_foot_hold = null
+			right_foot_manual = false; right_foot_auto_disabled = false
 
 func check_fall_detection(delta: float):
 	var held_limbs = count_held_limbs()
-	
 	if held_limbs == 0 and com_velocity.y > FALL_VELOCITY_THRESHOLD:
 		fall_timer += delta
 		if fall_timer >= FALL_DETECTION_TIME:
 			print("Fell off - resetting climb")
-			
 			if current_discipline == 2 and speed_timer:
 				if speed_timer.has_method("pause_timer"):
 					speed_timer.pause_timer()
-			
 			reset_climb()
 	else:
 		fall_timer = 0.0
@@ -2091,32 +1809,24 @@ func check_fall_detection(delta: float):
 func check_climb_completion():
 	if climb_completed:
 		return
-
 	var left_on_top = left_hand_hold and left_hand_hold.has_method("is_top_out") and left_hand_hold.is_top_out()
 	var right_on_top = right_hand_hold and right_hand_hold.has_method("is_top_out") and right_hand_hold.is_top_out()
-
 	if left_on_top and right_on_top:
 		climb_completed = true
-
 		var is_granite := false
 		if Engine.has_singleton("EnvironmentConfig"):
 			var env_config = EnvironmentConfig
 			is_granite = env_config.get_current_environment() == EnvironmentConfig.EnvironmentType.GRANITE
-
 		match current_discipline:
 			0:
-				if is_granite:
-					print("Climb completed via granite top-out!")
-				else:
-					print("Climb completed via top hold!")
-			1:
-				print("Roped climb completed!")
+				if is_granite: print("Climb completed via granite top-out!")
+				else: print("Climb completed via top hold!")
+			1: print("Roped climb completed!")
 			2:
 				if speed_timer and speed_timer.has_method("pause_timer"):
 					speed_timer.pause_timer()
 				var time = speed_timer.get_time_remaining() if speed_timer else 0
 				print("Speed climb completed with ", time, " seconds remaining!")
-
 		var game_scene = get_tree().get_current_scene()
 		if game_scene and game_scene.has_method("on_level_complete"):
 			game_scene.on_level_complete()
@@ -2128,7 +1838,6 @@ func update_camera():
 func _draw():
 	if aesthetic:
 		draw_stick_figure()
-	
 	if debug:
 		draw_debug_info()
 
@@ -2149,16 +1858,10 @@ func draw_stick_figure():
 	draw_line(Vector2(HIP_OFFSET, HIP_DOWN), right_foot_joint.position, black, line_width)
 	draw_line(right_foot_joint.position, right_foot.position + right_foot_shake_offset + right_foot_visual_offset, black, line_width - 1)
 	
-	var left_hand_draw_pos = left_hand.position + left_hand_shake_offset + left_hand_visual_offset
-	var right_hand_draw_pos = right_hand.position + right_hand_shake_offset + right_hand_visual_offset
-	var left_foot_draw_pos = left_foot.position + left_foot_shake_offset + left_foot_visual_offset
-	var right_foot_draw_pos = right_foot.position + right_foot_shake_offset + right_foot_visual_offset
-	
-	# All limbs are solid black
-	draw_circle(left_hand_draw_pos, 5, black)
-	draw_circle(right_hand_draw_pos, 5, black)
-	draw_circle(left_foot_draw_pos, 5, black)
-	draw_circle(right_foot_draw_pos, 5, black)
+	draw_circle(left_hand.position + left_hand_shake_offset + left_hand_visual_offset, 5, black)
+	draw_circle(right_hand.position + right_hand_shake_offset + right_hand_visual_offset, 5, black)
+	draw_circle(left_foot.position + left_foot_shake_offset + left_foot_visual_offset, 5, black)
+	draw_circle(right_foot.position + right_foot_shake_offset + right_foot_visual_offset, 5, black)
 	
 	if use_mouse_aim and selected_limbs.size() > 0:
 		var mouse_local = to_local(mouse_aim_position)
@@ -2167,50 +1870,37 @@ func draw_stick_figure():
 
 func draw_debug_info():
 	var com_local = to_local(com_position)
-	
 	var vel_normalized = com_velocity.normalized() if com_velocity.length() > 10 else Vector2.ZERO
 	if vel_normalized.length() > 0.1:
 		var arrow_length = min(com_velocity.length() * 0.1, 15.0)
 		var arrow_end = com_local + vel_normalized * arrow_length
 		draw_line(com_local, arrow_end, Color(1, 0.3, 0, 0.9), 2.0)
-		
 		var perp = Vector2(-vel_normalized.y, vel_normalized.x) * 3.0
 		draw_line(arrow_end, arrow_end - vel_normalized * 5.0 + perp, Color(1, 0.3, 0, 0.9), 2.0)
 		draw_line(arrow_end, arrow_end - vel_normalized * 5.0 - perp, Color(1, 0.3, 0, 0.9), 2.0)
-	
 	draw_circle(com_local, 4, Color(1, 0.5, 0, 0.8))
 	draw_arc(com_local, 6, 0, TAU, 12, Color(1, 0.5, 0, 1.0), 1.5)
-	
 	if swing_momentum.length() > 10:
 		var swing_normalized = swing_momentum.normalized()
 		var swing_length = min(swing_momentum.length() * 0.08, 20.0)
 		var swing_end = com_local + swing_normalized * swing_length
 		draw_line(com_local, swing_end, Color(0, 1, 1, 0.9), 2.5)
-		
 		var perp = Vector2(-swing_normalized.y, swing_normalized.x) * 4.0
 		draw_line(swing_end, swing_end - swing_normalized * 6.0 + perp, Color(0, 1, 1, 0.9), 2.5)
 		draw_line(swing_end, swing_end - swing_normalized * 6.0 - perp, Color(0, 1, 1, 0.9), 2.5)
 
 func set_climbing_discipline(discipline: int):
-	"""Set the climbing discipline for this route"""
 	current_discipline = discipline
-	
 	match discipline:
-		0:
-			print("Character: Set to BOULDERING mode")
-		1:
-			print("Character: Set to ROPED CLIMBING mode")
-		2:
-			print("Character: Set to SPEED CLIMBING mode")
-			speed_climb_active = true
+		0: print("Character: Set to BOULDERING mode")
+		1: print("Character: Set to ROPED CLIMBING mode")
+		2: print("Character: Set to SPEED CLIMBING mode"); speed_climb_active = true
 
 func set_rope_system(rope: Node2D):
-	"""Attach rope system for roped climbing"""
 	rope_system = rope
 	print("Character: Rope system attached")
 
 func set_speed_timer(timer: Node):
-	"""Attach speed timer for speed climbing"""
 	speed_timer = timer
 	print("Character: Speed timer attached")
 

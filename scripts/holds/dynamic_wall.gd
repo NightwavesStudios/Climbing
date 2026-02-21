@@ -1,31 +1,18 @@
 extends Node2D
 class_name DynamicWall
-## Dynamic wall with click-to-select top edges, animated environment backgrounds
 
-# =============================================================================
-# TEXTURE SETTINGS
-# =============================================================================
 var wall_texture_enabled := true
 var texture_variation := 0.05
 
-# =============================================================================
-# BOLT HOLE SETTINGS (GYM ONLY)
-# =============================================================================
 var hole_spacing := Vector2(64, 64)
 var hole_radius := 2.5
 var hole_color := Color(0.15, 0.15, 0.15)
 var hole_jitter := 4.0
 
-# =============================================================================
-# EDGE SETTINGS
-# =============================================================================
 var edge_color := Color(0.2, 0.2, 0.25)
 var edge_thickness := 8.0
 var top_edge_color := Color(0.9, 0.4, 0.2)
 
-# =============================================================================
-# WALL BOUNDS
-# =============================================================================
 var wall_min := Vector2.ZERO
 var wall_max := Vector2.ZERO
 var wall_valid := false
@@ -35,9 +22,6 @@ const WALL_PADDING_BOTTOM = 150.0
 const WALL_PADDING_SIDES = 100.0
 const BACKGROUND_EXPANSION = 2000.0
 
-# =============================================================================
-# POLYGON EDITING
-# =============================================================================
 @export var use_polygon_mode: bool = false
 @export var edit_mode: bool = false
 var control_points: Array[Vector2] = []
@@ -63,9 +47,6 @@ var dragging_point: int = -1
 var drag_offset: Vector2 = Vector2.ZERO
 var hovered_edge: int = -1
 
-# =============================================================================
-# ENVIRONMENT STATE
-# =============================================================================
 var current_wall_color: Color = Color(0.82, 0.75, 0.62)
 var background_color: Color = Color(0.53, 0.81, 0.92)
 var show_bolt_holes: bool = true
@@ -73,44 +54,33 @@ var is_granite: bool = false
 var current_environment: String = "gym"
 var is_in_editor: bool = false
 
-# =============================================================================
-# GROUND SETTINGS
-# =============================================================================
 var ground_enabled := true
 var ground_height := 1000.0
 var ground_color := Color(0.298, 0.298, 0.298, 1.0)
 
-# =============================================================================
-# CLOUD SYSTEM
-# Each cloud: { x, y, sx, sy, speed, alpha, layer, seed }
-# =============================================================================
 var _clouds: Array[Dictionary] = []
 var _cloud_time: float = 0.0
 const CLOUD_COUNT = 22
 const CLOUD_LAYERS = 3
 
-# =============================================================================
-# ENVIRONMENT THEME DATA
-# =============================================================================
 var _env: Dictionary = {}
 
-# =============================================================================
-# SCENERY SEED — randomized each session so mountains/terrain never repeat
-# =============================================================================
 var _scenery_seed: int = 0
 
-# =============================================================================
-# LIFECYCLE
-# =============================================================================
+var _water_time: float  = 0.0
+var _player_in_water: bool = false
+signal player_entered_water(depth: float)
+signal player_exited_water
+
 func _ready():
 	z_index = -10
 	add_to_group("environment_walls")
-	_scenery_seed = randi()  # Random each session — mountains/terrain never repeat
+	_scenery_seed = randi()
 	_init_clouds()
 	call_deferred("update_environment_settings")
 
 var _redraw_timer: float = 0.0
-const REDRAW_INTERVAL = 0.05  # 20fps max for animated elements
+const REDRAW_INTERVAL = 0.05
 
 func _process(delta: float):
 	_redraw_timer += delta
@@ -118,15 +88,13 @@ func _process(delta: float):
 		return
 	_redraw_timer = 0.0
 	var has_animation = _env.get("has_stars", false) or (_env.get("cloud_color", Color(1,1,1)).a > 0.02) \
-		or _env.get("has_gym_interior", false)
+		or _env.get("has_gym_interior", false) or _env.get("has_water", false)
 	if has_animation:
 		_cloud_time += REDRAW_INTERVAL
+		_water_time += REDRAW_INTERVAL
 		_update_clouds(REDRAW_INTERVAL)
 		queue_redraw()
 
-# =============================================================================
-# CLOUD INITIALIZATION & ANIMATION
-# =============================================================================
 func _init_clouds():
 	_clouds.clear()
 	var rng = RandomNumberGenerator.new()
@@ -169,16 +137,10 @@ func _update_clouds(delta: float):
 		else:
 			_clouds[i] = c
 
-# =============================================================================
-# EDITOR MODE
-# =============================================================================
 func set_editor_mode(enabled: bool):
 	is_in_editor = enabled
 	queue_redraw()
 
-# =============================================================================
-# ENVIRONMENT SYSTEM
-# =============================================================================
 func update_environment_settings():
 	var env_config := get_node_or_null("/root/EnvironmentConfig")
 	if env_config == null:
@@ -196,38 +158,39 @@ func update_environment_settings():
 
 func _apply_environment_theme():
 	match current_environment:
-		"outdoor", "cliff", "crag", "rock":
-			_env = {
-				"sky_top": Color(0.20, 0.45, 0.78),
-				"sky_horizon": Color(0.72, 0.85, 0.95),
-				"cloud_color": Color(1.0, 1.0, 1.0, 1.0),
-				"cloud_shadow": Color(0.75, 0.82, 0.90),
-				"has_sun": true, "sun_color": Color(1.0, 0.96, 0.78),
-				"has_mountains": true,
-				"ground_type": "grass",
-				"ground_top": Color(0.22, 0.52, 0.14),
-				"ground_mid": Color(0.38, 0.28, 0.16),
-				"ground_deep": Color(0.28, 0.20, 0.10),
-				"ground_detail": "rocks",
-				"fog_color": Color(0.65, 0.80, 0.95, 0.0),
+		"granite", "sandstone":
+			var use_sunset = (_scenery_seed % 2) == 0
+			if use_sunset:
+				_env = {
+					"sky_top": Color(0.12, 0.10, 0.32),
+					"sky_horizon": Color(0.98, 0.52, 0.18),
+					"cloud_color": Color(1.0, 0.65, 0.40, 1.0),
+					"cloud_shadow": Color(0.65, 0.25, 0.12),
+					"has_sun": true, "sun_color": Color(1.0, 0.65, 0.15),
+					"has_mountains": true,
+					"ground_type": "grass_dusk",
+					"ground_top": Color(0.14, 0.22, 0.10),
+					"ground_mid": Color(0.24, 0.16, 0.08),
+					"ground_deep": Color(0.16, 0.10, 0.06),
+					"ground_detail": "rocks",
+					"fog_color": Color(0.90, 0.45, 0.15, 0.10),
 				}
-		"cave", "underground", "mine":
-			_env = {
-				"sky_top": Color(0.04, 0.04, 0.06),
-				"sky_horizon": Color(0.08, 0.07, 0.12),
-				"cloud_color": Color(0.14, 0.12, 0.20, 0.6),
-				"cloud_shadow": Color(0.08, 0.07, 0.12),
-				"has_sun": false, "has_mountains": false,
-				"has_stalactites": true,
-				"ground_type": "stone",
-				"ground_top": Color(0.30, 0.28, 0.26),
-				"ground_mid": Color(0.22, 0.20, 0.18),
-				"ground_deep": Color(0.14, 0.13, 0.12),
-				"ground_detail": "cracks",
-				"fog_color": Color(0.08, 0.06, 0.12, 0.18),
-				"has_torch_glow": true,
-			}
-		"gym", "indoor", "competition":
+			else:
+				_env = {
+					"sky_top": Color(0.20, 0.45, 0.78),
+					"sky_horizon": Color(0.72, 0.85, 0.95),
+					"cloud_color": Color(1.0, 1.0, 1.0, 1.0),
+					"cloud_shadow": Color(0.75, 0.82, 0.90),
+					"has_sun": true, "sun_color": Color(1.0, 0.96, 0.78),
+					"has_mountains": true,
+					"ground_type": "grass",
+					"ground_top": Color(0.22, 0.52, 0.14),
+					"ground_mid": Color(0.38, 0.28, 0.16),
+					"ground_deep": Color(0.28, 0.20, 0.10),
+					"ground_detail": "rocks",
+					"fog_color": Color(0.65, 0.80, 0.95, 0.0),
+				}
+		"gym":
 			_env = {
 				"sky_top": Color(0.96, 0.96, 0.97),
 				"sky_horizon": Color(0.92, 0.92, 0.93),
@@ -238,22 +201,7 @@ func _apply_environment_theme():
 				"ground_top": Color(0.22, 0.22, 0.24),
 				"ground_mid": Color(0.16, 0.16, 0.18),
 				"ground_deep": Color(0.11, 0.11, 0.12),
-				}
-		"sunset", "dusk", "dawn":
-			_env = {
-				"sky_top": Color(0.12, 0.10, 0.32),
-				"sky_horizon": Color(0.98, 0.52, 0.18),
-				"cloud_color": Color(1.0, 0.65, 0.40, 1.0),
-				"cloud_shadow": Color(0.65, 0.25, 0.12),
-				"has_sun": true, "sun_color": Color(1.0, 0.65, 0.15),
-				"has_mountains": true,
-				"ground_type": "grass_dusk",
-				"ground_top": Color(0.14, 0.22, 0.10),
-				"ground_mid": Color(0.24, 0.16, 0.08),
-				"ground_deep": Color(0.16, 0.10, 0.06),
-				"ground_detail": "rocks",
-				"fog_color": Color(0.90, 0.45, 0.15, 0.10),
-				}
+			}
 		"night", "moonlight":
 			_env = {
 				"sky_top": Color(0.02, 0.02, 0.08),
@@ -268,7 +216,23 @@ func _apply_environment_theme():
 				"ground_deep": Color(0.07, 0.06, 0.05),
 				"ground_detail": "rocks",
 				"fog_color": Color(0.05, 0.06, 0.15, 0.12),
-				}
+			}
+		"deep_water_solo", "dws", "psicobloc":
+			_env = {
+				"sky_top": Color(0.18, 0.42, 0.72),
+				"sky_horizon": Color(0.60, 0.82, 0.94),
+				"cloud_color": Color(1.0, 1.0, 1.0, 0.85),
+				"cloud_shadow": Color(0.72, 0.84, 0.92),
+				"has_sun": true, "sun_color": Color(1.0, 0.95, 0.75),
+				"has_mountains": false,
+				"has_water": true,
+				"ground_type": "water",
+				"ground_top":  Color(0.04, 0.22, 0.44),
+				"ground_mid":  Color(0.02, 0.14, 0.30),
+				"ground_deep": Color(0.01, 0.08, 0.18),
+				"fog_color": Color(0.50, 0.75, 0.90, 0.06),
+				"has_sea_cliffs": true,
+			}
 		_:
 			_env = {
 				"sky_top": background_color.darkened(0.25),
@@ -285,9 +249,6 @@ func _apply_environment_theme():
 				"fog_color": Color(0.0, 0.0, 0.0, 0.0),
 			}
 
-# =============================================================================
-# INPUT
-# =============================================================================
 func _input(event: InputEvent):
 	if not is_in_editor or not edit_mode: return
 	if event is InputEventMouseButton:
@@ -326,12 +287,17 @@ func _update_drag():
 	var mp = get_global_mouse_position()
 	var np = mp + drag_offset
 	if dragging_point == ground_left_index or dragging_point == ground_right_index:
-		np.y = ground_y
+		var new_y = np.y
+		control_points[ground_left_index].y  = new_y
+		control_points[ground_right_index].y = new_y
+		ground_y = new_y
 		if dragging_point == ground_left_index:
 			np.x = min(np.x, control_points[ground_right_index].x - 50.0)
 		else:
 			np.x = max(np.x, control_points[ground_left_index].x + 50.0)
-	control_points[dragging_point] = np
+		control_points[dragging_point].x = np.x
+	else:
+		control_points[dragging_point] = np
 	_update_bounds_from_polygon()
 	if not top_edge_indices.is_empty(): _create_top_edge_holds()
 	queue_redraw()
@@ -361,9 +327,6 @@ func _is_ground_edge(edge_index: int) -> bool:
 	return (edge_index == ground_left_index and ni == ground_right_index) or \
 		   (edge_index == ground_right_index and ni == ground_left_index)
 
-# =============================================================================
-# DRAWING MASTER
-# =============================================================================
 func _draw():
 	if not wall_valid: return
 	_draw_sky()
@@ -371,7 +334,6 @@ func _draw():
 	if _env.get("has_sun", false): _draw_sun()
 	if _env.get("has_moon", false): _draw_moon()
 	if _env.get("has_mountains", false): _draw_mountains()
-	if _env.get("has_stalactites", false): _draw_stalactites()
 	_draw_clouds()
 	_draw_fog()
 	if _env.get("has_gym_interior", false): _draw_gym_interior()
@@ -379,18 +341,17 @@ func _draw():
 	if use_polygon_mode and control_points.size() >= 3: _draw_polygon_wall()
 	else: _draw_rectangle_wall()
 	_draw_wall_base_shadow()
+	if _env.get("has_water", false): _draw_underwater_wall_depth()
 	if show_bolt_holes:
 		if use_polygon_mode and control_points.size() >= 3: draw_bolt_holes_on_polygon()
 		else: draw_bolt_holes(wall_min, wall_max)
 	if is_granite and not use_polygon_mode: draw_granite_texture()
 	if ground_enabled: _draw_ground()
+	if _env.get("has_water", false): _draw_water_surface()
 	draw_edges()
 	if is_in_editor and use_polygon_mode and control_points.size() > 0: _draw_control_points()
 	if is_in_editor and edit_mode and use_polygon_mode: _draw_edge_highlights()
 
-# =============================================================================
-# SKY
-# =============================================================================
 func _draw_sky():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
@@ -404,11 +365,8 @@ func _draw_sky():
 		var y0 = st + t * (ground_y - st)
 		var h = (ground_y - st) / float(bands) + 1.0
 		draw_rect(Rect2(Vector2(bl, y0), Vector2(sw, h)), col_top.lerp(col_horiz, t), true)
-	draw_rect(Rect2(Vector2(bl, ground_y), Vector2(sw, ground_height + 200.0)), col_horiz, true)
+	draw_rect(Rect2(Vector2(bl, ground_y), Vector2(sw, 99999.0)), col_horiz, true)
 
-# =============================================================================
-# STARS
-# =============================================================================
 func _draw_stars():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
@@ -423,9 +381,6 @@ func _draw_stars():
 		var twinkle = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(seed + 4) * 3.0) + float(i))
 		draw_circle(Vector2(sx, sy), size, Color(1.0, 1.0, 1.0, bright * twinkle * 0.9))
 
-# =============================================================================
-# SUN
-# =============================================================================
 func _draw_sun():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
@@ -437,9 +392,6 @@ func _draw_sun():
 	draw_circle(Vector2(sx, sy), 52.0, sc)
 	draw_circle(Vector2(sx, sy), 38.0, Color(1.0, 1.0, 0.96, 1.0))
 
-# =============================================================================
-# MOON
-# =============================================================================
 func _draw_moon():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
@@ -455,15 +407,11 @@ func _draw_moon():
 		draw_circle(Vector2(mx - mr * 0.3 + _hf(cs) * mr * 0.5, my - mr * 0.2 + _hf(cs + 1) * mr * 0.4),
 					2.0 + _hf(cs + 2) * 4.0, Color(0.70, 0.72, 0.78, 0.4))
 
-# =============================================================================
-# MOUNTAINS
-# =============================================================================
 func _draw_mountains():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var hs: Color = _env.get("sky_horizon", background_color)
 	var ht: Color = _env.get("sky_top", background_color)
-	# Extra far layer for more vertical depth
 	_draw_hill_layer(bl, br, ground_y - 60.0,  240.0, 600.0, 90, hs.lerp(ht, 0.6).darkened(0.06), _scenery_seed ^ 0x0A1B2C)
 	_draw_hill_layer(bl, br, ground_y - 20.0,  160.0, 420.0, 80, hs.lerp(ht, 0.4).darkened(0.10), _scenery_seed ^ 0x1A2B3C)
 	_draw_hill_layer(bl, br, ground_y - 5.0,    90.0, 230.0, 55, hs.darkened(0.25),                _scenery_seed ^ 0x4D5E6F)
@@ -482,31 +430,6 @@ func _draw_hill_layer(left: float, right: float, base_y: float,
 	pts.append(Vector2(right, base_y + 500.0))
 	draw_colored_polygon(pts, color)
 
-# =============================================================================
-# STALACTITES
-# =============================================================================
-func _draw_stalactites():
-	var bl = wall_min.x - BACKGROUND_EXPANSION
-	var br = wall_max.x + BACKGROUND_EXPANSION
-	var st = wall_min.y - BACKGROUND_EXPANSION
-	var count = 50
-	var step = (br - bl) / float(count)
-	for si in range(count):
-		var seed = (_scenery_seed ^ 0xCAFE) + si * 19
-		var sx = bl + float(si) * step + _hf(seed) * step
-		var sh = 40.0 + _hf(seed + 1) * 200.0
-		var sw = 8.0 + _hf(seed + 2) * 28.0
-		var sc = Color(0.22, 0.20, 0.18, 0.8 + _hf(seed + 3) * 0.2)
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(sx, st), Vector2(sx - sw * 0.5, st + sh),
-			Vector2(sx, st + sh + sw * 0.4), Vector2(sx + sw * 0.5, st + sh)
-		]), sc)
-		draw_line(Vector2(sx, st + sh * 0.5), Vector2(sx, st + sh + sw * 0.3),
-				  Color(0.5, 0.6, 0.8, 0.3), 1.5, true)
-
-# =============================================================================
-# CLOUDS
-# =============================================================================
 func _draw_clouds():
 	var cc: Color = _env.get("cloud_color", Color(1, 1, 1))
 	if cc.a < 0.02: return
@@ -544,20 +467,14 @@ func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color):
 		pts.append(Vector2(cx + cos(angle) * rx, cy + sin(angle) * ry))
 	draw_colored_polygon(pts, color)
 
-# =============================================================================
-# ATMOSPHERIC FOG
-# =============================================================================
 func _draw_fog():
 	var fc: Color = _env.get("fog_color", Color(0, 0, 0, 0))
 	if fc.a < 0.01: return
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var bt = wall_min.y - BACKGROUND_EXPANSION
-	draw_rect(Rect2(Vector2(bl, bt), Vector2(br - bl, ground_y + ground_height - bt)), fc, true)
+	draw_rect(Rect2(Vector2(bl, bt), Vector2(br - bl, 99999.0)), fc, true)
 
-# =============================================================================
-# GYM INTERIOR
-# =============================================================================
 func _draw_gym_interior():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
@@ -566,13 +483,11 @@ func _draw_gym_interior():
 	var vis_bot = ground_y
 	var vis_h   = vis_bot - vis_top
 
-	# ── BACK WALL ─────────────────────────────────────────────────────────────
 	for i in range(8):
 		var t = float(i) / 8.0
 		draw_rect(Rect2(Vector2(bl, vis_top + t*vis_h), Vector2(width, vis_h/8.0+2.0)),
 				  Color(0.93-t*0.03, 0.93-t*0.025, 0.94-t*0.02), true)
 
-	# ── WINDOW LAYOUT ─────────────────────────────────────────────────────────
 	var win_top    = vis_top + vis_h * 0.10
 	var win_h      = vis_h * 0.78
 	var win_bot    = win_top + win_h
@@ -582,7 +497,6 @@ func _draw_gym_interior():
 	var win_count  = int(ceil(width / win_stride)) + 2
 	var wall_col   = Color(0.93, 0.93, 0.94)
 
-	# ── PARALLAX ──────────────────────────────────────────────────────────────
 	var ct    = get_viewport().get_canvas_transform()
 	var zoom  = ct.x.x
 	var cam_x = -ct.origin.x / zoom
@@ -592,14 +506,12 @@ func _draw_gym_interior():
 	var sky_mid_c  = Color(0.44, 0.70, 0.93)
 	var sky_haze_c = Color(0.70, 0.86, 0.97)
 
-	# Sun — one, world-anchored, drifts at 3% of camera speed
 	var sun_wx = wall_min.x + (wall_max.x - wall_min.x) * 0.68 + cam_x * 0.03
 
 	for wi in range(win_count):
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		var wx2 = wx + win_w
 
-		# ── SKY ───────────────────────────────────────────────────────────────
 		for gi in range(10):
 			var gt = float(gi) / 10.0
 			var sc: Color
@@ -609,7 +521,6 @@ func _draw_gym_interior():
 				sc = sky_mid_c.lerp(sky_haze_c, (gt-0.5)*2.0)
 			draw_rect(Rect2(Vector2(wx, win_top + gt*win_h), Vector2(win_w, win_h/10.0+1.0)), sc, true)
 
-		# ── SUN ───────────────────────────────────────────────────────────────
 		if sun_wx >= wx + 20.0 and sun_wx <= wx2 - 20.0:
 			var sun_y = win_top + win_h * 0.15
 			for ri in range(6):
@@ -618,17 +529,11 @@ func _draw_gym_interior():
 			draw_circle(Vector2(sun_wx, sun_y), 10.0, Color(1.0, 0.97, 0.80, 0.72))
 			draw_circle(Vector2(sun_wx, sun_y), 55.0, Color(1.0, 0.95, 0.65, 0.07))
 
-		# ── MOUNTAINS ─────────────────────────────────────────────────────────
-		# Mountains are drawn using the full horizontal range (mtn_span wide),
-		# centred on the window but offset by parallax. We DON'T clamp x —
-		# instead we only emit points that actually fall within wx..wx2,
-		# plus we always anchor left=wx and right=wx2 at the base so the
-		# polygon is never degenerate.
-		var mtn_span = win_w * 8.0   # wide enough that parallax never reveals edge
-		var msegs    = 80            # many segments so clipping is smooth
+		var mtn_span = win_w * 8.0
+		var msegs    = 80
 		for mi in range(4):
 			var mseed  = (_scenery_seed ^ (0xC001 + mi * 0x999)) + wi * 61
-			var mpar   = cam_x * (0.04 + mi * 0.055)  # 0.04 / 0.095 / 0.15 / 0.205
+			var mpar   = cam_x * (0.04 + mi * 0.055)
 			var mhmin  = win_h * (0.06 + mi * 0.09)
 			var mhmax  = win_h * (0.20 + mi * 0.11)
 			var mleft  = wx + win_w * 0.5 - mtn_span * 0.5 + mpar
@@ -641,7 +546,6 @@ func _draw_gym_interior():
 				2: mcol = Color(0.38, 0.52, 0.66)
 				_: mcol = Color(0.24, 0.38, 0.53)
 
-			# Collect ridge points that fall inside the window
 			var ridge: Array = []
 			for si in range(msegs + 1):
 				var px = mleft + si * mstep
@@ -655,7 +559,6 @@ func _draw_gym_interior():
 
 			if ridge.size() < 2:
 				continue
-			# Build closed polygon: base-left, ridge, base-right
 			var mpts = PackedVector2Array()
 			mpts.append(Vector2(wx, mbase))
 			for rp in ridge:
@@ -664,11 +567,8 @@ func _draw_gym_interior():
 			if mpts.size() >= 4:
 				draw_colored_polygon(mpts, mcol)
 
-		# ── DISTANT HILLS / GROUND PLANE ──────────────────────────────────────
-		# Solid dark band at bottom — represents forested ground, no trees
 		var gnd_h   = win_h * 0.09
 		var gnd_par = cam_x * 0.22
-		# Irregular ground horizon — gentle bumps
 		var gsegs = 40
 		var gstep = win_w / float(gsegs)
 		var gpts  = PackedVector2Array()
@@ -682,27 +582,22 @@ func _draw_gym_interior():
 		gpts.append(Vector2(wx2, win_bot + 4.0))
 		if gpts.size() >= 4:
 			draw_colored_polygon(gpts, Color(0.18, 0.26, 0.19))
-		# Darker fill below horizon
 		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
 				  Color(0.13, 0.19, 0.14), true)
 
-		# ── FROSTED GLASS ─────────────────────────────────────────────────────
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w, win_h)),
 				  Color(1.0, 1.0, 1.0, 0.10), true)
-		# Left-edge reflection band
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.10, win_h)),
 				  Color(1.0, 1.0, 1.0, 0.07), true)
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.04, win_h)),
 				  Color(1.0, 1.0, 1.0, 0.05), true)
 
-	# ── OVERDRAW GAPS BETWEEN WINDOWS ─────────────────────────────────────────
 	for wi in range(win_count + 1):
 		var gx = bl + float(wi) * win_stride + win_gap * 0.5 - win_gap
 		draw_rect(Rect2(Vector2(gx, vis_top), Vector2(win_gap + 4.0, vis_h)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, vis_top), Vector2(width, win_top - vis_top + 1.0)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, win_bot - 1.0), Vector2(width, vis_bot - win_bot + 2.0)), wall_col, true)
 
-	# ── WINDOW FRAMES — border only ────────────────────────────────────────────
 	for wi in range(win_count):
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		var fc  = Color(0.15, 0.16, 0.19)
@@ -711,36 +606,21 @@ func _draw_gym_interior():
 		draw_rect(Rect2(Vector2(wx-ft,       win_bot),    Vector2(win_w+ft*2.0, ft)), fc, true)
 		draw_rect(Rect2(Vector2(wx-ft,       win_top-ft), Vector2(ft, win_h+ft*2.0)), fc, true)
 		draw_rect(Rect2(Vector2(wx+win_w,    win_top-ft), Vector2(ft, win_h+ft*2.0)), fc, true)
-		# Inner bright edge — light catching frame lip
 		draw_line(Vector2(wx, win_top), Vector2(wx+win_w, win_top), Color(0.55,0.57,0.62), 2.0, true)
 		draw_line(Vector2(wx, win_top), Vector2(wx, win_bot),       Color(0.55,0.57,0.62), 2.0, true)
-		# Glass specular
 		draw_line(Vector2(wx+12.0, win_top+14.0), Vector2(wx+62.0, win_top+14.0),
 				  Color(1.0,1.0,1.0,0.24), 3.0, true)
 		draw_line(Vector2(wx+14.0, win_top+25.0), Vector2(wx+40.0, win_top+25.0),
 				  Color(1.0,1.0,1.0,0.11), 2.0, true)
 
-	# ── FLOOR ──────────────────────────────────────────────────────────────────
 	draw_rect(Rect2(Vector2(bl, vis_bot-28.0), Vector2(width, 28.0)),
 			  Color(0.22, 0.22, 0.24), true)
 	for mi in range(int(ceil(width/900.0))+1):
 		draw_line(Vector2(bl+mi*900.0, vis_bot-28.0), Vector2(bl+mi*900.0, vis_bot),
 				  Color(0.17, 0.17, 0.19), 2.0, true)
 
-	# ── CEILING TRUSS ──────────────────────────────────────────────────────────
-	draw_rect(Rect2(Vector2(bl, vis_top-16.0), Vector2(width, 16.0)),
-			  Color(0.48, 0.48, 0.50), true)
-	draw_rect(Rect2(Vector2(bl, vis_top-18.0), Vector2(width, 2.0)),
-			  Color(0.32, 0.32, 0.34), true)
-	for ti in range(int(ceil(width/600.0))+1):
-		draw_rect(Rect2(Vector2(bl+ti*600.0-9.0, vis_top-16.0), Vector2(18.0, 16.0)),
-				  Color(0.36, 0.36, 0.38), true)
-	draw_rect(Rect2(Vector2(bl, vis_top-1.0), Vector2(width, 4.0)),
-			  Color(1.0, 1.0, 0.93, 0.86), true)
 
 func _draw_scaffold():
-	# A simple freestanding timber frame: two vertical posts on each side,
-	# horizontal cross-beams top and mid, diagonal braces for realism.
 	var post_inset = 28.0
 	var post_w = 18.0
 	var post_col    = Color(0.42, 0.32, 0.20)
@@ -753,7 +633,6 @@ func _draw_scaffold():
 	var top_y = wall_min.y - 36.0
 	var bot_y = ground_y + 14.0
 
-	# Vertical posts — left and right
 	for px in [lx, rx]:
 		draw_rect(Rect2(Vector2(px - post_w * 0.5, top_y), Vector2(post_w, bot_y - top_y)),
 				  post_col, true)
@@ -762,29 +641,24 @@ func _draw_scaffold():
 		draw_rect(Rect2(Vector2(px + post_w * 0.5 - 4, top_y), Vector2(4, bot_y - top_y)),
 				  post_hi, true)
 
-	# Top cap beam
 	var beam_h = 14.0
 	draw_rect(Rect2(Vector2(lx - post_w, top_y - beam_h), Vector2(rx - lx + post_w * 2.0, beam_h)),
 			  beam_col, true)
 	draw_line(Vector2(lx - post_w, top_y - beam_h),
 			  Vector2(rx + post_w, top_y - beam_h), post_hi, 2.0, true)
 
-	# Mid horizontal beam
 	var mid_y = top_y + (ground_y - top_y) * 0.5
 	draw_rect(Rect2(Vector2(lx - post_w * 0.5, mid_y - 7.0), Vector2(rx - lx + post_w, 14.0)),
 			  beam_col, true)
 	draw_line(Vector2(lx - post_w * 0.5, mid_y - 7.0),
 			  Vector2(rx + post_w * 0.5, mid_y - 7.0), post_hi, 1.5, true)
 
-	# Diagonal braces — left side
 	var brace_col = Color(0.35, 0.26, 0.15, 0.9)
 	draw_line(Vector2(lx, top_y + 60.0), Vector2(lx - 70.0, mid_y),     brace_col, 9.0, true)
 	draw_line(Vector2(lx, mid_y + 30.0), Vector2(lx - 70.0, ground_y),  brace_col, 9.0, true)
-	# Right side
 	draw_line(Vector2(rx, top_y + 60.0), Vector2(rx + 70.0, mid_y),     brace_col, 9.0, true)
 	draw_line(Vector2(rx, mid_y + 30.0), Vector2(rx + 70.0, ground_y),  brace_col, 9.0, true)
 
-	# Concrete foot anchors
 	for px in [lx, rx]:
 		draw_rect(Rect2(Vector2(px - 22.0, ground_y - 8.0), Vector2(44.0, 22.0)),
 				  Color(0.50, 0.50, 0.52), true)
@@ -815,9 +689,99 @@ func _draw_wall_base_shadow():
 				  Vector2(wall_max.x, ground_y + i * 3.0),
 				  Color(0.0, 0.0, 0.0, 0.16 * (1.0 - float(i) / 6.0)), 4.0)
 
-# =============================================================================
-# EDGES
-# =============================================================================
+func _draw_underwater_wall_depth():
+	if not wall_valid: return
+
+	var base_l: Vector2
+	var base_r: Vector2
+	if use_polygon_mode and ground_left_index >= 0 and ground_right_index >= 0:
+		base_l = control_points[ground_left_index]
+		base_r = control_points[ground_right_index]
+	else:
+		base_l = Vector2(wall_min.x, ground_y)
+		base_r = Vector2(wall_max.x, ground_y)
+
+	var water_y = ground_y
+	var sub_top = water_y
+	var sub_bot = (base_l.y + base_r.y) * 0.5
+	if sub_bot > sub_top:
+		var sub_h = sub_bot - sub_top
+		var water_tint = Color(0.04, 0.28, 0.60)
+		for li in range(10):
+			var t0 = float(li) / 10.0
+			var t1 = float(li+1) / 10.0
+			var y0 = sub_top + t0 * sub_h
+			var y1 = sub_top + t1 * sub_h
+			var shimmer = sin(_water_time * 1.4 + t0 * 8.0) * 0.018
+			var a0 = lerp(0.04, 0.48, t0)
+			var a1 = lerp(0.04, 0.48, t1)
+			var tl2 = Vector2(base_l.x, y0)
+			var tr2 = Vector2(base_r.x, y0)
+			var br2 = Vector2(base_r.x, y1)
+			var bl2 = Vector2(base_l.x, y1)
+			var c0 = Color(water_tint.r, water_tint.g + shimmer, water_tint.b, a0)
+			var c1 = Color(water_tint.r, water_tint.g,           water_tint.b, a1)
+			draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
+			draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
+
+	var depth_amount = 600.0
+	var edge_vec  = base_r - base_l
+	var edge_len  = edge_vec.length()
+	if edge_len < 1.0: return
+	var edge_dir  = edge_vec / edge_len
+	var perp = Vector2(-edge_dir.y, edge_dir.x)
+	if perp.y < 0.0: perp = -perp
+
+	var segs    = 32
+	var rock_col_top  = Color(0.22, 0.28, 0.30)
+	var rock_col_deep = Color(0.04, 0.06, 0.08)
+
+	var bot_pts: Array[Vector2] = []
+	for si in range(segs + 1):
+		var frac = float(si) / float(segs)
+		var base_pt = base_l.lerp(base_r, frac)
+		var rseed   = (_scenery_seed ^ 0xB0B0) + si * 19
+		var depth_var = depth_amount * (0.75 + _hf(rseed) * 0.50)
+		var side_jit  = (_hf(rseed+1) - 0.5) * 18.0
+		bot_pts.append(base_pt + perp * depth_var + edge_dir * side_jit)
+
+	var slices = 12
+	var wc = Color(0.03, 0.18, 0.45)
+	for pi in range(segs):
+		var frac0 = float(pi)   / float(segs)
+		var frac1 = float(pi+1) / float(segs)
+		var top0  = base_l.lerp(base_r, frac0)
+		var top1  = base_l.lerp(base_r, frac1)
+		var bot0  = bot_pts[pi]
+		var bot1  = bot_pts[pi + 1]
+		for si in range(slices):
+			var t0  = float(si)   / float(slices)
+			var t1  = float(si+1) / float(slices)
+			var c0  = rock_col_top.lerp(rock_col_deep, t0)
+			var c1  = rock_col_top.lerp(rock_col_deep, t1)
+			var tl  = top0.lerp(bot0, t0)
+			var tr  = top1.lerp(bot1, t0)
+			var br  = top1.lerp(bot1, t1)
+			var bl2 = top0.lerp(bot0, t1)
+			draw_polygon(PackedVector2Array([tl, tr, br]),  PackedColorArray([c0, c0, c1]))
+			draw_polygon(PackedVector2Array([tl, br, bl2]), PackedColorArray([c0, c1, c1]))
+			var ha0 = lerp(0.08, 0.58, t0)
+			var ha1 = lerp(0.08, 0.58, t1)
+			var wc0 = Color(wc.r, wc.g, wc.b, ha0)
+			var wc1 = Color(wc.r, wc.g, wc.b, ha1)
+			draw_polygon(PackedVector2Array([tl, tr, br]),  PackedColorArray([wc0, wc0, wc1]))
+			draw_polygon(PackedVector2Array([tl, br, bl2]), PackedColorArray([wc0, wc1, wc1]))
+
+	for li in range(5):
+		var t   = float(li+1) / 6.0
+		var alp = lerp(0.22, 0.04, t)
+		var p_l = base_l.lerp(bot_pts[0], t)
+		var p_r = base_r.lerp(bot_pts[segs], t)
+		draw_line(p_l, p_r, Color(0.0, 0.0, 0.0, alp), 2.0, true)
+
+	draw_line(Vector2(base_l.x, ground_y), Vector2(base_r.x, ground_y),
+			  Color(0.55, 0.85, 1.0, 0.40), 2.5, true)
+
 func draw_edges():
 	if use_polygon_mode and control_points.size() >= 3:
 		for i in range(control_points.size()):
@@ -838,15 +802,12 @@ func draw_edges():
 		draw_line(tl, tr, edge_color, 4.0, true); draw_line(bl, br, sc, 6.0, true)
 		for pt in [tl, tr, bl, br]: draw_circle(pt, r, sc)
 
-# =============================================================================
-# GYM BACKGROUND WALLS
-# =============================================================================
 func _draw_ground():
 	if not wall_valid: return
 	match _env.get("ground_type", "grass"):
 		"grass", "grass_dusk", "grass_night": _draw_ground_grass()
-		"stone": _draw_ground_stone()
 		"gym_floor": _draw_ground_gym()
+		"water": _draw_ground_water()
 		_: _draw_ground_grass()
 
 func _draw_ground_grass():
@@ -857,12 +818,8 @@ func _draw_ground_grass():
 	var cm: Color = _env.get("ground_mid",  Color(0.32, 0.22, 0.12))
 	var ct: Color = _env.get("ground_top",  Color(0.22, 0.52, 0.14))
 
-	# Deep subsoil
-	draw_rect(Rect2(Vector2(left, ground_y + 32.0), Vector2(width, ground_height)), cd, true)
-
-	# Dirt band — single flat rect with a couple of tone variations
+	draw_rect(Rect2(Vector2(left, ground_y + 32.0), Vector2(width, 99999.0)), cd, true)
 	draw_rect(Rect2(Vector2(left, ground_y + 4.0), Vector2(width, 30.0)), cm, true)
-	# A few horizontal dirt streaks for subtle texture
 	for si in range(8):
 		var seed = (_scenery_seed ^ 0x57AA) + si * 31
 		var sy = ground_y + 7.0 + _hf(seed) * 22.0
@@ -871,7 +828,6 @@ func _draw_ground_grass():
 		draw_line(Vector2(sx_s, sy), Vector2(min(sx_e, right), sy),
 				  Color(cd.r, cd.g, cd.b, 0.25 + _hf(seed + 3) * 0.20), 2.0, true)
 
-	# 3-pass grass strip — dark underlay, main, bright top edge
 	var gc = [ct.darkened(0.28), ct, ct.lightened(0.18)]
 	var segs = 80
 	var step = width / float(segs)
@@ -890,55 +846,7 @@ func _draw_ground_grass():
 		pts.append(Vector2(right, ground_y + 26.0))
 		draw_colored_polygon(pts, gc[pass_i])
 
-	# Crisp top edge highlight
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), ct.lightened(0.35), 2.0, true)
-
-func _draw_ground_stone():
-	var left = wall_min.x - BACKGROUND_EXPANSION
-	var right = wall_max.x + BACKGROUND_EXPANSION
-	var width = right - left
-	var cd: Color = _env.get("ground_deep", Color(0.12, 0.11, 0.10))
-	var ct: Color = _env.get("ground_top",  Color(0.28, 0.26, 0.24))
-
-	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, ground_height)), cd, true)
-
-	var row_h = 44.0
-	var avg_stone_w = 100.0
-	var max_stones = int(ceil(width / avg_stone_w)) + 4
-	for row in range(3):
-		var ty = ground_y + float(row) * row_h
-		var x = left - (55.0 if row % 2 == 1 else 0.0)
-		for stone_i in range(max_stones):
-			if x > right + 60.0:
-				break
-			var seed = (_scenery_seed ^ 0xF00D) + row * 500 + stone_i * 13
-			var sw = 70.0 + _hf(seed) * 60.0
-			var bright = 0.80 + _hf(seed + 1) * 0.28
-			var col = Color(ct.r * bright, ct.g * bright, ct.b * bright)
-			draw_rect(Rect2(Vector2(x + 2, ty + 2), Vector2(sw - 4, row_h - 4)), col, true)
-			draw_line(Vector2(x + 2, ty + 2), Vector2(x + sw - 2, ty + 2),
-					  Color(1.0, 1.0, 1.0, 0.08), 1.5, true)
-			draw_rect(Rect2(Vector2(x, ty), Vector2(2, row_h)), cd, true)
-			draw_rect(Rect2(Vector2(x, ty), Vector2(sw, 2)), cd, true)
-			x += sw
-
-	for ci in range(10):
-		var seed = (_scenery_seed ^ 0xCCCC) + ci * 37
-		var cx = left + _hf(seed) * width
-		var cy1 = ground_y + 6.0 + _hf(seed + 1) * 30.0
-		var cy2 = cy1 + 12.0 + _hf(seed + 2) * 20.0
-		var cx2 = cx + (_hf(seed + 3) - 0.5) * 24.0
-		draw_line(Vector2(cx, cy1), Vector2(cx2, cy2), Color(cd.r, cd.g, cd.b, 0.5), 1.0, true)
-
-	if _env.get("has_torch_glow", false):
-		for ti in range(4):
-			var tx = left + (float(ti) / 3.0) * width
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(tx - 160, ground_y), Vector2(tx + 160, ground_y),
-				Vector2(tx + 80, ground_y + 60), Vector2(tx - 80, ground_y + 60)
-			]), Color(0.9, 0.45, 0.08, 0.055))
-
-	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), ct.lightened(0.18), 2.0, true)
 
 func _draw_ground_gym():
 	var left  = wall_min.x - BACKGROUND_EXPANSION
@@ -947,10 +855,8 @@ func _draw_ground_gym():
 	var ct: Color = _env.get("ground_top",  Color(0.22, 0.22, 0.24))
 	var cd: Color = _env.get("ground_deep", Color(0.11, 0.11, 0.12))
 
-	# Main floor surface
-	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, ground_height)), ct, true)
+	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), ct, true)
 
-	# Rubber mat tiles with subtle variation
 	var tile_w = 200.0
 	var tile_count = int(ceil(width / tile_w)) + 1
 	for ti in range(tile_count):
@@ -962,9 +868,139 @@ func _draw_ground_gym():
 		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y+42.0),
 				  Color(cd.r, cd.g, cd.b, 0.8), 2.0, true)
 
-	# Floor/wall join line
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y),
 			  Color(0.50, 0.50, 0.52, 0.9), 2.0, true)
+
+func _draw_water_surface():
+	if not wall_valid: return
+	var bl    = wall_min.x - BACKGROUND_EXPANSION
+	var br    = wall_max.x + BACKGROUND_EXPANSION
+	var width = br - bl
+	var t     = _water_time
+
+	for ci in range(6):
+		var cy   = ground_y + 18.0 + ci * 22.0 + sin(t * 0.4 + ci * 1.1) * 4.0
+		var calp = 0.06 - ci * 0.008
+		draw_rect(Rect2(Vector2(bl, cy), Vector2(width, 8.0)),
+				  Color(0.30, 0.65, 0.90, calp), true)
+
+	var segs  = 120
+	var step  = width / float(segs)
+
+	for wi in range(4):
+		var freq  = 0.008 + wi * 0.003
+		var speed = 0.6  + wi * 0.35
+		var amp   = 12.0 - wi * 2.5
+		var yoff  = ground_y - 2.0 + wi * 3.5
+		var phase = t * speed + wi * 1.3
+		var wcol: Color
+		match wi:
+			0: wcol = Color(0.06, 0.28, 0.54, 0.85)
+			1: wcol = Color(0.08, 0.34, 0.62, 0.90)
+			2: wcol = Color(0.11, 0.40, 0.68, 0.92)
+			_: wcol = Color(0.16, 0.48, 0.72, 0.95)
+
+		var pts = PackedVector2Array()
+		pts.append(Vector2(bl, ground_y + 200.0))
+		for si in range(segs + 1):
+			var x = bl + si * step
+			var y = yoff \
+				- sin(x * freq + phase) * amp \
+				- sin(x * freq * 1.618 + phase * 0.7) * amp * 0.4
+			pts.append(Vector2(x, y))
+		pts.append(Vector2(br, ground_y + 200.0))
+		draw_colored_polygon(pts, wcol)
+
+	var foam_segs = 60
+	var fstep = width / float(foam_segs)
+	for fi in range(foam_segs):
+		var fx = bl + fi * fstep
+		var fy = ground_y \
+			- sin(fx * 0.011 + t * 0.95) * 9.5 \
+			- sin(fx * 0.018 + t * 0.6) * 4.0 \
+			- 1.0
+		var foam_alpha = max(0.0, sin(fx * 0.011 + t * 0.95)) * 0.35
+		if foam_alpha > 0.05:
+			draw_circle(Vector2(fx, fy), 4.0 + sin(fi * 2.3) * 2.0,
+						Color(1.0, 1.0, 1.0, foam_alpha))
+
+	for gi in range(16):
+		var gseed = (_scenery_seed ^ 0x7E00) + gi * 23
+		var gx    = bl + _hf(gseed) * width
+		var gphase = t * (0.8 + _hf(gseed+1) * 0.6) + _hf(gseed+2) * TAU
+		var gy    = ground_y - sin(gx * 0.009 + gphase) * 10.0 - 3.0
+		var galp  = max(0.0, sin(gphase * 2.1)) * 0.5
+		draw_circle(Vector2(gx, gy), 2.5 + _hf(gseed+3) * 3.0,
+					Color(1.0, 1.0, 1.0, galp * 0.6))
+
+	for si in range(3):
+		for side in [-1, 1]:
+			var sx = (wall_min.x if side < 0 else wall_max.x) + side * 8.0
+			var sy = ground_y - 6.0 + sin(t * 1.2 + si * 0.9) * 3.0
+			draw_circle(Vector2(sx, sy), 3.0 + si * 2.0,
+						Color(1.0, 1.0, 1.0, 0.15 - si * 0.04))
+
+func check_water_collision(player_pos: Vector2, player_velocity: Vector2) -> Dictionary:
+	var t = _water_time
+	var surface_y = ground_y \
+		- sin(player_pos.x * 0.011 + t * 0.95) * 9.5 \
+		- sin(player_pos.x * 0.018 + t * 0.6) * 4.0
+
+	var in_water = player_pos.y > surface_y
+	var depth    = max(0.0, player_pos.y - surface_y)
+
+	var drag_factor = 1.0
+	if in_water:
+		var depth_norm = clamp(depth / 300.0, 0.0, 1.0)
+		drag_factor = lerp(0.88, 0.72, depth_norm)
+		if not _player_in_water:
+			_player_in_water = true
+			emit_signal("player_entered_water", depth)
+	else:
+		if _player_in_water:
+			_player_in_water = false
+			emit_signal("player_exited_water")
+
+	return {
+		"in_water":  in_water,
+		"depth":     depth,
+		"surface_y": surface_y,
+		"drag":      Vector2(drag_factor, drag_factor),
+	}
+
+func _draw_ground_water():
+	var left  = wall_min.x - BACKGROUND_EXPANSION
+	var right = wall_max.x + BACKGROUND_EXPANSION
+	var width = right - left
+
+	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)),
+			  Color(0.01, 0.06, 0.16), true)
+
+	var depth_bands = 16
+	var band_h = 90.0
+	for di in range(depth_bands):
+		var t    = float(di) / float(depth_bands - 1)
+		var dy   = ground_y + di * band_h
+		var col  = Color(
+			lerp(0.06, 0.01, t),
+			lerp(0.32, 0.04, t),
+			lerp(0.62, 0.10, t),
+			1.0)
+		draw_rect(Rect2(Vector2(left, dy), Vector2(width, band_h + 1.0)), col, true)
+
+	for ci in range(8):
+		var cseed = (_scenery_seed ^ 0x3C00) + ci * 17
+		var cx    = left + _hf(cseed) * width
+		var calp  = 0.04 + _hf(cseed+1) * 0.04
+		var cw    = 30.0 + _hf(cseed+2) * 60.0
+		var cdep  = 200.0 + _hf(cseed+3) * 300.0
+		var pts   = PackedVector2Array([
+			Vector2(cx - cw*0.5, ground_y),
+			Vector2(cx + cw*0.5, ground_y),
+			Vector2(cx + cw*0.8, ground_y + cdep),
+			Vector2(cx - cw*0.8, ground_y + cdep),
+		])
+		draw_colored_polygon(pts, Color(0.30, 0.65, 0.90, calp))
 
 func draw_textured_wall(start_pos: Vector2, size: Vector2):
 	var tile := 128.0
@@ -984,9 +1020,6 @@ func draw_textured_wall(start_pos: Vector2, size: Vector2):
 				draw_rect(cl, Color(current_wall_color.r + v, current_wall_color.g + v,
 									current_wall_color.b + v, current_wall_color.a))
 
-# =============================================================================
-# BOLT HOLES
-# =============================================================================
 func draw_bolt_holes(start_pos: Vector2, end_pos: Vector2):
 	var margin = 15.0
 	var dmx = start_pos.x + margin; var dMx = end_pos.x - margin
@@ -1031,9 +1064,6 @@ func _point_in_polygon(point: Vector2) -> bool:
 		j = i
 	return inside
 
-# =============================================================================
-# GRANITE
-# =============================================================================
 func draw_granite_texture():
 	var ws = wall_max - wall_min
 	var rs = int(wall_min.x + wall_min.y)
@@ -1042,9 +1072,6 @@ func draw_granite_texture():
 		if xp >= wall_min.x and xp <= wall_max.x:
 			draw_line(Vector2(xp, wall_min.y), Vector2(xp, wall_max.y), Color(0.45, 0.43, 0.4, 0.3), 2.0)
 
-# =============================================================================
-# EDITOR OVERLAYS
-# =============================================================================
 func _draw_edge_highlights():
 	if hovered_edge < 0 or control_points.size() < 2: return
 	if _is_ground_edge(hovered_edge): return
@@ -1084,9 +1111,6 @@ func _draw_control_points():
 		draw_rect(Rect2(pos - Vector2(8, 22), sz + Vector2(16, 30)), Color(0, 0, 0, 0.8), true)
 		draw_string(ThemeDB.fallback_font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 0.6))
 
-# =============================================================================
-# BOUNDS
-# =============================================================================
 func calculate_bounds_from_holds(holds_container: Node2D):
 	if not holds_container or holds_container.get_child_count() == 0:
 		wall_valid = false; queue_redraw(); return
@@ -1120,9 +1144,6 @@ func _update_bounds_from_polygon():
 		mn_y = min(mn_y, p.y); mx_y = max(mx_y, p.y)
 	wall_min = Vector2(mn_x, mn_y); wall_max = Vector2(mx_x, mx_y); wall_valid = true
 
-# =============================================================================
-# POLYGON MANIPULATION
-# =============================================================================
 func add_point_between_nearest_edge(pos: Vector2):
 	if control_points.size() < 2:
 		control_points.append(pos); _update_bounds_from_polygon(); queue_redraw(); return
@@ -1192,9 +1213,6 @@ func _point_to_segment_distance(point: Vector2, seg_start: Vector2, seg_end: Vec
 	if lsq == 0: return point.distance_to(seg_start)
 	return point.distance_to(seg_start + clamp((point - seg_start).dot(seg) / lsq, 0.0, 1.0) * seg)
 
-# =============================================================================
-# TOP EDGE HOLDS
-# =============================================================================
 func _create_top_edge_holds():
 	for child in get_children():
 		if child.has_meta("is_top_edge_hold"): child.queue_free()
@@ -1254,9 +1272,6 @@ func get_recovery_rate(delta: float, body_balance: float, foot_support: float) -
 	var hold_script = GDScript.new(); hold_script.source_code = script_code
 	hold_script.reload(); top_hold.set_script(hold_script)
 
-# =============================================================================
-# QUERIES
-# =============================================================================
 func get_bounds() -> Dictionary:
 	return {"min": wall_min, "max": wall_max, "valid": wall_valid}
 
@@ -1279,9 +1294,6 @@ func _hf(v: int) -> float:
 func hash_to_float(v: int) -> float:
 	return _hf(v)
 
-# =============================================================================
-# SAVE / LOAD
-# =============================================================================
 func get_polygon_data() -> Dictionary:
 	if not use_polygon_mode or control_points.is_empty(): return {}
 	var pts = []
