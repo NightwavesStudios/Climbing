@@ -192,6 +192,18 @@ func load_level(path: String) -> bool:
 				print("  ⚠ WARNING: top_edge_indices exist but no holds created!")
 				print("    Indices: ", dynamic_wall.top_edge_indices)
 
+	# ── Weather ──────────────────────────────────────────────────────────────
+	# Must happen AFTER wall bounds are set so WeatherModifier has valid bounds.
+	var weather_type      := int(level_data.get("weather", 0))
+	var weather_intensity := float(level_data.get("weather_intensity", 1.0))
+	if dynamic_wall and dynamic_wall.has_method("set_weather"):
+		dynamic_wall.set_weather(weather_type, weather_intensity)
+		if weather_type > 0:
+			print("  ✓ Weather set: type=", weather_type, " intensity=", weather_intensity)
+		else:
+			print("  Weather: none")
+	# ─────────────────────────────────────────────────────────────────────────
+
 	print("\n═══════════════════════════════════════")
 	print("✓ LEVEL LOADED: " + path)
 	if current_level_name != "":
@@ -209,6 +221,8 @@ func load_level(path: String) -> bool:
 		print("  Wall: Custom polygon shape")
 		if "top_edge_indices" in level_data.wall_polygon:
 			print("  Top edges: " + str(level_data.wall_polygon.top_edge_indices))
+	if weather_type > 0:
+		print("  Weather: type=", weather_type, " intensity=", weather_intensity)
 	print("═══════════════════════════════════════\n")
 
 	return true

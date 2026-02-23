@@ -1,264 +1,292 @@
 extends Control
-## Level Select Screen — Map Route Layout
-## Levels are laid out in a snaking grid (left→right, right→left, repeat),
-## connected by a continuous path line drawn on a SubViewport canvas.
 
+@onready var collection_title: Label = $CollectionTitle
+@onready var btn_back: Button        = $BtnBack
+@onready var btn_prev: Button        = $BtnPrev
+@onready var btn_next: Button        = $BtnNext
+@onready var page_label: Label       = $PageLabel
+@onready var page_container: Control = $PageContainer
 
-# ─────────────────────────────────────────────
-# Layout tuning
-# ─────────────────────────────────────────────
-@export_range(0.5, 1.0, 0.05)
-var container_width_ratio := 0.85
+var _levels: Array = []
+var _current_index: int = 0
+var _tween: Tween = null
 
-@export_range(0.6, 1.0, 0.05)
-var container_height_ratio := 0.85
+const WEATHER_NAMES = { 0: "", 1: "Rain", 2: "Snow", 3: "Wind", 4: "Storm" }
 
-## How many level nodes per row
-@export_range(2, 8, 1)
-var columns: int = 4
+const HOLD_SCENES = {
+	"START":  "res://scenes/holds/start.tscn",
+	"TOP":    "res://scenes/holds/top_out.tscn",
+	"JUG":    "res://scenes/holds/jug.tscn",
+	"CRIMP":  "res://scenes/holds/crimp.tscn",
+	"SLOPER": "res://scenes/holds/sloper.tscn",
+	"POCKET": "res://scenes/holds/pocket.tscn",
+	"FOOT":   "res://scenes/holds/foothold.tscn",
+}
 
-## Visual size of each level node button
-@export var node_size: Vector2 = Vector2(96, 96)
-
-## Horizontal and vertical spacing between nodes
-@export var h_spacing: float = 40.0
-@export var v_spacing: float = 80.0
-
-## Thickness of the connecting path line
-@export var path_line_width: float = 10.0
-
-## Color of the completed path segment
-@export var path_complete_color: Color = Color(0.4, 0.9, 0.5)
-
-## Color of the locked / future path segment
-@export var path_locked_color: Color = Color(0.35, 0.35, 0.45, 0.6)
-
-## Color of the node border when completed
-@export var node_complete_color: Color = Color(0.3, 0.85, 0.45)
-
-## Color of the node border when unlocked but not completed
-@export var node_unlocked_color: Color = Color(0.9, 0.85, 0.3)
-
-## Color of the node border when locked
-@export var node_locked_color: Color = Color(0.4, 0.4, 0.5, 0.8)
-
-
-# ─────────────────────────────────────────────
-# Node references
-# ─────────────────────────────────────────────
-@onready var scroll_container: ScrollContainer = $CenterContainer/ScrollContainer
-@onready var map_layer: Control        = $CenterContainer/ScrollContainer/MapLayer
-@onready var nodes_layer: Control      = $CenterContainer/ScrollContainer/MapLayer/NodesLayer
-@onready var collection_title: Label   = $CollectionTitle
-@onready var progress_label: Label     = $ProgressLabel
-
-var _layout_ready := false
-
-## Stores [{pos, unlocked, completed, path}] after layout is computed
-var _node_meta: Array = []
-
-
-# ─────────────────────────────────────────────
-# Ready
-# ─────────────────────────────────────────────
 func _ready() -> void:
-	_layout_ready = true
-	_update_layout()
+	btn_prev.pressed.connect(_on_prev_pressed)
+	btn_next.pressed.connect(_on_next_pressed)
+	btn_back.pressed.connect(_on_back_pressed)
 	_populate_levels()
+	_show_page(0)
 
-
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED and _layout_ready:
-		_update_layout()
-		_rebuild_map()
-
-
-# ─────────────────────────────────────────────
-# Layout
-# ─────────────────────────────────────────────
-func _update_layout() -> void:
-	if scroll_container == null:
-		return
-
-	var vp := get_viewport_rect().size
-	scroll_container.custom_minimum_size = Vector2(
-		vp.x * container_width_ratio,
-		vp.y * container_height_ratio
-	)
-	scroll_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	scroll_container.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
-
-
-# ─────────────────────────────────────────────
-# UI population (entry point)
-# ─────────────────────────────────────────────
 func _populate_levels() -> void:
 	var collection_id := GameState.get_current_collection()
-
 	if collection_id == "":
-		push_warning("level_select: no collection set, falling back to first unlocked")
 		for id in GameState.get_all_collection_ids():
 			if GameState.is_collection_unlocked(id):
 				collection_id = id
 				GameState.set_current_collection(id)
 				break
-
 	if collection_id == "":
-		push_error("level_select: No unlocked collections found — cannot populate!")
 		return
-
 	var data := GameState.get_collection_data(collection_id)
-	if data.is_empty():
-		push_error("level_select: Collection '%s' has no data!" % collection_id)
-		return
-
-	print("level_select: Populating map for collection '%s'" % collection_id)
-
 	collection_title.text = data.get("name", collection_id)
-
-	var progress := GameState.get_collection_progress(collection_id)
-	progress_label.text   = "%d / %d Complete" % [progress.completed, progress.total]
-
-	# Pre-compute metadata for every level
-	_node_meta.clear()
+	_levels.clear()
 	for i in range(data.levels.size()):
-		var lpath     := data.levels[i] as String
-		var unlocked  := GameState.is_level_unlocked(collection_id, i)
-		var completed := GameState.is_level_completed(lpath)
-		var time      := GameState.get_level_completion_time(lpath) if completed else 0.0
-
-		_node_meta.append({
+		var lpath := data.levels[i] as String
+		_levels.append({
 			"index":     i,
 			"path":      lpath,
-			"unlocked":  unlocked,
-			"completed": completed,
-			"time":      time,
-			"name":      _level_name(lpath),
+			"unlocked":  GameState.is_level_unlocked(collection_id, i),
+			"completed": GameState.is_level_completed(lpath),
+			"time":      GameState.get_level_completion_time(lpath),
 		})
 
-	_rebuild_map()
+func _load_json(level_path: String) -> Dictionary:
+	if not FileAccess.file_exists(level_path):
+		return {}
+	var file := FileAccess.open(level_path, FileAccess.READ)
+	if not file:
+		return {}
+	var json := JSON.new()
+	if json.parse(file.get_as_text()) != OK:
+		return {}
+	return json.data
 
-
-# ─────────────────────────────────────────────
-# Map rebuild — call whenever data or size changes
-# ─────────────────────────────────────────────
-func _rebuild_map() -> void:
-	if _node_meta.is_empty():
+func _show_page(index: int) -> void:
+	if _levels.is_empty():
 		return
-
-	# --- clear old children ---
-	for child in nodes_layer.get_children():
+	_current_index = index
+	for child in page_container.get_children():
 		child.queue_free()
+	await get_tree().process_frame
 
-	# --- compute node world positions ---
-	var positions: Array[Vector2] = []
-	var row_count := ceili(float(_node_meta.size()) / float(columns))
+	var meta: Dictionary = _levels[index]
+	var json: Dictionary = _load_json(meta.path)
 
-	# Total content area so we can center rows
-	var total_w := columns * node_size.x + (columns - 1) * h_spacing
-	var total_h := row_count * node_size.y + (row_count - 1) * v_spacing
+	var route_name:  String = json.get("name", "Route %d" % (index + 1))
+	var grade:       String = json.get("grade", "—")
+	var discipline:  String = json.get("discipline", "bouldering").capitalize()
+	var environment: String = json.get("environment", "—").capitalize()
+	var weather_int: int    = int(json.get("weather", 0))
+	var holds:       Array  = json.get("holds", [])
 
-	# Give the map layer enough room
-	map_layer.custom_minimum_size = Vector2(total_w + node_size.x, total_h + node_size.y)
+	var root := VBoxContainer.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_theme_constant_override("separation", 0)
+	page_container.add_child(root)
 
-	var padding := node_size * 0.5   # half-node padding on each side
+	# Grade + route number
+	var top_hbox := HBoxContainer.new()
+	_pad(top_hbox, root, 20, 20, 18, 4)
+	var grade_lbl := Label.new()
+	grade_lbl.text = grade
+	grade_lbl.add_theme_font_size_override("font_size", 42)
+	grade_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_hbox.add_child(grade_lbl)
+	var num_lbl := Label.new()
+	num_lbl.text = "#%02d" % (index + 1)
+	num_lbl.add_theme_font_size_override("font_size", 14)
+	num_lbl.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	top_hbox.add_child(num_lbl)
 
-	for i in range(_node_meta.size()):
-		var row := i / columns
-		var col := i % columns
+	# Route name
+	var name_lbl := Label.new()
+	name_lbl.text = route_name
+	name_lbl.add_theme_font_size_override("font_size", 24)
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pad(name_lbl, root, 20, 20, 0, 8)
 
-		# Alternate row direction for the snake effect
-		var effective_col := col if (row % 2 == 0) else (columns - 1 - col)
+	# Meta line
+	var meta_parts := [discipline, environment]
+	if weather_int > 0:
+		meta_parts.append(WEATHER_NAMES.get(weather_int, ""))
+	var meta_lbl := Label.new()
+	meta_lbl.text = " · ".join(meta_parts)
+	meta_lbl.add_theme_font_size_override("font_size", 13)
+	_pad(meta_lbl, root, 20, 20, 0, 14)
 
-		var x := padding.x + effective_col * (node_size.x + h_spacing)
-		var y := padding.y + row        * (node_size.y + v_spacing)
-		positions.append(Vector2(x, y))
+	root.add_child(HSeparator.new())
 
-	# --- store positions back into meta ---
-	for i in range(_node_meta.size()):
-		_node_meta[i]["pos"] = positions[i]
+	# Hold preview using SubViewport
+	if meta.unlocked and not holds.is_empty():
+		var preview_wrapper := MarginContainer.new()
+		preview_wrapper.add_theme_constant_override("margin_left", 16)
+		preview_wrapper.add_theme_constant_override("margin_right", 16)
+		preview_wrapper.add_theme_constant_override("margin_top", 14)
+		preview_wrapper.add_theme_constant_override("margin_bottom", 14)
+		preview_wrapper.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		preview_wrapper.custom_minimum_size = Vector2(0, 200)
+		root.add_child(preview_wrapper)
 
-	# --- create node buttons ---
-	for i in range(_node_meta.size()):
-		var meta = _node_meta[i]
-		var btn  := _create_node_button(meta)
-		btn.position = meta["pos"] - node_size * 0.5
-		nodes_layer.add_child(btn)
-
-		# Animate nodes in with a staggered pop
-		btn.scale  = Vector2.ZERO
-		btn.pivot_offset = node_size * 0.5
-		var tween := btn.create_tween()
-		tween.tween_interval(i * 0.04)
-		tween.tween_property(btn, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-
-# ─────────────────────────────────────────────
-# Node button creation
-# ─────────────────────────────────────────────
-func _create_node_button(meta: Dictionary) -> UniversalButton:
-	var btn := UniversalButton.new()
-
-	btn.custom_minimum_size   = node_size
-	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	btn.focus_mode            = Control.FOCUS_NONE
-	btn.hover_scale           = 1.08
-	btn.press_scale           = 0.90
-	btn.animation_speed       = 14
-	btn.enable_outline_pulse  = meta["unlocked"] and not meta["completed"]
-	btn.click_volume_db       = -12
-
-	# Label: level number on top, name below, time if completed
-	var label_text := str(meta["index"] + 1)
-	if meta["completed"]:
-		label_text += "\n✓"
-		if meta["time"] > 0.0:
-			label_text += "\n" + _format_time(meta["time"])
-	elif not meta["unlocked"]:
-		label_text += "\n🔒"
-
-	btn.text     = label_text
-	btn.disabled = not meta["unlocked"]
-
-	# Tooltip with full name
-	btn.tooltip_text = meta["name"]
-
-	# Visual tint
-	if not meta["unlocked"]:
-		btn.set_visual_state(node_locked_color)
-	elif meta["completed"]:
-		btn.set_visual_state(node_complete_color)
+		var preview: SubViewportContainer = await _build_hold_preview(holds, json.get("environment", "gym"))
+		preview_wrapper.add_child(preview)
 	else:
-		btn.set_visual_state(node_unlocked_color)
+		var spacer := Control.new()
+		spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		root.add_child(spacer)
 
-	btn.pressed.connect(_on_level_selected.bind(meta["path"], meta["unlocked"]))
-	return btn
+	root.add_child(HSeparator.new())
+
+	# Best time
+	if meta.completed and meta.time > 0.0:
+		var time_lbl := Label.new()
+		time_lbl.text = "Best: " + _format_time(meta.time)
+		time_lbl.add_theme_font_size_override("font_size", 14)
+		_pad(time_lbl, root, 20, 20, 10, 0)
+		root.add_child(HSeparator.new())
+
+	var bottom_spacer := Control.new()
+	bottom_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(bottom_spacer)
+
+	# Action button
+	if not meta.unlocked:
+		var locked_lbl := Label.new()
+		locked_lbl.text = "Complete the previous route to unlock."
+		locked_lbl.add_theme_font_size_override("font_size", 12)
+		locked_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_pad(locked_lbl, root, 20, 20, 10, 18)
+	else:
+		var btn := Button.new()
+		btn.text = "Climb Again" if meta.completed else "Climb"
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.pressed.connect(_on_level_selected.bind(meta.path))
+		_pad(btn, root, 20, 20, 10, 18)
+
+	page_label.text = "%d / %d" % [index + 1, _levels.size()]
+	_update_nav()
 
 
-# ─────────────────────────────────────────────
-# Actions
-# ─────────────────────────────────────────────
-func _on_level_selected(level_path: String, unlocked: bool) -> void:
-	if not unlocked:
-		return
-	GameState.set_current_level(level_path)
-	Transition.to("res://scenes/main/main_scene.tscn")
+# ── SubViewport-based hold preview ────────────────────────────────────────────
+
+func _build_hold_preview(holds: Array, environment: String) -> SubViewportContainer:
+	# Holds in-game are placed at world coords (e.g. x:-96 to x:64, y:-192 to y:96).
+	# Each hold sprite is roughly 64-128px at scale 1.0.
+	# We place holds at their real world positions, then use a Camera2D to frame them.
+
+	var container := SubViewportContainer.new()
+	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	container.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	container.stretch = true
+
+	var sub_vp := SubViewport.new()
+	sub_vp.size = Vector2i(600, 300)
+	sub_vp.transparent_bg = true
+	sub_vp.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
+	sub_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	container.add_child(sub_vp)
+
+	# Set environment BEFORE spawning holds so sprites pick up correct textures
+	var env_config = get_node_or_null("/root/EnvironmentConfig")
+	if env_config:
+		for env_type in env_config.get_all_environment_types():
+			if env_config.get_environment_name(env_type).to_lower() == environment.to_lower():
+				env_config.set_environment(env_type)
+				break
+
+	# Compute bounds from raw world positions
+	var min_x := (holds[0].get("x", 0.0)) as float
+	var max_x := min_x
+	var min_y := (holds[0].get("y", 0.0)) as float
+	var max_y := min_y
+	for hd in holds:
+		var hx := hd.get("x", 0.0) as float
+		var hy := hd.get("y", 0.0) as float
+		min_x = min(min_x, hx); max_x = max(max_x, hx)
+		min_y = min(min_y, hy); max_y = max(max_y, hy)
+
+	var center_x := (min_x + max_x) * 0.5
+	var center_y := (min_y + max_y) * 0.5
+	var range_x  = max(max_x - min_x, 80.0)
+	var range_y  = max(max_y - min_y, 80.0)
+
+	# Padding in world units (hold sprites are ~64px wide at scale 1.0)
+	var world_pad := 80.0
+	var zoom_x = (range_x + world_pad * 2.0) / 600.0
+	var zoom_y = (range_y + world_pad * 2.0) / 300.0
+	var zoom   = max(zoom_x, zoom_y)
+
+	# Camera frames all holds with correct zoom
+	var cam := Camera2D.new()
+	cam.position = Vector2(center_x, center_y)
+	cam.zoom = Vector2(1.0 / zoom, 1.0 / zoom)
+	sub_vp.add_child(cam)
+
+	var root_node := Node2D.new()
+	sub_vp.add_child(root_node)
+
+	for hd in holds:
+		var type := hd.get("type", "JUG") as String
+		if type not in HOLD_SCENES or not ResourceLoader.exists(HOLD_SCENES[type]):
+			continue
+		var hold_node := (load(HOLD_SCENES[type]) as PackedScene).instantiate()
+		# Place at real world position — Camera2D handles framing
+		hold_node.position = Vector2(hd.get("x", 0.0), hd.get("y", 0.0))
+		root_node.add_child(hold_node)
+		if hold_node.has_method("_update_sprite_for_environment"):
+			hold_node.call_deferred("_update_sprite_for_environment")
+		elif hold_node.has_method("set_hold_type_from_string"):
+			hold_node.call_deferred("set_hold_type_from_string", type)
+
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	return container
 
 
-func _on_back_pressed() -> void:
-	Transition.to("res://scenes/menus/collections_select.tscn")
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
-func _level_name(path: String) -> String:
-	var words  := path.get_file().get_basename().split("_")
-	var result := ""
-	for word in words:
-		result += word.capitalize() + " "
-	return result.strip_edges()
-
+func _pad(node: Node, parent: Control, left: int, right: int, top: int, bottom: int) -> void:
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", left)
+	m.add_theme_constant_override("margin_right", right)
+	m.add_theme_constant_override("margin_top", top)
+	m.add_theme_constant_override("margin_bottom", bottom)
+	m.add_child(node)
+	parent.add_child(m)
 
 func _format_time(seconds: float) -> String:
 	return "%02d:%02d" % [int(seconds / 60), int(seconds) % 60]
+
+func _update_nav() -> void:
+	btn_prev.disabled = _current_index <= 0
+	btn_next.disabled = _current_index >= _levels.size() - 1
+
+func _on_prev_pressed() -> void:
+	if _current_index > 0:
+		_flip_to(_current_index - 1, -1)
+
+func _on_next_pressed() -> void:
+	if _current_index < _levels.size() - 1:
+		_flip_to(_current_index + 1, 1)
+
+func _flip_to(new_index: int, direction: int) -> void:
+	if _tween:
+		_tween.kill()
+	_tween = create_tween().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
+	var slide := page_container.size.x * 0.25 * direction
+	_tween.tween_property(page_container, "position:x", page_container.position.x - slide, 0.15)
+	_tween.tween_callback(func():
+		page_container.position.x += slide * 2
+		_show_page(new_index)
+	)
+	_tween.tween_property(page_container, "position:x", page_container.position.x, 0.15)
+
+func _on_level_selected(level_path: String) -> void:
+	GameState.set_current_level(level_path)
+	Transition.to("res://scenes/main/main_scene.tscn")
+
+func _on_back_pressed() -> void:
+	Transition.to("res://scenes/menus/collections_select.tscn")

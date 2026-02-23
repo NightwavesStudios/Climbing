@@ -428,10 +428,6 @@ func show_message(text: String, color: Color = Color.WHITE):
 	if is_instance_valid(label):
 		label.queue_free()
 
-# =============================================================================
-# TRANSITION CALLBACKS
-# =============================================================================
-
 func _on_transition_started():
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(false)

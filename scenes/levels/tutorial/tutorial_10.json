@@ -1,0 +1,83 @@
+{
+	"crashpads": [],
+	"discipline": "bouldering",
+	"environment": "gym",
+	"grade": "V1",
+	"holds": [
+		{
+			"type": "START",
+			"x": 0.0,
+			"y": 0.0
+		},
+		{
+			"type": "SLOPER",
+			"x": 160.0,
+			"y": -160.0
+		},
+		{
+			"type": "CRIMP",
+			"x": 64.0,
+			"y": -256.0
+		},
+		{
+			"type": "TOP",
+			"x": 128.0,
+			"y": -320.0
+		},
+		{
+			"type": "FOOT",
+			"x": -32.0,
+			"y": 96.0
+		},
+		{
+			"type": "FOOT",
+			"x": 64.0,
+			"y": 96.0
+		},
+		{
+			"type": "FOOT",
+			"x": 96.0,
+			"y": -32.0
+		},
+		{
+			"type": "SLOPER",
+			"x": 0.0,
+			"y": -96.0
+		}
+	],
+	"name": "Unnamed Route",
+	"wall_polygon": {
+		"enabled": true,
+		"ground_left_index": 5,
+		"ground_right_index": 4,
+		"points": [
+			{
+				"x": -79.5992431640625,
+				"y": -363.891510009766
+			},
+			{
+				"x": 212.963256835938,
+				"y": -380.133605957031
+			},
+			{
+				"x": 430.237060546875,
+				"y": -340.944488525391
+			},
+			{
+				"x": 301.087646484375,
+				"y": -96.0929565429688
+			},
+			{
+				"x": 100.0,
+				"y": 246.0
+			},
+			{
+				"x": -100.0,
+				"y": 246.0
+			}
+		],
+		"top_edge_indices": []
+	},
+	"weather": 0,
+	"weather_intensity": 0.1
+}

@@ -7,7 +7,7 @@
 [ext_resource type="Texture2D" uid="uid://hqdm2hg1mgb8" path="res://assets/images/holds/granite/granite-jug.png" id="5_gw716"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_4yv0c"]
-radius = 96.17692
+radius = 65.00001
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_am2c4"]
 shader = ExtResource("2_vxhxt")
