@@ -16,7 +16,7 @@ extends CharacterBody2D
 @onready var right_foot_area: Area2D = $RightFoot/Area2D
 @onready var cam: Camera2D = $"../Camera2D"
 
-const CAM_LERP := 0.08
+const CAM_LERP := 0.05  # Slower, smoother camera
 
 @export var debug: bool = false
 @export var aesthetic: bool = true
@@ -41,9 +41,10 @@ var right_hand_pressure: float = 0.0
 var left_foot_pressure: float = 0.0
 var right_foot_pressure: float = 0.0
 
-const PRESSURE_ENGAGED := 20.0
-const PRESSURE_PUMPED := 50.0
-const PRESSURE_FAIL := 100.0
+# --- RELAXED: much higher thresholds = endurance lasts much longer ---
+const PRESSURE_ENGAGED := 40.0
+const PRESSURE_PUMPED := 90.0
+const PRESSURE_FAIL := 200.0
 
 var left_hand_static_time: float = 0.0
 var right_hand_static_time: float = 0.0
@@ -87,33 +88,33 @@ const HIP_OFFSET := 0.0
 const HIP_DOWN := 20.0
 const HEAD_OFFSET := -20.0
 
-const BODY_PULL_STRENGTH := 0.35
+const BODY_PULL_STRENGTH := 0.25      # Softer body pull
 const JOINT_STIFFNESS := 0.98
 const LIMB_STIFFNESS := 0.98
 const FOOT_SUPPORT_STRENGTH := 0.15
 const FOOT_SUPPORT_MIN_Y := -30.0
 const FOOT_SUPPORT_MAX_PUSH := 80.0
 const FOOT_LATERAL_ASSIST := 0.08
-const GRAVITY := 2200.0
-const BODY_DRAG := 0.92
-const LIMB_DRAG := 0.88
-const MAX_JOINT_STRETCH := 1.15
-const MAX_LIMB_STRETCH := 1.15
+const GRAVITY := 2200.0               # Much lower gravity — floaty, relaxed feel
+const BODY_DRAG := 0.96              # More drag = slower body movement
+const LIMB_DRAG := 0.94              # Much more limb drag = slow gentle limb fall
+const MAX_JOINT_STRETCH := 1.05     # Tighter arm stretch limit
+const MAX_LIMB_STRETCH := 1.05      # Tighter limb stretch limit
 const PREVENT_UPSIDE_DOWN := false
 
-const MAX_LEG_TOTAL_STRETCH := 1.06
-const LEG_FORCE_RELEASE_THRESHOLD := 1.08
+const MAX_LEG_TOTAL_STRETCH := 1.04  # Legs don't overstretch as far
+const LEG_FORCE_RELEASE_THRESHOLD := 1.06
 
 const COM_OFFSET_Y := 15.0
 const FOOT_CUT_THRESHOLD := 150.0
-const HAND_LOAD_TOLERANCE := 1.5
-const MOMENTUM_TRANSFER_STRENGTH := 0.3
-const DYNO_VELOCITY_BOOST := 1.1
+const HAND_LOAD_TOLERANCE := 1.3     # Slightly tighter hand overload
+const MOMENTUM_TRANSFER_STRENGTH := 0.2   # Gentler momentum transfer
+const DYNO_VELOCITY_BOOST := 0.8          # Less snappy dynos
 
 const ARM_NATURAL_ANGLE_DEG := 45.0
 const ARM_NATURAL_BEND := 0
 const LEG_NATURAL_SPLAY_DEG := 95.0
-const FREE_LIMB_RELAXATION_SPEED := 0.15
+const FREE_LIMB_RELAXATION_SPEED := 0.10  # Slower relaxation back to rest
 
 const ENABLE_ADAPTIVE_LEGS := true
 const LEG_ASSIST_THRESHOLD := 0.8
@@ -126,25 +127,25 @@ const FOOT_SEARCH_RADIUS := 110.0
 const FOOT_PLACEMENT_TIMER := 0.35
 const FOOT_PREFERENCE_BELOW := 30.0
 const FOOT_RELEASE_THRESHOLD := 1.8
-const FOOT_SNAP_SPEED := 0.18
+const FOOT_SNAP_SPEED := 0.12        # Slower foot snapping
 
 const FOOT_RESTABILIZE_TIME := 0.6
 
 const CRIMP_LEG_SPEED_FACTOR := 0.45
 
-const ONE_ARM_PRESSURE_MULTIPLIER := 4.5
-const TWO_ARM_PRESSURE_MULTIPLIER := 2.5
-const THREE_LIMB_PRESSURE_MULTIPLIER := 1.5
-const FOUR_LIMB_PRESSURE_MULTIPLIER := 1.0
+const ONE_ARM_PRESSURE_MULTIPLIER := 2.5    # Reduced from 4.5 — one arm feels manageable
+const TWO_ARM_PRESSURE_MULTIPLIER := 1.5    # Reduced from 2.5
+const THREE_LIMB_PRESSURE_MULTIPLIER := 1.0 # Reduced from 1.5
+const FOUR_LIMB_PRESSURE_MULTIPLIER := 0.6  # Reduced from 1.0 — 4 limbs feels effortless
 
-const FOOT_PRESSURE_REDUCTION := 0.4
-const EASY_HOLD_BASE_PRESSURE := 1.5
+const FOOT_PRESSURE_REDUCTION := 0.3        # Feet carry more weight
+const EASY_HOLD_BASE_PRESSURE := 0.8        # Lower baseline pressure build
 
-const POOR_POSITION_PRESSURE_MULT := 2.5
-const LOCK_OFF_PRESSURE_MULT := 2.2
+const POOR_POSITION_PRESSURE_MULT := 1.6    # Reduced from 2.5
+const LOCK_OFF_PRESSURE_MULT := 1.5         # Reduced from 2.2
 const LOCK_OFF_THRESHOLD := 0.7
 
-const SHAKE_OUT_RECOVERY_RATE := 6.0
+const SHAKE_OUT_RECOVERY_RATE := 14.0       # Faster recovery when shaking out
 
 const FALL_DETECTION_TIME := 2.0
 const FALL_VELOCITY_THRESHOLD := 400.0
@@ -171,7 +172,7 @@ const ALLOW_FOOT_CROSSING := true
 const MIN_HAND_SEPARATION := 20.0
 const MIN_FOOT_SEPARATION := 15.0
 
-const BASE_HAND_MOVE_SPEED := 0.92
+const BASE_HAND_MOVE_SPEED := 0.75   # Slower hand movement — more deliberate
 const BASE_REACH_DISTANCE := 200.0
 
 @export var GRAB_RADIUS := 35.0
@@ -184,9 +185,9 @@ func get_hand_modifiers(state: GripState) -> Dictionary:
 		GripState.RELAXED:
 			return {"reach_mult": 1.0, "speed_mult": 1.0, "latency": 0.0, "shake": 0.0}
 		GripState.ENGAGED:
-			return {"reach_mult": 0.9, "speed_mult": 0.95, "latency": 0.05, "shake": 0.1}
+			return {"reach_mult": 0.95, "speed_mult": 0.98, "latency": 0.02, "shake": 0.05}
 		GripState.PUMPED:
-			return {"reach_mult": 0.75, "speed_mult": 0.7, "latency": 0.15, "shake": 0.35}
+			return {"reach_mult": 0.82, "speed_mult": 0.78, "latency": 0.10, "shake": 0.20}
 		GripState.FAIL:
 			return {"reach_mult": 0.0, "speed_mult": 0.0, "latency": 1.0, "shake": 1.0}
 	return get_hand_modifiers(GripState.RELAXED)
@@ -196,11 +197,11 @@ func get_foot_modifiers(state: GripState) -> Dictionary:
 		GripState.RELAXED:
 			return {"shake": 0.0}
 		GripState.ENGAGED:
-			return {"shake": 0.08}
+			return {"shake": 0.04}
 		GripState.PUMPED:
-			return {"shake": 0.25}
+			return {"shake": 0.14}
 		GripState.FAIL:
-			return {"shake": 0.8}
+			return {"shake": 0.6}
 	return get_foot_modifiers(GripState.RELAXED)
 
 var body_velocity := Vector2.ZERO
@@ -261,14 +262,14 @@ var right_hand_visual_offset := Vector2.ZERO
 var left_foot_visual_offset := Vector2.ZERO
 var right_foot_visual_offset := Vector2.ZERO
 
-const VISUAL_ANIMATION_SPEED := 0.35
+const VISUAL_ANIMATION_SPEED := 0.25  # Slower snap animation
 
 var left_hand_shake_lerp: float = 0.0
 var right_hand_shake_lerp: float = 0.0
 var left_foot_shake_lerp: float = 0.0
 var right_foot_shake_lerp: float = 0.0
 
-const SHAKE_LERP_SPEED := 3.0
+const SHAKE_LERP_SPEED := 2.0  # Shake builds and fades more gradually
 
 var fall_timer: float = 0.0
 
@@ -942,17 +943,12 @@ func reset_climb():
 	await get_tree().process_frame
 	call_deferred("initial_grab")
 
-# ── Water query helper ────────────────────────────────────────────────────────
-# Calls check_water_collision without reading _env directly.
-# DynamicWall handles its own has_water / wall_valid guards internally,
-# so there is no timing race from deferred environment setup.
 func _query_water(pos: Vector2, vel: Vector2) -> Dictionary:
 	var dwall: Node2D = get_tree().get_first_node_in_group("environment_walls")
 	if dwall and dwall.has_method("check_water_collision"):
 		return dwall.check_water_collision(pos, vel)
 	return {"in_water": false, "depth": 0.0, "surface_y": 0.0,
 			"drag": Vector2(1.0, 1.0), "buoyancy": 0.0}
-# ─────────────────────────────────────────────────────────────────────────────
 
 func simulate_physics(delta):
 	var held_hand_count := 0
@@ -965,11 +961,9 @@ func simulate_physics(delta):
 	var total_held_limbs = held_hand_count + held_foot_count
 
 	if total_held_limbs < last_held_limbs:
-		com_velocity += Vector2(randf_range(-20, 20), 30) * 0.08
+		com_velocity += Vector2(randf_range(-20, 20), 30) * 0.05  # Gentler limb-release jolt
 	last_held_limbs = total_held_limbs
 
-	# ── WATER ─────────────────────────────────────────────────────────────────
-	# _query_water has no _env dependency — DynamicWall guards internally.
 	var _in_water := false
 	var _water_drag := Vector2(1.0, 1.0)
 	var _buoyancy := 0.0
@@ -981,17 +975,15 @@ func simulate_physics(delta):
 		com_velocity.x *= _water_drag.x
 		com_velocity.y *= _water_drag.y
 		com_velocity.y -= _buoyancy * delta
-	# ─────────────────────────────────────────────────────────────────────────
 
 	if held_hand_count > 0:
-		var no_foot_gravity_mult = 1.0 if held_foot_count > 0 else 3.3
+		var no_foot_gravity_mult = 1.0 if held_foot_count > 0 else 2.2  # Reduced from 3.3
 		com_velocity.y += GRAVITY * delta * 0.15 * no_foot_gravity_mult
 	else:
 		if _in_water:
-			# Gentle gravity so buoyancy + drag can actually overcome it
 			com_velocity.y += GRAVITY * delta * 0.4
 		else:
-			com_velocity.y += GRAVITY * delta * 2.0
+			com_velocity.y += GRAVITY * delta * 1.4  # Reduced from 2.0 — slower free fall
 			if left_foot_hold:
 				left_foot_hold.release(left_foot)
 				left_foot_hold = null
@@ -1105,18 +1097,19 @@ func pin_held_limbs():
 		right_foot_joint_velocity = Vector2.ZERO
 
 func apply_limb_gravity(delta: float):
+	# Much gentler free-limb gravity so released limbs drift down slowly
 	if left_hand_hold == null and Limb.LEFT_HAND in selected_limbs and not left_hand_grabbing:
-		left_hand_velocity.y += GRAVITY * delta * 0.4
-		left_hand_joint_velocity.y += GRAVITY * delta * 0.3
+		left_hand_velocity.y += GRAVITY * delta * 0.18
+		left_hand_joint_velocity.y += GRAVITY * delta * 0.12
 	if right_hand_hold == null and Limb.RIGHT_HAND in selected_limbs and not right_hand_grabbing:
-		right_hand_velocity.y += GRAVITY * delta * 0.4
-		right_hand_joint_velocity.y += GRAVITY * delta * 0.3
+		right_hand_velocity.y += GRAVITY * delta * 0.18
+		right_hand_joint_velocity.y += GRAVITY * delta * 0.12
 	if left_foot_hold == null and Limb.LEFT_FOOT in selected_limbs and not left_foot_grabbing:
-		left_foot_velocity.y += GRAVITY * delta * 0.5
-		left_foot_joint_velocity.y += GRAVITY * delta * 0.4
+		left_foot_velocity.y += GRAVITY * delta * 0.22
+		left_foot_joint_velocity.y += GRAVITY * delta * 0.16
 	if right_foot_hold == null and Limb.RIGHT_FOOT in selected_limbs and not right_foot_grabbing:
-		right_foot_velocity.y += GRAVITY * delta * 0.5
-		right_foot_joint_velocity.y += GRAVITY * delta * 0.4
+		right_foot_velocity.y += GRAVITY * delta * 0.22
+		right_foot_joint_velocity.y += GRAVITY * delta * 0.16
 
 func apply_limb_velocities(delta: float):
 	if left_hand_hold == null and Limb.LEFT_HAND in selected_limbs and not left_hand_grabbing:
@@ -1197,7 +1190,7 @@ func apply_foot_control(foot: Node2D, hip_offset: Vector2, target: Vector2,
 		apply_limb_momentum(right_foot.global_position, previous_right_foot_pos, delta)
 
 func apply_natural_limb_positions(delta):
-	var relax = 0.25
+	var relax = 0.18  # Slower relaxation back to rest pose
 	if left_hand_hold == null and Limb.LEFT_HAND not in selected_limbs and not left_hand_grabbing:
 		var shoulder = global_position + Vector2(-SHOULDER_OFFSET, 0)
 		var angle_rad = deg_to_rad(ARM_NATURAL_ANGLE_DEG)
@@ -2006,9 +1999,6 @@ func release_limb(limb: Limb):
 
 func check_fall_detection(delta: float):
 	var held_limbs = count_held_limbs()
-
-	# Use _query_water — no _env dependency, no timing race.
-	# DynamicWall handles has_water / wall_valid guards internally.
 	var wdata = _query_water(com_position, com_velocity)
 	var in_water = wdata["in_water"]
 
