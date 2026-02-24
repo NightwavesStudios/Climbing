@@ -17,7 +17,7 @@ const CRASHPAD_SCENE = "res://scenes/props/crashpad.tscn"
 var loaded_scenes: Dictionary = {}
 var holds_container: Node2D
 var crashpads_container: Node2D
-var dynamic_wall: Node2D = null
+var dynamic_wall = null
 
 # Current level metadata
 var current_level_name: String = ""
@@ -61,6 +61,7 @@ func _ready():
 func _create_dynamic_wall():
 	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
 	dynamic_wall = wall_script.new()
+	assert(dynamic_wall != null, "dynamic_wall.gd must extend Node2D")
 	dynamic_wall.name = "DynamicWall"
 	dynamic_wall.z_index = -10
 	get_parent().add_child(dynamic_wall)

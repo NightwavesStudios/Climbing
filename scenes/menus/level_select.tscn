@@ -12,15 +12,20 @@ grow_vertical = 2
 script = ExtResource("1_xqyeo")
 
 [node name="BtnPrev" type="Button" parent="."]
-layout_mode = 1
-offset_right = 8.0
-offset_bottom = 720.0
+layout_mode = 0
+offset_left = 43.0
+offset_top = 355.0
+offset_right = 93.0
+offset_bottom = 386.0
+text = "<-"
 
 [node name="BtnNext" type="Button" parent="."]
 layout_mode = 0
-offset_left = 12.0
-offset_right = 20.0
-offset_bottom = 720.0
+offset_left = 1141.0
+offset_top = 365.0
+offset_right = 1191.0
+offset_bottom = 396.0
+text = "->"
 
 [node name="PageLabel" type="Label" parent="."]
 layout_mode = 0
@@ -59,5 +64,10 @@ offset_right = -178.0
 offset_bottom = -66.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="CenterContainer" type="CenterContainer" parent="."]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
 
 [connection signal="pressed" from="BtnBack" to="." method="_on_back_pressed"]

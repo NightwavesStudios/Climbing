@@ -6,6 +6,7 @@ extends Node2D
 @onready var level_loader: LevelLoader = $LevelLoader
 @onready var player: CharacterBody2D = $Character
 @onready var camera: Camera2D = $Camera2D
+@onready var pause_menu: CanvasLayer = $PauseMenu
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
@@ -19,7 +20,10 @@ var level_complete_overlay: CanvasLayer = null
 func _ready():
 	print("=== MAIN SCENE READY ===")
 
+	add_to_group("main_scene")
+
 	_setup_level_complete_overlay()
+	_setup_pause_menu()
 
 	if has_node("/root/LevelTransition"):
 		var lt = get_node("/root/LevelTransition")
@@ -33,6 +37,36 @@ func _ready():
 	await _load_initial_level(initial_level)
 
 	print("=== MAIN SCENE READY COMPLETE ===")
+
+# =============================================================================
+# PAUSE MENU
+# =============================================================================
+
+func _setup_pause_menu() -> void:
+	if not pause_menu:
+		push_error("PauseMenu node not found — add it to the scene tree")
+		return
+
+	pause_menu.resumed.connect(_on_pause_resumed)
+	pause_menu.visible = false
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		if pause_menu and not pause_menu.visible:
+			_open_pause_menu()
+
+func _open_pause_menu() -> void:
+	if not pause_menu:
+		return
+	# Don't allow pausing while level complete overlay is visible
+	if level_complete_overlay and level_complete_overlay.visible:
+		return
+	pause_menu.show_pause_menu()
+
+func _on_pause_resumed() -> void:
+	# Re-enable player input in case it was explicitly disabled
+	if player and player.has_method("set_input_enabled"):
+		player.set_input_enabled(true)
 
 # =============================================================================
 # LEVEL COMPLETE OVERLAY
@@ -72,11 +106,9 @@ func _load_initial_level(path: String) -> void:
 		print("  ERROR: Failed to load level: ", path)
 		return
 
-	# Wait for all queued_free holds to actually be gone and new ones settled
 	await get_tree().process_frame
 	await get_tree().process_frame
 
-	# Grab wall reference (created synchronously in LevelLoader._ready)
 	dynamic_wall = level_loader.get_dynamic_wall()
 
 	var validation = level_loader.validate_level()
@@ -87,10 +119,8 @@ func _load_initial_level(path: String) -> void:
 
 	await setup_discipline_systems()
 
-	# Position player AFTER discipline systems (rope etc.) are ready
 	position_player_at_spawn()
 
-	# Give the player one frame to settle before camera snaps
 	await get_tree().process_frame
 	center_camera_on_route()
 
@@ -295,6 +325,10 @@ func on_level_complete():
 		push_error("_current_level_path is empty!")
 		return
 
+	# Close pause menu if somehow open during completion
+	if pause_menu and pause_menu.visible:
+		pause_menu.hide_pause_menu()
+
 	var completion_time := 0.0
 	if current_discipline == ClimbingDiscipline.Type.SPEED and speed_timer:
 		if speed_timer.has_method("get_time_remaining"):
@@ -354,10 +388,8 @@ func _on_next_level_requested(next_level_path: String) -> void:
 	cleanup_discipline_systems()
 	level_loader.unload_level()
 
-	# Load entirely while screen is black
 	await _load_initial_level(next_level_path)
 
-	# Brief pause so the loaded scene is stable before revealing
 	await get_tree().create_timer(0.1).timeout
 
 	await LevelTransition.fade_in_only()
@@ -380,7 +412,6 @@ func _on_level_complete_restart_requested() -> void:
 	cleanup_discipline_systems()
 	level_loader.unload_level()
 
-	# Load entirely while screen is black
 	await _load_initial_level(_current_level_path)
 
 	await get_tree().create_timer(0.1).timeout

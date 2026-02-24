@@ -1,9 +1,10 @@
-[gd_scene load_steps=6 format=3 uid="uid://dobbv2ep5jfco"]
+[gd_scene load_steps=7 format=3 uid="uid://dobbv2ep5jfco"]
 
 [ext_resource type="Script" uid="uid://ckbllmbuj8mpt" path="res://scripts/levels/main_scene.gd" id="1_l7pil"]
 [ext_resource type="PackedScene" uid="uid://c5s02ajy6gea3" path="res://scenes/player/character.tscn" id="2_271kv"]
 [ext_resource type="Script" uid="uid://cgqdhpr2iwubh" path="res://scripts/holds/wall_holes.gd" id="4_0jrka"]
 [ext_resource type="Script" uid="uid://dvxutv1iytasy" path="res://scripts/editor/level_loader.gd" id="5_w4lj1"]
+[ext_resource type="PackedScene" uid="uid://cpx7icuo3usgd" path="res://scenes/menus/pause_menu.tscn" id="6_l7pil"]
 [ext_resource type="Script" uid="uid://c206qolxvk6u1" path="res://scripts/systems/debug.gd" id="7_0jrka"]
 
 [node name="MainScene" type="Node2D"]
@@ -27,3 +28,5 @@ script = ExtResource("5_w4lj1")
 
 [node name="Debug" type="Node2D" parent="."]
 script = ExtResource("7_0jrka")
+
+[node name="PauseMenu" parent="." instance=ExtResource("6_l7pil")]

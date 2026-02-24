@@ -20,7 +20,6 @@ const COLLECTIONS = {
 		"description": "Learn the basics of climbing",
 		"unlock_requirement": {"type": "always"},
 		"levels": [
-			"res://scenes/levels/granite_crag/granite_crag_01.json",
 			"res://scenes/levels/tutorial/tutorial_01.json",
 			"res://scenes/levels/tutorial/tutorial_02.json",
 			"res://scenes/levels/tutorial/tutorial_03.json",
