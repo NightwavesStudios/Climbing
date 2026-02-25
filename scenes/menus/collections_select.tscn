@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://phva7vynr56p"]
+[gd_scene load_steps=4 format=3 uid="uid://phva7vynr56p"]
 
 [ext_resource type="Script" uid="uid://3c1r06go1w6k" path="res://scripts/menus/collections_select.gd" id="1_ns5ma"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_rcboh"]
+[ext_resource type="Texture2D" uid="uid://cq0kntyvpbx64" path="res://assets/images/map/gym_location_icon.png" id="3_dfhjo"]
 
 [node name="CollectionsSelect" type="Control"]
 layout_mode = 3
@@ -21,32 +22,34 @@ offset_bottom = 60.0
 text = "Back"
 script = ExtResource("2_rcboh")
 
-[node name="Locations" type="Control" parent="."]
-anchors_preset = 0
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 50
 
-[node name="IntroGym" type="Button" parent="Locations"]
+[node name="IntroGym" type="Button" parent="HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
-layout_mode = 0
-offset_left = 148.0
-offset_top = 473.0
-offset_right = 241.0
-offset_bottom = 550.0
+layout_mode = 2
 size_flags_vertical = 4
+theme_override_font_sizes/font_size = 30
 text = "Tutorial
 Gym"
+icon = ExtResource("3_dfhjo")
+icon_alignment = 1
+vertical_icon_alignment = 0
 script = ExtResource("2_rcboh")
 
-[node name="GraniteCrag" type="Button" parent="Locations"]
+[node name="GraniteCrag" type="Button" parent="HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
-layout_mode = 0
-offset_left = 219.0
-offset_top = 299.0
-offset_right = 318.0
-offset_bottom = 376.0
+layout_mode = 2
 size_flags_vertical = 4
 text = "Granite Crag"
 script = ExtResource("2_rcboh")
 
 [connection signal="pressed" from="Back" to="." method="_on_back_pressed"]
-[connection signal="pressed" from="Locations/IntroGym" to="." method="_on_tutorial_collection_pressed"]
-[connection signal="pressed" from="Locations/GraniteCrag" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/IntroGym" to="." method="_on_tutorial_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/GraniteCrag" to="." method="_on_flow_collection_pressed"]

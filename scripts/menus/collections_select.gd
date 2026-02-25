@@ -1,22 +1,14 @@
 extends Control
 
-## Collection Select Screen - Map Version
+## Collection Select Screen - HBox Version
 ##
 ## ZERO manual maintenance required.
 ## Add/remove collections in GameState.COLLECTIONS — buttons auto show/hide.
 ## Button node names just need to share a word with the collection ID.
 
-@onready var map_container: Control = $Locations
+@onready var map_container: Control = $HBoxContainer
 
 var button_to_collection: Dictionary = {}
-
-var is_dragging         := false
-var drag_start_position := Vector2.ZERO
-var map_offset          := Vector2.ZERO
-var zoom_level          := 1.0
-const MIN_ZOOM          := 0.5
-const MAX_ZOOM          := 2.0
-const ZOOM_SPEED        := 0.1
 
 const COLOR_UNLOCKED    := Color(1.0, 1.0, 1.0, 1.0)
 const COLOR_COMPLETED   := Color(0.4, 1.0, 0.4, 1.0)
@@ -29,12 +21,11 @@ const COLOR_LOCKED      := Color(0.3, 0.3, 0.3, 0.5)
 
 func _ready() -> void:
 	if not map_container:
-		push_error("collection_select: $Locations node not found!")
+		push_error("collection_select: $HBoxContainer node not found!")
 		return
 
 	_find_and_map_buttons()
 	_update_collection_states()
-	_center_on_latest_unlocked()
 
 
 # =============================================================================
@@ -57,7 +48,6 @@ func _find_and_map_buttons() -> void:
 		if matched_id != "":
 			button_to_collection[child] = matched_id
 			child.visible = true
-			# Guard against double-connect if scene reloads
 			if not child.pressed.is_connected(_on_button_pressed):
 				child.pressed.connect(_on_button_pressed.bind(child))
 		else:
@@ -78,17 +68,14 @@ func _match_collection_id(btn_lower: String, all_ids: Array) -> String:
 func _button_matches(btn_lower: String, collection_id: String) -> bool:
 	var id_lower := collection_id.to_lower()
 
-	# 1. Direct — "intro-gym" inside button name
 	if id_lower in btn_lower:
 		return true
 
-	# 2. No separators — "introgym" matches "intro-gym"
 	var id_nosep  := id_lower.replace("-", "").replace("_", "")
 	var btn_nosep := btn_lower.replace("-", "").replace("_", "")
 	if id_nosep in btn_nosep:
 		return true
 
-	# 3. Any token ≥ 3 chars — "intro" or "gym" matches "intro-gym"
 	for token in id_lower.replace("_", "-").split("-", false):
 		if token.length() >= 3 and token in btn_lower:
 			return true
@@ -144,86 +131,6 @@ func _set_indicator(button: Button, mode: String) -> void:
 			lbl.position = Vector2(button.size.x / 2.0 - 16, button.size.y / 2.0 - 16)
 			lbl.z_index  = 1
 			button.add_child(lbl)
-
-
-# =============================================================================
-# MAP CENTERING
-# =============================================================================
-
-func _center_on_latest_unlocked() -> void:
-	var target_btn:        Button = null
-	var last_unlocked_btn: Button = null
-
-	for id in GameState.get_all_collection_ids():
-		if not GameState.is_collection_unlocked(id):
-			continue
-		for btn in button_to_collection.keys():
-			if button_to_collection[btn] == id:
-				last_unlocked_btn = btn
-		if not GameState.is_collection_completed(id):
-			for btn in button_to_collection.keys():
-				if button_to_collection[btn] == id:
-					target_btn = btn
-			break
-
-	if target_btn:
-		_center_on_button(target_btn)
-	elif last_unlocked_btn:
-		_center_on_button(last_unlocked_btn)
-	else:
-		_center_map()
-
-
-func _center_on_button(button: Button) -> void:
-	map_offset = get_viewport_rect().size / 2.0 - button.position * zoom_level
-	_update_map_transform()
-
-
-func _center_map() -> void:
-	map_offset = get_viewport_rect().size / 2.0
-	_update_map_transform()
-
-
-# =============================================================================
-# PAN & ZOOM
-# =============================================================================
-
-func _input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
-		match event.button_index:
-			MOUSE_BUTTON_LEFT:
-				is_dragging = event.pressed
-				if event.pressed:
-					drag_start_position = event.position
-			MOUSE_BUTTON_WHEEL_UP:
-				_zoom_at(event.position, 1.0 + ZOOM_SPEED)
-			MOUSE_BUTTON_WHEEL_DOWN:
-				_zoom_at(event.position, 1.0 - ZOOM_SPEED)
-
-	elif event is InputEventMouseMotion and is_dragging:
-		map_offset         += event.position - drag_start_position
-		drag_start_position = event.position
-		_update_map_transform()
-
-	elif event is InputEventMagnifyGesture:
-		_zoom_at(event.position, event.factor)
-
-	elif event is InputEventPanGesture:
-		map_offset -= event.delta * 50.0
-		_update_map_transform()
-
-
-func _zoom_at(mouse_pos: Vector2, factor: float) -> void:
-	var old    := zoom_level
-	zoom_level  = clamp(zoom_level * factor, MIN_ZOOM, MAX_ZOOM)
-	map_offset  = mouse_pos - (mouse_pos - map_offset) * (zoom_level / old)
-	_update_map_transform()
-
-
-func _update_map_transform() -> void:
-	if map_container:
-		map_container.position = map_offset
-		map_container.scale    = Vector2(zoom_level, zoom_level)
 
 
 # =============================================================================
