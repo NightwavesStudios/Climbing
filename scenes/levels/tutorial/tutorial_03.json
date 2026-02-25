@@ -15,7 +15,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "V0",
+	"grade": "V1",
 	"holds": [
 		{
 			"type": "START",
@@ -31,11 +31,6 @@
 			"type": "POCKET",
 			"x": 64.0,
 			"y": -128.0
-		},
-		{
-			"type": "POCKET",
-			"x": 160.0,
-			"y": -160.0
 		},
 		{
 			"type": "POCKET",
@@ -81,6 +76,11 @@
 			"type": "FOOT",
 			"x": 96.0,
 			"y": -224.0
+		},
+		{
+			"type": "CRIMP",
+			"x": 128.0,
+			"y": -160.0
 		}
 	],
 	"name": "Pocket Galore",
@@ -107,5 +107,7 @@
 			}
 		],
 		"top_edge_indices": []
-	}
+	},
+	"weather": 0,
+	"weather_intensity": 1.0
 }

@@ -163,9 +163,14 @@
 			"type": "FOOT",
 			"x": 64.0,
 			"y": -672.0
+		},
+		{
+			"type": "FOOT",
+			"x": 320.0,
+			"y": -192.0
 		}
 	],
-	"name": "Unnamed Route",
+	"name": "First Speed Route",
 	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,
@@ -214,5 +219,7 @@
 			}
 		],
 		"top_edge_indices": []
-	}
+	},
+	"weather": 0,
+	"weather_intensity": 1.0
 }

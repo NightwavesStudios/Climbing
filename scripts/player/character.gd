@@ -107,7 +107,8 @@ const LEG_FORCE_RELEASE_THRESHOLD := 1.04  # release a bit before visual pop
 
 const COM_OFFSET_Y := 15.0
 const FOOT_CUT_THRESHOLD := 150.0
-const HAND_LOAD_TOLERANCE := 1.05   # release hold before arm visually stretches
+const HAND_LOAD_TOLERANCE := 1.25   # safety release — arm visually can't stretch (MAX_JOINT_STRETCH=1.0)
+									 # so this only fires on extreme body swings, not micro-movements
 const MOMENTUM_TRANSFER_STRENGTH := 0.2
 const DYNO_VELOCITY_BOOST := 0.8
 

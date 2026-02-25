@@ -19,7 +19,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "V1",
+	"grade": "V3",
 	"holds": [
 		{
 			"type": "START",
@@ -38,18 +38,8 @@
 		},
 		{
 			"type": "SLOPER",
-			"x": 64.0,
-			"y": -128.0
-		},
-		{
-			"type": "SLOPER",
 			"x": 160.0,
 			"y": -160.0
-		},
-		{
-			"type": "FOOT",
-			"x": 64.0,
-			"y": -64.0
 		},
 		{
 			"type": "FOOT",
@@ -90,9 +80,19 @@
 			"type": "FOOT",
 			"x": 512.0,
 			"y": 128.0
+		},
+		{
+			"type": "FOOT",
+			"x": 128.0,
+			"y": -96.0
+		},
+		{
+			"type": "JUG",
+			"x": 64.0,
+			"y": -128.0
 		}
 	],
-	"name": "Unnamed Route",
+	"name": "Tricky Arch",
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 10,
@@ -144,5 +144,7 @@
 			}
 		],
 		"top_edge_indices": []
-	}
+	},
+	"weather": 0,
+	"weather_intensity": 1.0
 }

@@ -10,10 +10,20 @@ extends Control
 var _levels: Array = []
 var _current_index: int = 0
 var _tween: Tween = null
+var _transitioning: bool = false
 
 const WEATHER_NAMES = { 0: "", 1: "Rain", 2: "Snow", 3: "Wind", 4: "Storm" }
 
-# Environment colour palettes
+const HOLD_SCENE_MAP = {
+	"JUG":    "res://scenes/holds/jug.tscn",
+	"CRIMP":  "res://scenes/holds/crimp.tscn",
+	"SLOPER": "res://scenes/holds/sloper.tscn",
+	"POCKET": "res://scenes/holds/pocket.tscn",
+	"FOOT":   "res://scenes/holds/foothold.tscn",
+	"START":  "res://scenes/holds/start.tscn",
+	"TOP":    "res://scenes/holds/top_out.tscn",
+}
+
 const ENV_COLORS = {
 	"gym":      { "wall": Color(0.68, 0.60, 0.50), "sky": Color(0.30, 0.28, 0.26), "edge": Color(0.82, 0.75, 0.62), "ground": Color(0.20, 0.18, 0.16) },
 	"outdoor":  { "wall": Color(0.52, 0.48, 0.42), "sky": Color(0.22, 0.34, 0.50), "edge": Color(0.65, 0.60, 0.52), "ground": Color(0.18, 0.22, 0.16) },
@@ -30,7 +40,6 @@ func _get_env_palette(env: String) -> Dictionary:
 func _ready() -> void:
 	btn_prev.pressed.connect(_on_prev_pressed)
 	btn_next.pressed.connect(_on_next_pressed)
-	btn_back.pressed.connect(_on_back_pressed)
 	_populate_levels()
 	_show_page(0)
 
@@ -68,9 +77,6 @@ func _load_json(level_path: String) -> Dictionary:
 		return {}
 	return json.data
 
-# =============================================================================
-# PAGE LAYOUT
-# =============================================================================
 func _show_page(index: int) -> void:
 	if _levels.is_empty():
 		return
@@ -90,13 +96,11 @@ func _show_page(index: int) -> void:
 	var holds:       Array  = json.get("holds",       [])
 	var palette             = _get_env_palette(environment)
 
-	# Root: left diagram | right info
 	var hbox := HBoxContainer.new()
 	hbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hbox.add_theme_constant_override("separation", 0)
 	page_container.add_child(hbox)
 
-	# ── LEFT: Topo diagram (no panel border, bleeds to edge) ─────────────────
 	var diagram_wrap := Control.new()
 	diagram_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	diagram_wrap.size_flags_vertical   = Control.SIZE_EXPAND_FILL
@@ -112,14 +116,12 @@ func _show_page(index: int) -> void:
 	diagram.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	diagram_wrap.add_child(diagram)
 
-	# Vertical divider
 	var divider := ColorRect.new()
 	divider.color = Color(1, 1, 1, 0.08)
 	divider.custom_minimum_size = Vector2(1, 0)
 	divider.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	hbox.add_child(divider)
 
-	# ── RIGHT: Info panel ─────────────────────────────────────────────────────
 	var info_wrap := Control.new()
 	info_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info_wrap.size_flags_vertical   = Control.SIZE_EXPAND_FILL
@@ -131,7 +133,6 @@ func _show_page(index: int) -> void:
 	info_vbox.add_theme_constant_override("separation", 0)
 	info_wrap.add_child(info_vbox)
 
-	# ── Header: coloured bar with grade ───────────────────────────────────────
 	var header_ctrl := Control.new()
 	header_ctrl.custom_minimum_size = Vector2(0, 80)
 	header_ctrl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -168,14 +169,12 @@ func _show_page(index: int) -> void:
 	num_lbl.add_theme_color_override("font_color", Color(1, 1, 1, 0.40))
 	header_hbox.add_child(num_lbl)
 
-	# Thin accent line under header
 	var accent := ColorRect.new()
 	accent.color = palette.edge
 	accent.custom_minimum_size = Vector2(0, 2)
 	accent.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info_vbox.add_child(accent)
 
-	# ── Route name ─────────────────────────────────────────────────────────────
 	var name_m := MarginContainer.new()
 	name_m.add_theme_constant_override("margin_left",   18)
 	name_m.add_theme_constant_override("margin_right",  14)
@@ -189,7 +188,6 @@ func _show_page(index: int) -> void:
 	name_m.add_child(name_lbl)
 	info_vbox.add_child(name_m)
 
-	# ── Tags: discipline + environment + weather ───────────────────────────────
 	var tags_m := MarginContainer.new()
 	tags_m.add_theme_constant_override("margin_left",   18)
 	tags_m.add_theme_constant_override("margin_right",  14)
@@ -206,14 +204,12 @@ func _show_page(index: int) -> void:
 		if weather_int > 0:
 			_add_tag(tags_hbox, WEATHER_NAMES.get(weather_int, ""), Color(0.25, 0.38, 0.55, 0.7))
 
-	# Separator
 	var sep1 := ColorRect.new()
 	sep1.color = Color(1, 1, 1, 0.06)
 	sep1.custom_minimum_size = Vector2(0, 1)
 	sep1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info_vbox.add_child(sep1)
 
-	# ── Stats ──────────────────────────────────────────────────────────────────
 	var stats_m := MarginContainer.new()
 	stats_m.add_theme_constant_override("margin_left",   18)
 	stats_m.add_theme_constant_override("margin_right",  14)
@@ -247,7 +243,6 @@ func _show_page(index: int) -> void:
 	sep2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info_vbox.add_child(sep2)
 
-	# ── Action button ──────────────────────────────────────────────────────────
 	var btn_m := MarginContainer.new()
 	btn_m.add_theme_constant_override("margin_left",   18)
 	btn_m.add_theme_constant_override("margin_right",  14)
@@ -263,7 +258,6 @@ func _show_page(index: int) -> void:
 		btn.pressed.connect(_on_level_selected.bind(meta.path))
 		btn_m.add_child(btn)
 	else:
-		# Placeholder so spacing holds
 		var placeholder := Control.new()
 		placeholder.custom_minimum_size = Vector2(0, 42)
 		btn_m.add_child(placeholder)
@@ -271,9 +265,6 @@ func _show_page(index: int) -> void:
 	page_label.text = "%d / %d" % [index + 1, _levels.size()]
 	_update_nav()
 
-# =============================================================================
-# TAG + STAT HELPERS
-# =============================================================================
 func _add_tag(parent: HBoxContainer, text: String, bg: Color) -> void:
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left",   8)
@@ -285,10 +276,6 @@ func _add_tag(parent: HBoxContainer, text: String, bg: Color) -> void:
 	lbl.add_theme_font_size_override("font_size", 10)
 	lbl.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
 	m.add_child(lbl)
-	# Draw background on the MarginContainer via a ColorRect behind it
-	var tag_ctrl := Control.new()
-	tag_ctrl.custom_minimum_size = m.get_minimum_size()
-	# Use a Panel with a StyleBoxFlat instead
 	var panel := PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = bg
@@ -316,17 +303,11 @@ func _add_stat(parent: VBoxContainer, label_text: String, value_text: String, va
 	row.add_child(val)
 	parent.add_child(row)
 
-# =============================================================================
-# LOCKED DIAGRAM
-# =============================================================================
 func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> Control:
-	# Use a real DynamicWall for the background — blurred/dimmed — with lock overlay.
-	# palette is still passed in case DynamicWall fails to load.
 	var wrapper := Control.new()
 	wrapper.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	wrapper.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 
-	# SubViewport for environment background
 	const VP_W := 900
 	const VP_H := 600
 	var svc := SubViewportContainer.new()
@@ -339,7 +320,6 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 	svc.add_child(svp)
 	wrapper.add_child(svc)
 
-	# Generic wall bounds centred at origin
 	var wmin := Vector2(-400, -600)
 	var wmax := Vector2( 400,  0)
 	var cam := Camera2D.new()
@@ -351,7 +331,6 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 		var wall_script = load("res://scripts/holds/dynamic_wall.gd")
 		var wall = wall_script.new()
 		wall.z_index = -10
-		# Use the palette env key to pick the right theme
 		wall.set("current_environment", environment.to_lower())
 		wall.set("current_wall_color", palette.wall)
 		wall.set("wall_min",   wmin)
@@ -363,13 +342,11 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 			wall._apply_environment_theme()
 		wall.queue_redraw()
 
-	# Dark veil so locked routes look obviously obscured
 	var veil := ColorRect.new()
 	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	veil.color = Color(0, 0, 0, 0.55)
 	wrapper.add_child(veil)
 
-	# Lock overlay canvas
 	var lock_canvas := Control.new()
 	lock_canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lock_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -383,31 +360,21 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 		var shackle_r = 18.0 * scale
 		var lc  := Color(1, 1, 1, 0.65)
 		var lc2 := Color(1, 1, 1, 0.12)
-		# Shackle — arc centre is at top of body
 		var shackle_cy = cy - body_h * 0.5
 		lock_canvas.draw_arc(Vector2(cx, shackle_cy), shackle_r, PI, TAU, 40, lc, 5.0 * scale)
-		# Body
 		lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc)
 		lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc2, true)
-		# Keyhole
 		lock_canvas.draw_circle(Vector2(cx, cy - 2*scale), 6.0*scale, Color(0,0,0,0.5))
 		lock_canvas.draw_rect(Rect2(cx - 3*scale, cy + 4*scale, 6*scale, 9*scale), Color(0,0,0,0.5))
 	)
 	wrapper.add_child(lock_canvas)
 	return wrapper
 
-# =============================================================================
-# TOPO DIAGRAM
-# =============================================================================
-# _build_route_diagram:
-# Uses a SubViewport with a real DynamicWall for the environment background,
-# then overlays hold PNGs via a Control canvas on top.
 func _build_route_diagram(json: Dictionary) -> Control:
 	var holds: Array             = json.get("holds", [])
 	var wall_polygon: Dictionary = json.get("wall_polygon", {})
 	var environment: String      = json.get("environment", "gym")
 
-	# ── World bounds: polygon → all holds ────────────────────────────────────
 	var bmin := Vector2(INF, INF)
 	var bmax := Vector2(-INF, -INF)
 	var poly_points: Array = wall_polygon.get("points", [])
@@ -427,7 +394,6 @@ func _build_route_diagram(json: Dictionary) -> Control:
 	bmax += Vector2(pad_world, pad_world)
 	var world_size := bmax - bmin
 
-	# ── SubViewport for DynamicWall background ────────────────────────────────
 	const VP_W := 900
 	const VP_H := 600
 
@@ -442,7 +408,6 @@ func _build_route_diagram(json: Dictionary) -> Control:
 	svp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	svc.add_child(svp)
 
-	# Camera fitted to world bounds
 	var zoom_x := float(VP_W) / world_size.x
 	var zoom_y := float(VP_H) / world_size.y
 	var zoom   = min(zoom_x, zoom_y) * 0.95
@@ -451,7 +416,6 @@ func _build_route_diagram(json: Dictionary) -> Control:
 	cam.zoom = Vector2(zoom, zoom)
 	svp.add_child(cam)
 
-	# DynamicWall
 	if ResourceLoader.exists("res://scripts/holds/dynamic_wall.gd"):
 		var wall_script = load("res://scripts/holds/dynamic_wall.gd")
 		var wall = wall_script.new()
@@ -479,101 +443,75 @@ func _build_route_diagram(json: Dictionary) -> Control:
 			wall._apply_environment_theme()
 		wall.queue_redraw()
 
-	# ── Hold overlay — drawn as 2D canvas on top of the SubViewportContainer ─
-	# We need a Control that sits over the svc and draws in the same coordinate
-	# space as the container's screen pixels.
-	var overlay := Control.new()
-	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for hd in holds:
+		var type := (hd.get("type", "JUG") as String).to_upper()
+		var scene_path: String = HOLD_SCENE_MAP.get(type, HOLD_SCENE_MAP["JUG"])
+		if not ResourceLoader.exists(scene_path):
+			continue
+		var hold_scene = load(scene_path)
+		if not hold_scene:
+			continue
+		var hold_node = hold_scene.instantiate()
+		hold_node.position = Vector2(hd.get("x", 0.0), hd.get("y", 0.0))
+		if hd.has("rotation"):
+			hold_node.rotation = hd.get("rotation")
+		if type == "FOOT":
+			hold_node.scale    = Vector2(0.2, 0.2)
+			hold_node.modulate = Color(1.0, 1.0, 1.0, 0.5)
+		svp.add_child(hold_node)
 
-	overlay.draw.connect(func():
-		var cs := overlay.size
-		if cs.x < 1 or cs.y < 1:
-			return
+	_defer_freeze_viewport(svp)
 
-		# Mirror the SubViewportContainer scaling — VP fills cs via stretch=true
-		# World→canvas: same zoom/offset logic as camera, mapped to cs pixels.
-		var world_cx := (bmin.x + bmax.x) * 0.5
-		var world_cy := (bmin.y + bmax.y) * 0.5
-		var sx := cs.x / world_size.x
-		var sy := cs.y / world_size.y
-		var s  = min(sx, sy) * 0.95
-		var cx = cs.x * 0.5 + (bmin.x - world_cx) * s  # offset of bmin in canvas
-		# Actually: canvas_pt = cs/2 + (world_pt - world_center) * s
-		var w2c := func(wp: Vector2) -> Vector2:
-			return Vector2(cs.x * 0.5 + (wp.x - world_cx) * s,
-						   cs.y * 0.5 + (wp.y - world_cy) * s)
-
-		var base_size = clamp(min(cs.x, cs.y) * 0.085, 16.0, 52.0)
-
-		for hd in holds:
-			var type      := hd.get("type", "JUG") as String
-			var cp        = w2c.call(Vector2(hd.get("x", 0.0), hd.get("y", 0.0)))
-			var type_lower := type.to_lower()
-			var env_lower  := environment.to_lower()
-
-			var sz = base_size
-			match type:
-				"FOOT":  sz = base_size * 0.58
-				"START": sz = base_size * 1.2
-				"TOP":   sz = base_size * 1.2
-
-			# Environment-specific → gym fallback → nothing
-			var tex: Texture2D = null
-			var env_path     := "res://assets/images/holds/%s/%s.png" % [env_lower, type_lower]
-			var generic_path := "res://assets/images/holds/gym/%s.png" % type_lower
-			if ResourceLoader.exists(env_path):
-				tex = load(env_path)
-			elif ResourceLoader.exists(generic_path):
-				tex = load(generic_path)
-
-			if tex:
-				var draw_size := Vector2(sz, sz)
-				var draw_pos  = cp - draw_size * 0.5
-				var mod := Color(1, 1, 1, 0.50) if type == "FOOT" else Color(1, 1, 1, 1.0)
-				overlay.draw_texture_rect(tex, Rect2(draw_pos, draw_size), false, mod)
-	)
-
-	# Wrap svc + overlay in a shared Control so they stack
 	var wrapper := Control.new()
 	wrapper.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	wrapper.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	wrapper.add_child(svc)
-	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	wrapper.add_child(overlay)
 
 	return wrapper
 
-# =============================================================================
-# HELPERS
-# =============================================================================
+func _defer_freeze_viewport(svp: SubViewport) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if is_instance_valid(svp):
+		svp.render_target_update_mode = SubViewport.UPDATE_ONCE
+
 func _format_time(seconds: float) -> String:
 	return "%02d:%02d" % [int(seconds / 60), int(seconds) % 60]
 
 func _update_nav() -> void:
-	btn_prev.disabled = _current_index <= 0
-	btn_next.disabled = _current_index >= _levels.size() - 1
+	btn_prev.disabled = _transitioning or _current_index <= 0
+	btn_next.disabled = _transitioning or _current_index >= _levels.size() - 1
 
 func _on_prev_pressed() -> void:
-	if _current_index > 0:
+	if not _transitioning and _current_index > 0:
 		_flip_to(_current_index - 1, -1)
 
 func _on_next_pressed() -> void:
-	if _current_index < _levels.size() - 1:
-		_flip_to(_current_index + 1,1)
+	if not _transitioning and _current_index < _levels.size() - 1:
+		_flip_to(_current_index + 1, 1)
 
 func _flip_to(new_index: int, direction: int) -> void:
+	_transitioning = true
+	_update_nav()
+
 	if _tween:
 		_tween.kill()
+
+	var origin_x := page_container.position.x
+	var slide    := page_container.size.x * 0.3 * direction
+
 	_tween = create_tween().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_CUBIC)
-	var slide := page_container.size.x * 0.3 * direction
-	_tween.tween_property(page_container, "position:x", page_container.position.x - slide, 0.18)
+	_tween.tween_property(page_container, "position:x", origin_x - slide, 0.18)
 	_tween.tween_callback(func():
-		page_container.position.x += slide * 2
+		page_container.position.x = origin_x + slide
 		_show_page(new_index)
 	)
-	_tween.tween_property(page_container, "position:x", page_container.position.x, 0.18)
+	_tween.tween_property(page_container, "position:x", origin_x, 0.18)
+	_tween.tween_callback(func():
+		_transitioning = false
+		_update_nav()
+	)
 
 func _on_level_selected(level_path: String) -> void:
 	GameState.set_current_level(level_path)
