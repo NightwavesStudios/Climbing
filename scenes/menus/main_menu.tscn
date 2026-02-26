@@ -50,6 +50,7 @@ script = ExtResource("5_imvie")
 
 [node name="Community" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
+disabled = true
 text = "Community"
 script = ExtResource("5_imvie")
 

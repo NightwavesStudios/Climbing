@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://8bidc47q0n2h"]
+[gd_scene load_steps=3 format=3 uid="uid://8bidc47q0n2h"]
 
 [ext_resource type="Script" uid="uid://psgvu1sihkrc" path="res://scripts/menus/level_select.gd" id="1_xqyeo"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_pymjq"]
 
 [node name="level_select" type="Control"]
 layout_mode = 3
@@ -23,6 +24,7 @@ offset_bottom = 15.0000305
 grow_vertical = 2
 rotation = 3.1408362
 text = "➔"
+script = ExtResource("2_pymjq")
 
 [node name="BtnNext" type="Button" parent="."]
 layout_mode = 1
@@ -38,6 +40,7 @@ offset_bottom = 16.0
 grow_horizontal = 0
 grow_vertical = 2
 text = "➔"
+script = ExtResource("2_pymjq")
 
 [node name="PageLabel" type="Label" parent="."]
 layout_mode = 0
@@ -64,6 +67,7 @@ offset_top = 20.0
 offset_right = 85.0
 offset_bottom = 60.0
 text = "Back"
+script = ExtResource("2_pymjq")
 
 [node name="PageContainer" type="PanelContainer" parent="."]
 layout_mode = 1

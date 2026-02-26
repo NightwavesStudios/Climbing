@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://cpx7icuo3usgd"]
+[gd_scene load_steps=3 format=3 uid="uid://cpx7icuo3usgd"]
 
 [ext_resource type="Script" uid="uid://24bfa77eyll6" path="res://scenes/menus/pause_menu.gd" id="1_fwndu"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_7unhi"]
 
 [node name="PauseMenu" type="CanvasLayer"]
 script = ExtResource("1_fwndu")
@@ -27,18 +28,21 @@ layout_mode = 2
 size_flags_vertical = 3
 theme_override_font_sizes/font_size = 20
 text = "Resume"
+script = ExtResource("2_7unhi")
 
 [node name="Settings" type="Button" parent="VBoxContainer"]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_font_sizes/font_size = 20
 text = "Settings"
+script = ExtResource("2_7unhi")
 
 [node name="MainMenu" type="Button" parent="VBoxContainer"]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_font_sizes/font_size = 20
 text = "Main Menu"
+script = ExtResource("2_7unhi")
 
 [connection signal="pressed" from="VBoxContainer/Resume" to="." method="_on_resume_pressed"]
 [connection signal="pressed" from="VBoxContainer/Settings" to="." method="_on_settings_pressed"]

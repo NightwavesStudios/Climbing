@@ -8,6 +8,7 @@ extends Node2D
 @onready var camera: Camera2D = $Camera2D
 @onready var pause_menu: CanvasLayer = $PauseMenu
 @onready var instructions: CanvasLayer = $Instructions
+@onready var instructions_root: ColorRect = $Instructions/ColorRect
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
@@ -27,6 +28,17 @@ func _ready():
 
 	add_to_group("main_scene")
 
+	# TEMPORARY: Reset instructions so they always show for testing
+	# Remove these 4 lines once confirmed working
+	var cfg_reset := ConfigFile.new()
+	cfg_reset.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, false)
+	cfg_reset.save(INSTRUCTIONS_SAVE_PATH)
+	print("  [DEBUG] Instructions pref reset")
+
+	# Zero alpha immediately so there's no flash
+	if instructions_root:
+		instructions_root.modulate.a = 0.0
+
 	_setup_level_complete_overlay()
 	_setup_pause_menu()
 
@@ -41,26 +53,51 @@ func _ready():
 
 	await _load_initial_level(initial_level)
 
-	_setup_instructions()
+	await get_tree().process_frame
+	_show_instructions_if_needed()
 
 	print("=== MAIN SCENE READY COMPLETE ===")
 
 # =============================================================================
-# INSTRUCTIONS (show once, button cooldown)
+# INSTRUCTIONS (show once, fade in after load, fade out on dismiss, never again)
 # =============================================================================
 
-func _setup_instructions() -> void:
-	if not instructions:
-		push_error("Instructions node not found")
+func _show_instructions_if_needed() -> void:
+	print("=== INSTRUCTIONS DEBUG ===")
+	print("  instructions: ", instructions)
+	print("  instructions_root: ", instructions_root)
+
+	if not instructions or not instructions_root:
+		push_error("Instructions nodes are null!")
 		return
 
+	print("  instructions.visible: ", instructions.visible)
+	print("  instructions_root.visible: ", instructions_root.visible)
+	print("  instructions_root.modulate: ", instructions_root.modulate)
+
 	var cfg := ConfigFile.new()
-	var already_shown := false
-
 	if cfg.load(INSTRUCTIONS_SAVE_PATH) == OK:
-		already_shown = cfg.get_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, false)
+		var already_shown = cfg.get_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, false)
+		print("  already_shown: ", already_shown)
+		if already_shown:
+			print("  SKIPPING — already shown before")
+			return
+	else:
+		print("  No prefs file found — first time")
 
-	instructions.visible = not already_shown
+	instructions_root.modulate.a = 0.0
+	instructions.show()
+	instructions_root.show()
+
+	print("  instructions.visible after show(): ", instructions.visible)
+	print("  instructions_root.visible after show(): ", instructions_root.visible)
+
+	var tween = create_tween()
+	tween.tween_property(instructions_root, "modulate:a", 1.0, 0.6) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+
+	print("  Tween created — should fade in now")
+	print("=========================")
 
 # =============================================================================
 # PAUSE MENU
@@ -82,10 +119,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _open_pause_menu() -> void:
 	if not pause_menu:
 		return
-	# Don't allow pausing while level complete overlay is visible
 	if level_complete_overlay and level_complete_overlay.visible:
 		return
-	# Don't allow pausing while instructions are visible
 	if instructions and instructions.visible:
 		return
 	pause_menu.show_pause_menu()
@@ -495,11 +530,19 @@ func _on_transition_finished():
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(true)
 
-
 func _on_hide_instructions_pressed() -> void:
-	instructions.visible = false
-
 	var cfg := ConfigFile.new()
 	cfg.load(INSTRUCTIONS_SAVE_PATH)
 	cfg.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, true)
 	cfg.save(INSTRUCTIONS_SAVE_PATH)
+
+	if not instructions_root:
+		instructions.hide()
+		return
+
+	var tween = create_tween()
+	tween.tween_property(instructions_root, "modulate:a", 0.0, 0.4) \
+		.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_callback(func():
+		instructions.hide()
+	)

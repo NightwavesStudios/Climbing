@@ -251,7 +251,7 @@ func _show_page(index: int) -> void:
 	info_vbox.add_child(btn_m)
 
 	if meta.unlocked:
-		var btn := Button.new()
+		var btn := UniversalButton.new()  # Changed: Button → UniversalButton for click SFX
 		btn.text = "Climb Again" if meta.completed else "Climb"
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.custom_minimum_size = Vector2(0, 42)

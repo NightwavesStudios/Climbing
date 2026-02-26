@@ -194,17 +194,17 @@ const P2_REST_RECOVERY_SCALE   := 1.5   # extra recovery rate multiplier during 
 
 # PHASE 2 — IMPROVED PUMP FEEDBACK (shake is now pressure-driven, not state-driven)
 # Shake amplitude (px) at various pressure fractions
-const P2_SHAKE_ONSET      := 0.70   # shake only begins well into pump
-const P2_SHAKE_MAX_AMP    := 3.5    # max shake amplitude (px) at 100% — subtle
-const P2_SHAKE_LERP_IN    := 0.4    # how fast shake builds  (lower = slower ramp-in)
+const P2_SHAKE_ONSET      := 0.15   # shake only begins well into pump
+const P2_SHAKE_MAX_AMP    := 3.0    # max shake amplitude (px) at 100% — subtle
+const P2_SHAKE_LERP_IN    := 0.2    # how fast shake builds  (lower = slower ramp-in)
 const P2_SHAKE_LERP_OUT   := 1.2    # how fast shake fades when pressure drops
 # Pulse: slow rhythmic bob at very high pump, layered on top of fast shake
-const P2_PULSE_ONSET   := 0.88
+const P2_PULSE_ONSET   := 0.65
 const P2_PULSE_AMP     := 1.8    # px — kept subtle
 const P2_PULSE_FREQ    := 3.0    # Hz
 # Darkening: forearm tints very slightly toward brown-grey — NOT red
 # Blend stays very low so it reads as "darker" not "coloured"
-const P2_DARK_ONSET    := 0.65
+const P2_DARK_ONSET    := 0.35
 const P2_DARK_COLOR    := Color(0.18, 0.12, 0.12, 1.0)   # very dark warm grey at 100%
 const P2_DARK_MAX_BLEND := 0.55   # never fully reach P2_DARK_COLOR — cap the blend
 
