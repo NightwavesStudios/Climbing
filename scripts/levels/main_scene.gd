@@ -7,6 +7,7 @@ extends Node2D
 @onready var player: CharacterBody2D = $Character
 @onready var camera: Camera2D = $Camera2D
 @onready var pause_menu: CanvasLayer = $PauseMenu
+@onready var instructions: CanvasLayer = $Instructions
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
@@ -16,6 +17,10 @@ var speed_timer: CanvasLayer = null
 var current_discipline: int = 0
 
 var level_complete_overlay: CanvasLayer = null
+
+const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
+const INSTRUCTIONS_SECTION := "instructions"
+const INSTRUCTIONS_KEY := "shown"
 
 func _ready():
 	print("=== MAIN SCENE READY ===")
@@ -36,7 +41,26 @@ func _ready():
 
 	await _load_initial_level(initial_level)
 
+	_setup_instructions()
+
 	print("=== MAIN SCENE READY COMPLETE ===")
+
+# =============================================================================
+# INSTRUCTIONS (show once, button cooldown)
+# =============================================================================
+
+func _setup_instructions() -> void:
+	if not instructions:
+		push_error("Instructions node not found")
+		return
+
+	var cfg := ConfigFile.new()
+	var already_shown := false
+
+	if cfg.load(INSTRUCTIONS_SAVE_PATH) == OK:
+		already_shown = cfg.get_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, false)
+
+	instructions.visible = not already_shown
 
 # =============================================================================
 # PAUSE MENU
@@ -61,10 +85,12 @@ func _open_pause_menu() -> void:
 	# Don't allow pausing while level complete overlay is visible
 	if level_complete_overlay and level_complete_overlay.visible:
 		return
+	# Don't allow pausing while instructions are visible
+	if instructions and instructions.visible:
+		return
 	pause_menu.show_pause_menu()
 
 func _on_pause_resumed() -> void:
-	# Re-enable player input in case it was explicitly disabled
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(true)
 
@@ -325,7 +351,6 @@ func on_level_complete():
 		push_error("_current_level_path is empty!")
 		return
 
-	# Close pause menu if somehow open during completion
 	if pause_menu and pause_menu.visible:
 		pause_menu.hide_pause_menu()
 
@@ -469,3 +494,12 @@ func _on_level_loaded():
 func _on_transition_finished():
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(true)
+
+
+func _on_hide_instructions_pressed() -> void:
+	instructions.visible = false
+
+	var cfg := ConfigFile.new()
+	cfg.load(INSTRUCTIONS_SAVE_PATH)
+	cfg.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, true)
+	cfg.save(INSTRUCTIONS_SAVE_PATH)

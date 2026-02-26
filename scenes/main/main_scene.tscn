@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://dobbv2ep5jfco"]
+[gd_scene load_steps=8 format=3 uid="uid://dobbv2ep5jfco"]
 
 [ext_resource type="Script" uid="uid://ckbllmbuj8mpt" path="res://scripts/levels/main_scene.gd" id="1_l7pil"]
 [ext_resource type="PackedScene" uid="uid://c5s02ajy6gea3" path="res://scenes/player/character.tscn" id="2_271kv"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" uid="uid://dvxutv1iytasy" path="res://scripts/editor/level_loader.gd" id="5_w4lj1"]
 [ext_resource type="PackedScene" uid="uid://cpx7icuo3usgd" path="res://scenes/menus/pause_menu.tscn" id="6_l7pil"]
 [ext_resource type="Script" uid="uid://c206qolxvk6u1" path="res://scripts/systems/debug.gd" id="7_0jrka"]
+[ext_resource type="Texture2D" uid="uid://cer0dg4pqys0f" path="res://assets/images/tutorial_popup.png" id="7_271kv"]
 
 [node name="MainScene" type="Node2D"]
 script = ExtResource("1_l7pil")
@@ -30,3 +31,42 @@ script = ExtResource("5_w4lj1")
 script = ExtResource("7_0jrka")
 
 [node name="PauseMenu" parent="." instance=ExtResource("6_l7pil")]
+
+[node name="Instructions" type="CanvasLayer" parent="."]
+
+[node name="ColorRect" type="ColorRect" parent="Instructions"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 488.0
+offset_top = 121.0
+offset_right = -403.0
+offset_bottom = -71.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Sprite2D" type="Sprite2D" parent="Instructions"]
+position = Vector2(679.99994, 332)
+scale = Vector2(0.787, 0.787)
+texture = ExtResource("7_271kv")
+
+[node name="HideInstructions" type="Button" parent="Instructions"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -39.0
+offset_top = -153.0
+offset_right = 111.0
+offset_bottom = -93.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 32
+text = "Dismiss"
+
+[node name="CenterContainer" type="CenterContainer" parent="Instructions"]
+offset_right = 40.0
+offset_bottom = 40.0
+
+[connection signal="pressed" from="Instructions/HideInstructions" to="." method="_on_hide_instructions_pressed"]
