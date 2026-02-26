@@ -15,7 +15,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "V1",
+	"grade": "V3",
 	"holds": [
 		{
 			"type": "START",
@@ -54,11 +54,6 @@
 		},
 		{
 			"type": "FOOT",
-			"x": 64.0,
-			"y": -32.0
-		},
-		{
-			"type": "FOOT",
 			"x": -32.0,
 			"y": 64.0
 		},
@@ -81,6 +76,16 @@
 			"type": "FOOT",
 			"x": 96.0,
 			"y": -256.0
+		},
+		{
+			"type": "FOOT",
+			"x": -96.0,
+			"y": -32.0
+		},
+		{
+			"type": "FOOT",
+			"x": 0.0,
+			"y": -96.0
 		}
 	],
 	"name": "Unnamed Route",
@@ -111,5 +116,7 @@
 			}
 		],
 		"top_edge_indices": []
-	}
+	},
+	"weather": 0,
+	"weather_intensity": 1.0
 }

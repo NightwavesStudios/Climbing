@@ -43,6 +43,10 @@ func _update_sprite_for_environment():
 func _on_body_entered(body: Node2D):
 	if _triggered: return
 	if not _is_player(body): return
+	# ── Don't trigger during level load — player hasn't grabbed start hold yet ──
+	if "grab_initialized" in body and not body._grab_initialized:
+		return
+	# ────────────────────────────────────────────────────────────────────────────
 	_triggered = true
 	_do_landing(body)
 
@@ -63,6 +67,13 @@ func _do_landing(player: Node2D):
 		player.play_crashpad_ragdoll(landing_duration)
 
 	await get_tree().create_timer(landing_duration + 0.3).timeout
+
+	# ── Guard again after the timer — a level transition may have started ──────
+	if "grab_initialized" in player and not player._grab_initialized:
+		await get_tree().process_frame
+		_triggered = false
+		return
+	# ────────────────────────────────────────────────────────────────────────────
 
 	var main = get_tree().current_scene
 	if main and main.has_method("on_player_reset"):

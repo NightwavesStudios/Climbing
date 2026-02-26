@@ -317,6 +317,7 @@ func get_top_holds() -> Array[Node2D]:
 
 func get_player_spawn_position() -> Vector2:
 	"""Get spawn position from START holds"""
+	print("GET_PLAYER_SPAWN_POSITION called from: ", get_stack())
 	print("\n=== GET_PLAYER_SPAWN_POSITION ===")
 
 	var starts = get_start_holds()

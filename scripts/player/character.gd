@@ -79,6 +79,10 @@ var spawn_position: Vector2
 var climb_started := false
 var climb_completed := false
 
+# ── SPAWN GUARD: blocks _process physics until initial_grab() completes ──────
+var _grab_initialized: bool = false
+# ─────────────────────────────────────────────────────────────────────────────
+
 const ARM_UPPER_LENGTH := 50.0
 const ARM_LOWER_LENGTH := 50.0
 const LEG_UPPER_LENGTH := 45.0
@@ -108,7 +112,7 @@ const LEG_FORCE_RELEASE_THRESHOLD := 1.04  # release a bit before visual pop
 const COM_OFFSET_Y := 15.0
 const FOOT_CUT_THRESHOLD := 150.0
 const HAND_LOAD_TOLERANCE := 1.25   # safety release — arm visually can't stretch (MAX_JOINT_STRETCH=1.0)
-									 # so this only fires on extreme body swings, not micro-movements
+								 # so this only fires on extreme body swings, not micro-movements
 const MOMENTUM_TRANSFER_STRENGTH := 0.2
 const DYNO_VELOCITY_BOOST := 0.8
 
@@ -266,8 +270,8 @@ const BASE_REACH_DISTANCE := 200.0
 
 @export var GRAB_RADIUS := 35.0
 
-const SHARED_HOLD_HAND_OFFSET := 15.0
-const SHARED_HOLD_HAND_FOOT_OFFSET := 20.0
+const SHARED_HOLD_HAND_OFFSET := 10.0
+const SHARED_HOLD_HAND_FOOT_OFFSET := 10.0
 
 func get_hand_modifiers(state: GripState) -> Dictionary:
 	match state:
@@ -403,6 +407,12 @@ func _ready():
 	call_deferred("initial_grab")
 
 func _process(delta):
+	# ── SPAWN GUARD: do nothing until initial_grab() has completed ────────────
+	if not _grab_initialized:
+		queue_redraw()   # keep drawing so the stick figure is visible at spawn pos
+		return
+	# ─────────────────────────────────────────────────────────────────────────
+
 	if _ragdoll_active:
 		_ragdoll_elapsed += delta
 		if _ragdoll_elapsed >= _ragdoll_max_time:
@@ -1185,6 +1195,10 @@ func get_limb_position(limb: Limb) -> Vector2:
 		_: return global_position
 
 func reset_climb():
+	# ── Block physics again while initial_grab re-runs ────────────────────────
+	_grab_initialized = false
+	# ─────────────────────────────────────────────────────────────────────────
+
 	global_position = spawn_position
 	com_position = spawn_position + Vector2(0, COM_OFFSET_Y)
 
@@ -2264,6 +2278,10 @@ func initial_grab():
 	print("Right foot hold: " + ("YES" if right_foot_hold else "NO"))
 	print("===================")
 
+	# ── SPAWN GUARD: physics can now run ─────────────────────────────────────
+	_grab_initialized = true
+	# ─────────────────────────────────────────────────────────────────────────
+
 func find_start_holds() -> Array[Area2D]:
 	var start_holds: Array[Area2D] = []
 	for hold in get_tree().get_nodes_in_group("holds"):
@@ -2363,8 +2381,6 @@ func attempt_grab(limb: Limb):
 			game_scene.on_climb_start()
 
 func calculate_grab_position(limb: Limb, hold: Area2D, hold_point: Vector2, limb_pos: Vector2) -> Vector2:
-	# Top-out snaps to hold_point just like any other hold.
-	# (Previously returned limb_pos which caused the hand to pin wherever it happened to be.)
 	var is_hand := (limb == Limb.LEFT_HAND or limb == Limb.RIGHT_HAND)
 	var left_hand_here  := (left_hand_hold  == hold and not left_hand_grabbing)
 	var right_hand_here := (right_hand_hold == hold and not right_hand_grabbing)
@@ -2373,21 +2389,21 @@ func calculate_grab_position(limb: Limb, hold: Area2D, hold_point: Vector2, limb
 
 	if not is_hand:
 		if limb == Limb.LEFT_FOOT and right_foot_here:
-			return hold_point + Vector2(-10.0, 0)
+			return hold_point + Vector2(-SHARED_HOLD_HAND_OFFSET, 0)
 		elif limb == Limb.RIGHT_FOOT and left_foot_here:
-			return hold_point + Vector2(10.0, 0)
+			return hold_point + Vector2(SHARED_HOLD_HAND_OFFSET, 0)
 		if left_hand_here or right_hand_here:
-			var foot_x := -10.0 if limb == Limb.LEFT_FOOT else 10.0
-			return hold_point + Vector2(foot_x, 10.0)
+			var foot_x := -SHARED_HOLD_HAND_FOOT_OFFSET if limb == Limb.LEFT_FOOT else SHARED_HOLD_HAND_FOOT_OFFSET
+			return hold_point + Vector2(foot_x, SHARED_HOLD_HAND_FOOT_OFFSET)
 
 	if is_hand:
 		if limb == Limb.LEFT_HAND and right_hand_here:
-			return hold_point + Vector2(-10.0, 0)
+			return hold_point + Vector2(-SHARED_HOLD_HAND_OFFSET, 0)
 		elif limb == Limb.RIGHT_HAND and left_hand_here:
-			return hold_point + Vector2(10.0, 0)
+			return hold_point + Vector2(SHARED_HOLD_HAND_OFFSET, 0)
 		if left_foot_here or right_foot_here:
-			var hand_x := -10.0 if limb == Limb.LEFT_HAND else 10.0
-			return hold_point + Vector2(hand_x, -10.0)
+			var hand_x := -SHARED_HOLD_HAND_FOOT_OFFSET if limb == Limb.LEFT_HAND else SHARED_HOLD_HAND_FOOT_OFFSET
+			return hold_point + Vector2(hand_x, -SHARED_HOLD_HAND_FOOT_OFFSET)
 
 	return hold_point
 

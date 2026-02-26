@@ -180,7 +180,14 @@ func _load_initial_level(path: String) -> void:
 
 	await setup_discipline_systems()
 
-	position_player_at_spawn()
+	# ── Player positioning is handled entirely by initial_grab() inside the
+	#    character script. We do NOT call position_player_at_spawn() here because
+	#    hold_type properties are not yet set at this point in the frame sequence,
+	#    so get_player_spawn_position() always returns Vector2.ZERO and places the
+	#    player at the origin, causing a brief fall before initial_grab corrects it.
+	#    initial_grab() is deferred from character._ready() / reset_climb() and
+	#    runs after all holds are fully registered. The _grab_initialized guard in
+	#    character.gd blocks physics until that grab sequence completes. ──────────
 
 	await get_tree().process_frame
 	center_camera_on_route()
@@ -306,6 +313,7 @@ func _on_speed_timer_started():
 
 # =============================================================================
 # PLAYER SPAWN
+# (Kept for explicit resets triggered outside of initial_grab, e.g. from menus)
 # =============================================================================
 
 func position_player_at_spawn():
@@ -407,6 +415,15 @@ func on_level_complete():
 		Transition.to("res://scenes/menus/level_completed.tscn")
 
 func on_player_reset():
+	# ── Guard: don't reset during level load — initial_grab handles positioning ──
+	# The crashpad fires this after its landing timer, which can overlap with a
+	# level transition. If _grab_initialized is false the new level is still
+	# loading and calling position_player_at_spawn() would place the player at
+	# zero (no START holds registered yet), causing the spawn-at-origin bug.
+	if player and not player._grab_initialized:
+		return
+	# ─────────────────────────────────────────────────────────────────────────────
+
 	position_player_at_spawn()
 	center_camera_on_route()
 

@@ -2,7 +2,7 @@
 	"crashpads": [],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "V1",
+	"grade": "V3",
 	"holds": [
 		{
 			"type": "START",
@@ -35,14 +35,29 @@
 			"y": 96.0
 		},
 		{
-			"type": "FOOT",
-			"x": 96.0,
-			"y": -32.0
-		},
-		{
 			"type": "SLOPER",
 			"x": 0.0,
 			"y": -96.0
+		},
+		{
+			"type": "FOOT",
+			"x": 192.0,
+			"y": -96.0
+		},
+		{
+			"type": "FOOT",
+			"x": 64.0,
+			"y": -192.0
+		},
+		{
+			"type": "FOOT",
+			"x": 192.0,
+			"y": -256.0
+		},
+		{
+			"type": "FOOT",
+			"x": 64.0,
+			"y": -32.0
 		}
 	],
 	"name": "Unnamed Route",
