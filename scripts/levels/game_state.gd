@@ -1,6 +1,9 @@
 extends Node
 ## Autoload singleton for managing game state, collections, and progression
 
+# Debug flags
+var debug_unlock_all: bool = false  # Set to true to unlock all collections and levels
+
 # Current gameplay state
 var current_level: String = ""
 var current_collection: String = ""
@@ -201,6 +204,9 @@ func get_all_collection_ids() -> Array:
 	return COLLECTIONS.keys()
 
 func is_collection_unlocked(collection_id: String) -> bool:
+	if debug_unlock_all:
+		return true
+	
 	if collection_id not in COLLECTIONS:
 		return false
 	
@@ -283,6 +289,9 @@ func _update_current_collection_from_level(level_path: String) -> void:
 # =============================================================================
 
 func is_level_unlocked(collection_id: String, level_index: int) -> bool:
+	if debug_unlock_all:
+		return true
+	
 	var data = get_collection_data(collection_id)
 	if data.is_empty():
 		return false
