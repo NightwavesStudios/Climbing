@@ -1303,10 +1303,10 @@ func _on_preview():
 		show_notification("Need at least one START hold!", true)
 		play_sound(pitch_error)
 		return
-	if top_holds.size() == 0:
-		show_notification("Need at least one TOP hold!", true)
-		play_sound(pitch_error)
-		return
+	#if top_holds.size() == 0:
+		#show_notification("Need at least one TOP hold!", true)
+		#play_sound(pitch_error)
+		#return
 
 	var player_scene_path = "res://scenes/player/character.tscn"
 	if not ResourceLoader.exists(player_scene_path):

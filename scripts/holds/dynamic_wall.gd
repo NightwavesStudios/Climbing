@@ -293,38 +293,55 @@ func update_environment_settings():
 
 func _apply_environment_theme():
 	match current_environment:
-		"grnite", "sandstone":
-			var use_sunset = (_scenery_seed % 2) == 0
-			if use_sunset:
-				_env = {
-					"sky_top": Color(0.12, 0.10, 0.32),
-					"sky_horizon": Color(0.98, 0.52, 0.18),
-					"cloud_color": Color(1.0, 0.65, 0.40, 1.0),
-					"cloud_shadow": Color(0.65, 0.25, 0.12),
-					"has_sun": true, "sun_color": Color(1.0, 0.65, 0.15),
-					"has_mountains": true,
-					"ground_type": "grass_dusk",
-					"ground_top": Color(0.14, 0.22, 0.10),
-					"ground_mid": Color(0.24, 0.16, 0.08),
-					"ground_deep": Color(0.16, 0.10, 0.06),
-					"ground_detail": "rocks",
-					"fog_color": Color(0.90, 0.45, 0.15, 0.10),
-				}
-			else:
-				_env = {
-					"sky_top": Color(0.20, 0.45, 0.78),
-					"sky_horizon": Color(0.72, 0.85, 0.95),
-					"cloud_color": Color(1.0, 1.0, 1.0, 1.0),
-					"cloud_shadow": Color(0.75, 0.82, 0.90),
-					"has_sun": true, "sun_color": Color(1.0, 0.96, 0.78),
-					"has_mountains": true,
-					"ground_type": "grass",
-					"ground_top": Color(0.22, 0.52, 0.14),
-					"ground_mid": Color(0.38, 0.28, 0.16),
-					"ground_deep": Color(0.28, 0.20, 0.10),
-					"ground_detail": "rocks",
-					"fog_color": Color(0.65, 0.80, 0.95, 0.0),
-				}
+		"granite", "sandstone", "night":
+			# 0 = daytime, 1 = sunset/sunrise, 2 = night  (seeded so it's stable per level)
+			var time_of_day = _scenery_seed % 3
+			match time_of_day:
+				1:  # Sunset / Sunrise
+					_env = {
+						"sky_top": Color(0.12, 0.10, 0.32),
+						"sky_horizon": Color(0.98, 0.52, 0.18),
+						"cloud_color": Color(1.0, 0.65, 0.40, 1.0),
+						"cloud_shadow": Color(0.65, 0.25, 0.12),
+						"has_sun": true, "sun_color": Color(1.0, 0.65, 0.15),
+						"has_mountains": true,
+						"ground_type": "grass_dusk",
+						"ground_top": Color(0.14, 0.22, 0.10),
+						"ground_mid": Color(0.24, 0.16, 0.08),
+						"ground_deep": Color(0.16, 0.10, 0.06),
+						"ground_detail": "rocks",
+						"fog_color": Color(0.90, 0.45, 0.15, 0.10),
+					}
+				2:  # Night
+					_env = {
+						"sky_top": Color(0.02, 0.02, 0.08),
+						"sky_horizon": Color(0.06, 0.08, 0.18),
+						"cloud_color": Color(0.22, 0.25, 0.38, 0.7),
+						"cloud_shadow": Color(0.10, 0.12, 0.20),
+						"has_sun": false, "has_moon": true, "has_stars": true,
+						"has_mountains": true,
+						"ground_type": "grass_night",
+						"ground_top": Color(0.08, 0.14, 0.07),
+						"ground_mid": Color(0.12, 0.10, 0.08),
+						"ground_deep": Color(0.07, 0.06, 0.05),
+						"ground_detail": "rocks",
+						"fog_color": Color(0.05, 0.06, 0.15, 0.12),
+					}
+				_:  # Daytime (0)
+					_env = {
+						"sky_top": Color(0.20, 0.45, 0.78),
+						"sky_horizon": Color(0.72, 0.85, 0.95),
+						"cloud_color": Color(1.0, 1.0, 1.0, 1.0),
+						"cloud_shadow": Color(0.75, 0.82, 0.90),
+						"has_sun": true, "sun_color": Color(1.0, 0.96, 0.78),
+						"has_mountains": true,
+						"ground_type": "grass",
+						"ground_top": Color(0.22, 0.52, 0.14),
+						"ground_mid": Color(0.38, 0.28, 0.16),
+						"ground_deep": Color(0.28, 0.20, 0.10),
+						"ground_detail": "rocks",
+						"fog_color": Color(0.65, 0.80, 0.95, 0.0),
+					}
 		"gym":
 			_env = {
 				"sky_top": Color(0.96, 0.96, 0.97),
@@ -337,22 +354,7 @@ func _apply_environment_theme():
 				"ground_mid": Color(0.16, 0.16, 0.18),
 				"ground_deep": Color(0.11, 0.11, 0.12),
 			}
-		"night", "moonlight":
-			_env = {
-				"sky_top": Color(0.02, 0.02, 0.08),
-				"sky_horizon": Color(0.06, 0.08, 0.18),
-				"cloud_color": Color(0.22, 0.25, 0.38, 0.7),
-				"cloud_shadow": Color(0.10, 0.12, 0.20),
-				"has_sun": false, "has_moon": true, "has_stars": true,
-				"has_mountains": true,
-				"ground_type": "grass_night",
-				"ground_top": Color(0.08, 0.14, 0.07),
-				"ground_mid": Color(0.12, 0.10, 0.08),
-				"ground_deep": Color(0.07, 0.06, 0.05),
-				"ground_detail": "rocks",
-				"fog_color": Color(0.05, 0.06, 0.15, 0.12),
-			}
-		"granite", "deep_water_solo", "dws", "psicobloc":
+		"deep_water_solo":
 			_env = {
 				"sky_top": Color(0.18, 0.42, 0.72),
 				"sky_horizon": Color(0.60, 0.82, 0.94),
