@@ -1,7 +1,14 @@
 extends CanvasLayer
+
 signal resumed
+
 var _is_animating: bool = false
 var _panel: Control = null
+
+# Transition singleton (or any external system) sets this to false
+# before starting a transition and back to true once the scene is ready
+static var pausing_enabled: bool = true
+
 func _ready() -> void:
 	layer = 10
 	visible = false
@@ -10,13 +17,15 @@ func _ready() -> void:
 	_panel = _get_panel()
 	if _panel:
 		_panel.pivot_offset = _panel.size / 2.0
+
 func _get_panel() -> Control:
 	for child in get_children():
 		if child is Control:
 			return child
 	return null
+
 func show_pause_menu() -> void:
-	if _is_animating:
+	if _is_animating or not pausing_enabled:  # <-- guard added
 		return
 	_is_animating = true
 	visible = true
@@ -34,6 +43,7 @@ func show_pause_menu() -> void:
 		tween.tween_property(_panel, "scale", Vector2(1.0, 1.0), 0.22)
 		await tween.finished
 	_is_animating = false
+
 func hide_pause_menu() -> void:
 	if _is_animating:
 		return
@@ -49,22 +59,26 @@ func hide_pause_menu() -> void:
 	get_tree().paused = false
 	visible = false
 	_is_animating = false
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
 		return
-	if _is_animating:
+	if _is_animating or not pausing_enabled:  # <-- guard added
 		return
 	get_viewport().set_input_as_handled()
 	if visible:
 		_on_resume_pressed()
 	else:
 		show_pause_menu()
+
 func _on_resume_pressed() -> void:
 	await hide_pause_menu()
 	resumed.emit()
+
 func _on_settings_pressed() -> void:
 	await hide_pause_menu()
 	Transition.to("res://scenes/menus/settings.tscn")
+
 func _on_main_menu_pressed() -> void:
 	await hide_pause_menu()
 	var main = get_tree().get_first_node_in_group("main_scene")

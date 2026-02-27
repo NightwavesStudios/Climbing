@@ -152,10 +152,6 @@ func _find_level_loader(node: Node) -> Node:
 func is_transitioning() -> bool:
 	return _is_transitioning
 
-# =============================================================================
-# PUBLIC FADE API  (used by main_scene for in-place level reloads)
-# =============================================================================
-
 func fade_out_only() -> void:
 	_fade_instance.fade_out()
 	await _fade_instance.fade_out_finished
