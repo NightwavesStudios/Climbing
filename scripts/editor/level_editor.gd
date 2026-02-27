@@ -2,7 +2,7 @@ extends Node2D
 ## Improved Level Editor - Compact Bar with Expandable Drawer
 ##
 ## UI Layout:
-##   [PERSISTENT BAR ~36px] — always visible, shows the essentials
+##   [PERSISTENT BAR ~40px] — always visible, shows the essentials
 ##   [DRAWER ~160px]        — slides in/out, shows secondary settings
 ##
 ## The persistent bar contains:
@@ -45,17 +45,14 @@ var weather_intensity_slider: HSlider
 var weather_intensity_label: Label
 
 # ── Foldable UI ──────────────────────────────────────────────────────────────
-# The layout is split into two layers stacked vertically:
-#   top_bar        = persistent strip (always visible)
-#   drawer_panel   = expandable content below top_bar
-var ui_panel_collapsed: bool = true   # start collapsed so the editor is roomy
+var ui_panel_collapsed: bool = true
 var top_bar: ColorRect
 var drawer_panel: ColorRect
 var drawer_container: MarginContainer
 var fold_button: Button
 
-const BAR_HEIGHT:     float = 38.0   # height of the always-visible strip
-const DRAWER_HEIGHT:  float = 148.0  # height of the expandable drawer
+const BAR_HEIGHT:     float = 42.0   # slightly taller for breathing room
+const DRAWER_HEIGHT:  float = 148.0
 
 # State
 var selected_hold_type: String = ""
@@ -63,6 +60,10 @@ var preview_hold: Node2D = null
 var dragging_hold: Node2D = null
 var drag_offset: Vector2 = Vector2.ZERO
 var drag_start_position: Vector2 = Vector2.ZERO
+
+# Test mode
+var is_testing: bool = false
+var preview_player_ref: Node2D = null
 
 # Crashpad state
 var placing_crashpad: bool = false
@@ -98,7 +99,7 @@ const MAX_TOP_HOLDS: int = 1
 const MIN_HOLD_DISTANCE: float = 40.0
 const MAX_REACH_DISTANCE: float = 250.0
 
-# Grades / hold types (unchanged)
+# Grades / hold types
 const V_GRADES    = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
 const YDS_GRADES  = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
 					 "5.11a","5.11b","5.11c","5.11d","5.12a","5.12b","5.12c","5.12d","5.13a","5.13b"]
@@ -182,6 +183,14 @@ func _ready():
 		camera.position = Vector2(500, 0)
 		add_child(camera)
 
+	# Ensure the editor camera is always current and never auto-follows anything
+	camera.make_current()
+	if "position_smoothing_enabled" in camera:
+		camera.position_smoothing_enabled = false
+	if "drag_horizontal_enabled" in camera:
+		camera.drag_horizontal_enabled = false
+		camera.drag_vertical_enabled   = false
+
 	# Containers
 	holds_container = _get_or_create_node2d("Holds")
 	crashpads_container = _get_or_create_node2d("Crashpads")
@@ -210,6 +219,9 @@ func _process(delta):
 	update_camera(delta)
 	update_preview()
 	update_info_label()
+	# Smoothly follow the preview player when in test mode
+	if is_testing and is_instance_valid(preview_player_ref):
+		camera.position = camera.position.lerp(preview_player_ref.global_position, 8.0 * delta)
 	queue_redraw()
 
 
@@ -259,18 +271,19 @@ func setup_ui():
 	accent.size.y = 2
 	ui_layer.add_child(accent)
 
-	# Bar content
+	# Bar content — explicit size match to top_bar, generous vertical padding
 	var bar_margin = MarginContainer.new()
 	bar_margin.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	bar_margin.size.y = BAR_HEIGHT
-	bar_margin.add_theme_constant_override("margin_left",  10)
-	bar_margin.add_theme_constant_override("margin_right", 10)
-	bar_margin.add_theme_constant_override("margin_top",    5)
-	bar_margin.add_theme_constant_override("margin_bottom", 5)
+	bar_margin.add_theme_constant_override("margin_left",  12)
+	bar_margin.add_theme_constant_override("margin_right", 12)
+	bar_margin.add_theme_constant_override("margin_top",    7)
+	bar_margin.add_theme_constant_override("margin_bottom", 7)
 	ui_layer.add_child(bar_margin)
 
 	var bar_hbox = HBoxContainer.new()
 	bar_hbox.add_theme_constant_override("separation", 8)
+	bar_hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	bar_margin.add_child(bar_hbox)
 
 	# ── Left: tiny label + name ───────────────────────────────────────────────
@@ -282,7 +295,7 @@ func setup_ui():
 
 	climb_name_input = LineEdit.new()
 	climb_name_input.placeholder_text = "Unnamed Route"
-	climb_name_input.custom_minimum_size = Vector2(120, 26)
+	climb_name_input.custom_minimum_size = Vector2(120, 28)
 	climb_name_input.add_theme_font_size_override("font_size", 11)
 	climb_name_input.text_changed.connect(_on_climb_name_changed)
 	bar_hbox.add_child(climb_name_input)
@@ -291,7 +304,7 @@ func setup_ui():
 
 	# ── Discipline ────────────────────────────────────────────────────────────
 	discipline_dropdown = OptionButton.new()
-	discipline_dropdown.custom_minimum_size = Vector2(90, 26)
+	discipline_dropdown.custom_minimum_size = Vector2(90, 28)
 	discipline_dropdown.add_item("Boulder")
 	discipline_dropdown.add_item("Roped")
 	discipline_dropdown.add_item("Speed")
@@ -301,7 +314,7 @@ func setup_ui():
 
 	# ── Grade ─────────────────────────────────────────────────────────────────
 	grade_dropdown = OptionButton.new()
-	grade_dropdown.custom_minimum_size = Vector2(70, 26)
+	grade_dropdown.custom_minimum_size = Vector2(70, 28)
 	populate_grade_dropdown()
 	grade_dropdown.item_selected.connect(_on_grade_changed)
 	bar_hbox.add_child(grade_dropdown)
@@ -310,7 +323,7 @@ func setup_ui():
 
 	# ── Hold type ─────────────────────────────────────────────────────────────
 	hold_type_dropdown = OptionButton.new()
-	hold_type_dropdown.custom_minimum_size = Vector2(90, 26)
+	hold_type_dropdown.custom_minimum_size = Vector2(90, 28)
 	if has_node("/root/HoldRegistry"):
 		var registry = get_node("/root/HoldRegistry")
 		for type_name in registry.get_all_hold_types():
@@ -348,7 +361,7 @@ func setup_ui():
 	drawer_panel = ColorRect.new()
 	drawer_panel.color = Color(0.10, 0.11, 0.14, 0.93)
 	drawer_panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	drawer_panel.position.y = BAR_HEIGHT + 2   # below the accent line
+	drawer_panel.position.y = BAR_HEIGHT + 2
 	drawer_panel.size.y = DRAWER_HEIGHT
 	drawer_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(drawer_panel)
@@ -399,13 +412,12 @@ func setup_ui():
 	weather_intensity_label.add_theme_font_size_override("font_size", 10)
 	intensity_row.add_child(weather_intensity_label)
 
-	# hide intensity row until weather is active
 	intensity_row.visible = false
 	weather_intensity_slider.set_meta("intensity_row", intensity_row)
 
 	_add_drawer_separator(drawer_hbox)
 
-	# ── Drawer col 2: Placement (crashpad / belayer) + discipline settings ────
+	# ── Drawer col 2: Placement ────────────────────────────────────────────────
 	var place_col = VBoxContainer.new()
 	place_col.add_theme_constant_override("separation", 6)
 	drawer_hbox.add_child(place_col)
@@ -482,7 +494,8 @@ func setup_ui():
 
 	# ── Info label (always at bottom of screen) ───────────────────────────────
 	info_label = Label.new()
-	info_label.position = Vector2(10, get_viewport_rect().size.y - 28)
+	info_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	info_label.position.y = -26
 	info_label.add_theme_font_size_override("font_size", 10)
 	info_label.add_theme_color_override("font_color", Color(0.80, 0.80, 0.88, 0.80))
 	info_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
@@ -490,7 +503,6 @@ func setup_ui():
 	info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_layer.add_child(info_label)
 
-	# Apply initial state
 	_apply_panel_fold_state()
 
 
@@ -510,8 +522,6 @@ func _add_drawer_separator(parent: HBoxContainer):
 	sep.custom_minimum_size = Vector2(1, 110)
 	parent.add_child(sep)
 
-## Creates a compact inline labeled row inside a VBox and returns the HBox
-## so callers can append their control widget to it.
 func _make_labeled_row(label_text: String, parent: VBoxContainer) -> HBoxContainer:
 	var hbox = HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 6)
@@ -525,7 +535,7 @@ func _make_labeled_row(label_text: String, parent: VBoxContainer) -> HBoxContain
 func _make_bar_button(label_text: String, callback: Callable) -> Button:
 	var btn = Button.new()
 	btn.text = label_text
-	btn.custom_minimum_size = Vector2(0, 26)
+	btn.custom_minimum_size = Vector2(0, 28)
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.add_theme_font_size_override("font_size", 11)
 
@@ -764,28 +774,34 @@ func _on_place_crashpad_pressed():
 
 
 # =============================================================================
-# INPUT HANDLING  (unchanged from original)
+# INPUT HANDLING
 # =============================================================================
 
 func _input(event):
 	if event is InputEventKey and event.pressed:
 		if event.keycode == KEY_Z and (event.ctrl_pressed or event.meta_pressed):
-			undo_last_action()
+			if not is_testing:
+				undo_last_action()
 			return
 		match event.keycode:
 			KEY_DELETE:
-				if dragging_hold:    delete_hold(dragging_hold)
-				elif dragging_crashpad: delete_crashpad(dragging_crashpad)
+				if not is_testing:
+					if dragging_hold:    delete_hold(dragging_hold)
+					elif dragging_crashpad: delete_crashpad(dragging_crashpad)
 			KEY_ESCAPE:
+				if is_testing:
+					_stop_testing()
+					return
 				selected_hold_type = ""
 				placing_crashpad = false
 				placing_belayer = false
 				clear_preview()
 				dragging_hold = null
 				dragging_crashpad = null
-				var preview_player = get_node_or_null("PreviewPlayer")
-				if preview_player:
-					preview_player.queue_free()
+
+	# Block all mouse/camera interaction while testing
+	if is_testing:
+		return
 
 	if is_mouse_over_ui():
 		return
@@ -866,7 +882,7 @@ func handle_left_click():
 
 
 # =============================================================================
-# CRASHPAD MANAGEMENT  (unchanged)
+# CRASHPAD MANAGEMENT
 # =============================================================================
 
 func place_crashpad(pos: Vector2) -> bool:
@@ -907,7 +923,7 @@ func get_crashpad_at_position(pos: Vector2, max_dist: float = 60.0) -> Node2D:
 
 
 # =============================================================================
-# JSON EXPORT / IMPORT  (unchanged)
+# JSON EXPORT / IMPORT
 # =============================================================================
 
 func _on_copy_json():
@@ -1057,7 +1073,7 @@ func _on_paste_json():
 
 
 # =============================================================================
-# HELPER FUNCTIONS  (unchanged)
+# HELPER FUNCTIONS
 # =============================================================================
 
 func get_hold_type(hold: Node2D) -> String:
@@ -1170,10 +1186,13 @@ func snap_to_grid(pos: Vector2) -> Vector2:
 
 
 # =============================================================================
-# CAMERA  (unchanged)
+# CAMERA
 # =============================================================================
 
 func update_camera(delta):
+	# Camera is locked to player during test mode — no manual movement allowed
+	if is_testing:
+		return
 	var move = Vector2.ZERO
 	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):    move.y -= 1
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):  move.y += 1
@@ -1184,7 +1203,7 @@ func update_camera(delta):
 
 
 # =============================================================================
-# PREVIEW  (unchanged)
+# PREVIEW
 # =============================================================================
 
 func update_preview():
@@ -1238,7 +1257,7 @@ func clear_preview():
 
 
 # =============================================================================
-# CALLBACKS  (unchanged)
+# CALLBACKS
 # =============================================================================
 
 func _on_climb_name_changed(new_text: String):
@@ -1303,6 +1322,14 @@ func _on_preview():
 	player.name = "PreviewPlayer"
 	add_child(player)
 
+	# ── Disable every Camera2D inside the player immediately after adding.
+	# We use call_deferred so the player's own _ready() has run first, which
+	# means any camera it creates programmatically is also caught.
+	_disable_player_cameras.call_deferred(player)
+
+	preview_player_ref = player
+	is_testing = true
+
 	var spawn_pos = Vector2.ZERO
 	if start_holds.size() == 1:
 		var hp = start_holds[0].get_node_or_null("HoldPoint")
@@ -1316,13 +1343,30 @@ func _on_preview():
 
 	player.global_position = spawn_pos
 
-	var bounds = get_route_bounds()
-	if bounds.valid:
-		camera.position = Vector2((bounds.min.x + bounds.max.x) / 2.0, (bounds.min.y + bounds.max.y) / 2.0)
-		camera.zoom = Vector2(1.0, 1.0)
+	# Snap camera to player immediately so there's no jarring pan
+	camera.position = spawn_pos
+	camera.zoom = Vector2(1.0, 1.0)
+	camera.make_current()
 
 	play_sound(pitch_preview)
 	show_notification("Testing route — Press ESC to exit")
+
+## Disable all Camera2D nodes inside the player tree.
+## Called deferred so the player's _ready() has fully run first.
+func _disable_player_cameras(player: Node) -> void:
+	for cam in player.find_children("*", "Camera2D", true, false):
+		cam.enabled = false
+		cam.make_current()    # let it briefly become current …
+	# … then immediately give control back to the editor camera
+	camera.make_current()
+
+func _stop_testing() -> void:
+	is_testing = false
+	preview_player_ref = null
+	var preview_player = get_node_or_null("PreviewPlayer")
+	if preview_player:
+		preview_player.queue_free()
+	camera.make_current()
 
 func _on_clear():
 	for hold    in holds_container.get_children():    hold.queue_free()
@@ -1361,9 +1405,7 @@ func _on_clear():
 	show_notification("Editor cleared")
 
 func _on_back_pressed():
-	var preview_player = get_node_or_null("PreviewPlayer")
-	if preview_player:
-		preview_player.queue_free()
+	_stop_testing()
 	selected_hold_type = ""
 	placing_crashpad   = false
 	placing_belayer    = false
@@ -1396,7 +1438,7 @@ func _on_toggle_wall_edit():
 
 
 # =============================================================================
-# UNDO SYSTEM  (unchanged)
+# UNDO SYSTEM
 # =============================================================================
 
 func save_undo_state():
@@ -1469,7 +1511,7 @@ func undo_last_action():
 
 
 # =============================================================================
-# INFO / NOTIFICATIONS  (unchanged logic, notification repositioned)
+# INFO / NOTIFICATIONS
 # =============================================================================
 
 func show_notification(text: String, is_error: bool = false):
@@ -1477,8 +1519,7 @@ func show_notification(text: String, is_error: bool = false):
 	if old_notif:
 		old_notif.queue_free()
 
-	# Always appear just below the visible UI (bar only, or bar + drawer)
-	var ui_bottom = BAR_HEIGHT + 2 + (DRAWER_HEIGHT if not ui_panel_collapsed else 0.0) + 4.0
+	var ui_bottom = BAR_HEIGHT + 2 + (DRAWER_HEIGHT if not ui_panel_collapsed else 0.0) + 6.0
 
 	var notif_bar = ColorRect.new()
 	notif_bar.name  = "NotificationLabel"
@@ -1527,7 +1568,7 @@ func update_info_label():
 
 
 # =============================================================================
-# ROUTE BOUNDS  (unchanged)
+# ROUTE BOUNDS
 # =============================================================================
 
 func get_route_bounds() -> Dictionary:
@@ -1551,7 +1592,7 @@ func get_route_bounds() -> Dictionary:
 
 
 # =============================================================================
-# DRAWING  (unchanged)
+# DRAWING
 # =============================================================================
 
 func _draw():
