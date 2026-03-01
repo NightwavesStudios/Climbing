@@ -295,7 +295,8 @@ func _apply_environment_theme():
 	match current_environment:
 		"granite", "sandstone", "night":
 			# 0 = daytime, 1 = sunset/sunrise, 2 = night  (seeded so it's stable per level)
-			var time_of_day = _scenery_seed % 3
+			# XOR+multiply to spread seeds so adjacent levels vary; different offset from gym
+			var time_of_day = (abs((_scenery_seed ^ 0x9E3779B9) * 1664525 + 1013904223) >> 7) % 3
 			match time_of_day:
 				1:  # Sunset / Sunrise
 					_env = {
@@ -343,17 +344,93 @@ func _apply_environment_theme():
 						"fog_color": Color(0.65, 0.80, 0.95, 0.0),
 					}
 		"gym":
-			_env = {
-				"sky_top": Color(0.96, 0.96, 0.97),
-				"sky_horizon": Color(0.92, 0.92, 0.93),
-				"cloud_color": Color(1.0, 1.0, 1.0, 0.0),
-				"has_sun": false, "has_mountains": false,
-				"has_gym_interior": true,
-				"ground_type": "gym_floor",
-				"ground_top": Color(0.22, 0.22, 0.24),
-				"ground_mid": Color(0.16, 0.16, 0.18),
-				"ground_deep": Color(0.11, 0.11, 0.12),
-			}
+			# 0 = daytime, 1 = dusk/sunset, 2 = night — stable per level via seed
+			# Different hash offset from outdoor so gym window TOD is independent
+			var gym_tod = (abs((_scenery_seed ^ 0x6B43FA1D) * 22695477 + 1) >> 9) % 3
+			match gym_tod:
+				1:  # Gym — Dusk / Sunset outside the windows
+					_env = {
+						"sky_top": Color(0.96, 0.96, 0.97),
+						"sky_horizon": Color(0.92, 0.92, 0.93),
+						"cloud_color": Color(1.0, 1.0, 1.0, 0.0),
+						"has_sun": false, "has_mountains": false,
+						"has_gym_interior": true,
+						"gym_time_of_day": 1,
+						# Window sky gradient
+						"gym_sky_top":   Color(0.12, 0.10, 0.32),
+						"gym_sky_mid":   Color(0.72, 0.28, 0.12),
+						"gym_sky_haze":  Color(0.98, 0.52, 0.18),
+						# Sun disc colour (low on horizon)
+						"gym_sun_color": Color(1.0, 0.55, 0.10),
+						# Mountain silhouette layers (warm dusk tones)
+						"gym_mtn_colors": [
+							Color(0.58, 0.35, 0.28),
+							Color(0.42, 0.22, 0.18),
+							Color(0.28, 0.14, 0.12),
+							Color(0.16, 0.08, 0.08),
+						],
+						# Ground strip colour visible at bottom of window
+						"gym_grass_color": Color(0.14, 0.22, 0.10),
+						"ground_type": "gym_floor",
+						"ground_top": Color(0.22, 0.22, 0.24),
+						"ground_mid": Color(0.16, 0.16, 0.18),
+						"ground_deep": Color(0.11, 0.11, 0.12),
+					}
+				2:  # Gym — Night outside the windows
+					_env = {
+						"sky_top": Color(0.96, 0.96, 0.97),
+						"sky_horizon": Color(0.92, 0.92, 0.93),
+						"cloud_color": Color(1.0, 1.0, 1.0, 0.0),
+						"has_sun": false, "has_mountains": false,
+						"has_gym_interior": true,
+						"gym_time_of_day": 2,
+						# Window sky gradient (very dark)
+						"gym_sky_top":   Color(0.02, 0.02, 0.08),
+						"gym_sky_mid":   Color(0.04, 0.06, 0.14),
+						"gym_sky_haze":  Color(0.06, 0.08, 0.20),
+						# No sun at night
+						"gym_sun_color": Color(0.0, 0.0, 0.0),
+						# Mountain silhouettes (near-black, barely visible)
+						"gym_mtn_colors": [
+							Color(0.14, 0.16, 0.22),
+							Color(0.10, 0.12, 0.18),
+							Color(0.06, 0.08, 0.13),
+							Color(0.03, 0.04, 0.08),
+						],
+						"gym_grass_color": Color(0.08, 0.14, 0.07),
+						# Moon & stars drawn inside windows
+						"has_gym_stars": true,
+						"has_gym_moon":  true,
+						"ground_type": "gym_floor",
+						"ground_top": Color(0.22, 0.22, 0.24),
+						"ground_mid": Color(0.16, 0.16, 0.18),
+						"ground_deep": Color(0.11, 0.11, 0.12),
+					}
+				_:  # Gym — Daytime outside the windows (0)
+					_env = {
+						"sky_top": Color(0.96, 0.96, 0.97),
+						"sky_horizon": Color(0.92, 0.92, 0.93),
+						"cloud_color": Color(1.0, 1.0, 1.0, 0.0),
+						"has_sun": false, "has_mountains": false,
+						"has_gym_interior": true,
+						"gym_time_of_day": 0,
+						# Window sky gradient (bright blue day)
+						"gym_sky_top":   Color(0.20, 0.45, 0.78),
+						"gym_sky_mid":   Color(0.44, 0.70, 0.93),
+						"gym_sky_haze":  Color(0.70, 0.86, 0.97),
+						"gym_sun_color": Color(1.0, 0.96, 0.78),
+						"gym_mtn_colors": [
+							Color(0.72, 0.82, 0.91),
+							Color(0.54, 0.67, 0.80),
+							Color(0.38, 0.52, 0.66),
+							Color(0.24, 0.38, 0.53),
+						],
+						"gym_grass_color": Color(0.18, 0.26, 0.19),
+						"ground_type": "gym_floor",
+						"ground_top": Color(0.22, 0.22, 0.24),
+						"ground_mid": Color(0.16, 0.16, 0.18),
+						"ground_deep": Color(0.11, 0.11, 0.12),
+					}
 		"deep_water_solo":
 			_env = {
 				"sky_top": Color(0.18, 0.42, 0.72),
@@ -683,42 +760,97 @@ func _draw_gym_interior():
 	var zoom  = ct.x.x
 	var cam_x = -ct.origin.x / zoom
 
-	var sky_top_c  = Color(0.20, 0.44, 0.84)
-	var sky_mid_c  = Color(0.44, 0.70, 0.93)
-	var sky_haze_c = Color(0.70, 0.86, 0.97)
+	# ── Read time-of-day sky colours from _env (with rain blending) ──────────
+	var rb      := _get_weather_blend()
+	var gym_tod = _env.get("gym_time_of_day", 0)
 
-	var rb := _get_weather_blend()
-	sky_top_c  = sky_top_c.lerp(Color(0.18, 0.20, 0.26), rb)
-	sky_mid_c  = sky_mid_c.lerp(Color(0.24, 0.26, 0.32), rb)
-	sky_haze_c = sky_haze_c.lerp(Color(0.30, 0.32, 0.38), rb)
+	var sky_top_c  : Color = _env.get("gym_sky_top",  Color(0.20, 0.44, 0.84))
+	var sky_mid_c  : Color = _env.get("gym_sky_mid",  Color(0.44, 0.70, 0.93))
+	var sky_haze_c : Color = _env.get("gym_sky_haze", Color(0.70, 0.86, 0.97))
+
+	# Darken toward overcast grey when rain is blending
+	var rain_sky = Color(0.18, 0.20, 0.26)
+	sky_top_c  = sky_top_c.lerp(rain_sky,                       rb)
+	sky_mid_c  = sky_mid_c.lerp(rain_sky.lightened(0.06),       rb)
+	sky_haze_c = sky_haze_c.lerp(rain_sky.lightened(0.12),      rb)
 
 	var sun_wx = wall_min.x + (wall_max.x - wall_min.x) * 0.68 + cam_x * 0.03
+	var gym_sun_color : Color = _env.get("gym_sun_color", Color(1.0, 0.96, 0.78))
+
+	# Dusk: sun is near the horizon (low in the window)
+	var sun_y_frac := 0.15  # default: high up (daytime)
+	if gym_tod == 1:
+		sun_y_frac = 0.72   # dusk: low on horizon
+
+	var gym_mtn_colors: Array = _env.get("gym_mtn_colors", [
+		Color(0.72, 0.82, 0.91), Color(0.54, 0.67, 0.80),
+		Color(0.38, 0.52, 0.66), Color(0.24, 0.38, 0.53),
+	])
+	var gym_grass_color : Color = _env.get("gym_grass_color", Color(0.18, 0.26, 0.19))
+	gym_grass_color = gym_grass_color.lerp(Color(0.12, 0.18, 0.14), rb * 0.5)
 
 	for wi in range(win_count):
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		var wx2 = wx + win_w
 
+		# ── Sky gradient inside window ────────────────────────────────────────
 		for gi in range(10):
 			var gt = float(gi) / 10.0
 			var sc: Color
 			if gt < 0.5:
 				sc = sky_top_c.lerp(sky_mid_c, gt * 2.0)
 			else:
-				sc = sky_mid_c.lerp(sky_haze_c, (gt-0.5)*2.0)
+				sc = sky_mid_c.lerp(sky_haze_c, (gt - 0.5) * 2.0)
 			draw_rect(Rect2(Vector2(wx, win_top + gt*win_h), Vector2(win_w, win_h/10.0+1.0)), sc, true)
 
-		if rb < 0.85 and sun_wx >= wx + 20.0 and sun_wx <= wx2 - 20.0:
-			var sun_y = win_top + win_h * 0.15
+		# ── Stars (night only) ────────────────────────────────────────────────
+		if _env.get("has_gym_stars", false):
+			for si in range(30):
+				var sseed = (_scenery_seed ^ 0xCAFE) + wi * 97 + si * 13
+				var sx2   = wx + _hf(sseed) * win_w
+				var sy2   = win_top + _hf(sseed + 1) * win_h * 0.6
+				var salp  = 0.4 + _hf(sseed + 2) * 0.55
+				var ssize = 1.0 + _hf(sseed + 3) * 1.8
+				var twinkle = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(sseed + 4) * 3.0) + float(si))
+				draw_circle(Vector2(sx2, sy2), ssize, Color(1.0, 1.0, 1.0, salp * twinkle * (1.0 - rb)))
+
+		# ── Moon (night only) — exactly ONE window chosen by seed ─────────────
+		var moon_win_idx = (_scenery_seed ^ 0xF00F) % max(win_count, 1)
+		if _env.get("has_gym_moon", false) and wi == moon_win_idx:
+			var mseed = _scenery_seed ^ 0xF00F
+			var mx2   = wx + win_w * (0.35 + _hf(mseed) * 0.30)
+			var my2   = win_top + win_h * (0.12 + _hf(mseed + 1) * 0.22)
+			var mr    = 20.0 + _hf(mseed + 2) * 10.0
+			for gi in range(3):
+				draw_circle(Vector2(mx2, my2), mr + float(gi) * 14.0, Color(0.7, 0.75, 0.9, 0.05))
+			draw_circle(Vector2(mx2, my2), mr, Color(0.88, 0.90, 0.95, 0.92 * (1.0 - rb)))
+			draw_circle(Vector2(mx2 + mr * 0.35, my2 - mr * 0.1), mr * 0.82, sky_top_c)
+		# ── Sun disc (day or dusk, not night) ────────────────────────────────
+		var show_sun = gym_tod != 2 and gym_sun_color.r + gym_sun_color.g + gym_sun_color.b > 0.05
+		if show_sun and rb < 0.85 and sun_wx >= wx + 20.0 and sun_wx <= wx2 - 20.0:
+			var sun_y = win_top + win_h * sun_y_frac
 			var sfade := 1.0 - rb
 			for ri in range(6):
-				draw_circle(Vector2(sun_wx, sun_y), 8.0 + ri*20.0,
-							Color(1.0, 0.96, 0.72, (0.048 - ri*0.007) * sfade))
-			draw_circle(Vector2(sun_wx, sun_y), 10.0, Color(1.0, 0.97, 0.80, 0.72 * sfade))
-			draw_circle(Vector2(sun_wx, sun_y), 55.0, Color(1.0, 0.95, 0.65, 0.07 * sfade))
+				draw_circle(Vector2(sun_wx, sun_y), 8.0 + ri * 20.0,
+							Color(gym_sun_color.r, gym_sun_color.g, gym_sun_color.b,
+								  (0.048 - ri * 0.007) * sfade))
+			draw_circle(Vector2(sun_wx, sun_y), 10.0,
+						Color(gym_sun_color.r + 0.05, gym_sun_color.g + 0.02, gym_sun_color.b * 0.8,
+							  0.72 * sfade))
+			# Dusk: add a warm horizon glow band
+			if gym_tod == 1:
+				var glow_y = sun_y - 4.0
+				var glow_steps := 8
+				for gsi in range(glow_steps):
+					var gt = float(gsi) / float(glow_steps)
+					var ga = lerp(0.22, 0.0, gt) * sfade
+					draw_rect(Rect2(Vector2(wx, glow_y + gt * 40.0), Vector2(win_w, 40.0 / float(glow_steps) + 1.0)),
+							  Color(gym_sun_color.r, gym_sun_color.g * 0.6, 0.05, ga), true)
 
 		if rb > 0.05:
 			_draw_window_rain_streaks(wx, wx2, win_top, win_bot, rb)
 
+		# ── Mountain silhouettes ──────────────────────────────────────────────
 		var mtn_span = win_w * 8.0
 		var msegs    = 80
 		for mi in range(4):
@@ -729,12 +861,7 @@ func _draw_gym_interior():
 			var mleft  = wx + win_w * 0.5 - mtn_span * 0.5 + mpar
 			var mstep  = mtn_span / float(msegs)
 			var mbase  = win_bot + 6.0
-			var mcol: Color
-			match mi:
-				0: mcol = Color(0.72, 0.82, 0.91)
-				1: mcol = Color(0.54, 0.67, 0.80)
-				2: mcol = Color(0.38, 0.52, 0.66)
-				_: mcol = Color(0.24, 0.38, 0.53)
+			var mcol: Color = gym_mtn_colors[mi] if mi < gym_mtn_colors.size() else Color(0.24, 0.38, 0.53)
 			mcol = mcol.lerp(Color(0.22, 0.24, 0.30), rb * 0.6)
 
 			var ridge: Array = []
@@ -754,6 +881,7 @@ func _draw_gym_interior():
 			mpts.append(Vector2(wx2, mbase))
 			if mpts.size() >= 4: draw_colored_polygon(mpts, mcol)
 
+		# ── Ground strip at base of window ────────────────────────────────────
 		var gnd_h   = win_h * 0.09
 		var gsegs   = 40
 		var gstep   = win_w / float(gsegs)
@@ -766,20 +894,23 @@ func _draw_gym_interior():
 			gpts.append(Vector2(gx2, win_bot - gh))
 		gpts.append(Vector2(wx2, win_bot + 4.0))
 		if gpts.size() >= 4:
-			draw_colored_polygon(gpts, Color(0.18, 0.26, 0.19).lerp(Color(0.12, 0.18, 0.14), rb * 0.5))
+			draw_colored_polygon(gpts, gym_grass_color)
 		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
-				  Color(0.13, 0.19, 0.14), true)
+				  gym_grass_color.darkened(0.18), true)
 
+		# ── Window glass glare / reflection ───────────────────────────────────
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w, win_h)), Color(1.0, 1.0, 1.0, 0.10), true)
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.10, win_h)), Color(1.0, 1.0, 1.0, 0.07), true)
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.04, win_h)), Color(1.0, 1.0, 1.0, 0.05), true)
 
+	# ── Interior wall panels between windows ──────────────────────────────────
 	for wi in range(win_count + 1):
 		var gx = bl + float(wi) * win_stride + win_gap * 0.5 - win_gap
 		draw_rect(Rect2(Vector2(gx, vis_top), Vector2(win_gap + 4.0, vis_h)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, vis_top), Vector2(width, win_top - vis_top + 1.0)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, win_bot - 1.0), Vector2(width, vis_bot - win_bot + 2.0)), wall_col, true)
 
+	# ── Window frames ─────────────────────────────────────────────────────────
 	for wi in range(win_count):
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		var fc  = Color(0.15, 0.16, 0.19)

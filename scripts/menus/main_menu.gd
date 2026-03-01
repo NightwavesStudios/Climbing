@@ -1,78 +1,73 @@
 extends Control
 
 @onready var buttons: VBoxContainer = $CanvasLayer/Buttons
-@onready var level_loader: LevelLoader = $LevelLoader
-@onready var player: CharacterBody2D = $Character
-@onready var camera: Camera2D = $Camera2D
+
+var _wall: Node2D = null
+var _wall_ready := false
+var _weather_set := false
 
 func _ready() -> void:
-	# Hide everything initially
 	modulate = Color(1, 1, 1, 0)
-	
-	_setup_background_level()
+	_randomize_environment()
+	_setup_background_wall()
 
-# --------------------------
-# BACKGROUND LEVEL SETUP
-# --------------------------
-func _setup_background_level() -> void:
-	# Load the tutorial level
-	await get_tree().process_frame
-	await level_loader.load_level("res://scenes/levels/menu.json")
-	
-	# Wait for everything to be ready
-	await get_tree().process_frame
-	await get_tree().process_frame
-	await get_tree().process_frame
-	
-	# Position player at spawn
-	var spawn_pos = level_loader.get_player_spawn_position()
-	player.global_position = spawn_pos
-	if player.has_method("set_spawn_position"):
-		player.set_spawn_position(spawn_pos)
-	
-	# Center camera on the route
-	_center_camera_on_route()
-	
-	# Give physics one more frame, then trigger initial grab
-	await get_tree().process_frame
-	call_deferred("_initial_grab")
-	
-	# Wait for initial grab to complete
-	await get_tree().process_frame
-	await get_tree().process_frame
-	
-	# Fade in the menu
-	_fade_in_menu()
+func _randomize_environment() -> void:
+	var env_types = EnvironmentConfig.get_all_environment_types()
+	EnvironmentConfig.current_environment = env_types[randi() % env_types.size()]
 
-func _initial_grab() -> void:
-	"""Ensure player properly grabs start holds"""
-	if player.has_method("initial_grab"):
-		player.initial_grab()
+func _setup_background_wall() -> void:
+	_wall = Node2D.new()
+	_wall.set_script(load("res://scripts/holds/dynamic_wall.gd"))
+	add_child(_wall)
+	move_child(_wall, 0)
+
+func _process(delta: float) -> void:
+	if not _wall_ready and _wall != null and _wall.get_script() != null:
+		var vp := get_viewport_rect().size
+		var center := vp / 2.0
+		_wall.wall_min = Vector2(center.x, center.y * 0.3)
+		_wall.wall_max = Vector2(center.x, center.y * 0.7)
+		_wall.wall_valid = true
+		_wall.ground_y = vp.y * 0.85
+		_wall.ground_enabled = true
+		_wall.show_bolt_holes = false
+		_wall.is_granite = false
+		_wall.edge_color = Color(0, 0, 0, 0)
+		_wall.top_edge_color = Color(0, 0, 0, 0)
+		_wall._apply_environment_theme()
+		_wall._init_clouds()
+		_wall.queue_redraw()
+		_wall_ready = true
+		_fade_in_menu()
+
+	# Wait a separate frame after wall is ready before touching weather modifier
+	if _wall_ready and not _weather_set:
+		_weather_set = true
+		_maybe_set_weather()
+
+	if _wall_ready:
+		var vp := get_viewport_rect().size
+		var mouse := get_viewport().get_mouse_position()
+		var norm := (mouse / vp - Vector2(0.5, 0.5)) * 2.0
+		var target := Vector2(-norm.x * 30.0, -norm.y * 20.0)
+		_wall.position = _wall.position.lerp(target, delta * 3.0)
+
+func _maybe_set_weather() -> void:
+	# 30% chance of rain
+	if randf() > 0.3:
+		return
+	var wm: Node = _wall.get_node_or_null("WeatherModifier")
+	if wm == null:
+		return
+	wm.intensity = randf_range(0.3, 1.0)
+	wm.set_weather(1)  # WeatherType.RAIN
 
 func _fade_in_menu() -> void:
-	"""Fade in the entire menu once everything is loaded"""
 	var tween = create_tween()
 	tween.tween_property(self, "modulate", Color(1, 1, 1, 1), 0.5)
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
 
-
-func _center_camera_on_route() -> void:
-	var bounds = level_loader.get_wall_bounds()
-	if bounds.valid:
-		var wall_center_x = (bounds.min.x + bounds.max.x) / 2.0
-		var wall_center_y = (bounds.min.y + bounds.max.y) / 2.0
-		camera.position = Vector2(wall_center_x, wall_center_y)
-		
-		# Calculate zoom to fit nicely
-		var wall_height = bounds.max.y - bounds.min.y
-		var viewport_height = get_viewport_rect().size.y
-		
-		camera.zoom = Vector2(1.0, 1.0)
-
-# --------------------------
-# BUTTON CALLBACKS
-# --------------------------
 func _on_play_pressed() -> void:
 	Transition.to("res://scenes/menus/collections_select.tscn")
 
@@ -83,5 +78,5 @@ func _on_settings_pressed() -> void:
 	Transition.to("res://scenes/menus/settings.tscn")
 
 func _on_quit_pressed() -> void:
-	await get_tree().create_timer(0.1).timeout 
+	await get_tree().create_timer(0.1).timeout
 	get_tree().quit()
