@@ -16,7 +16,7 @@ extends CharacterBody2D
 @onready var right_foot_area: Area2D = $RightFoot/Area2D
 @onready var cam: Camera2D = $"../Camera2D"
 
-const CAM_LERP := 0.05  # Slower, smoother camera
+const CAM_LERP := 0.05
 
 @export var debug: bool = false
 @export var aesthetic: bool = true
@@ -28,11 +28,9 @@ var right_hand_state: GripState = GripState.RELAXED
 var left_foot_state: GripState = GripState.RELAXED
 var right_foot_state: GripState = GripState.RELAXED
 
-# Climbing discipline
-var current_discipline: int = 0  # 0=Bouldering, 1=Roped, 2=Speed
+var current_discipline: int = 0
 var rope_system: Node2D = null
 
-# Speed climbing
 var speed_timer: Node = null
 var speed_climb_active := false
 
@@ -41,7 +39,6 @@ var right_hand_pressure: float = 0.0
 var left_foot_pressure: float = 0.0
 var right_foot_pressure: float = 0.0
 
-# --- Stamina thresholds — tighter range, faster drain ---
 const PRESSURE_ENGAGED := 25.0
 const PRESSURE_PUMPED  := 60.0
 const PRESSURE_FAIL    := 100.0
@@ -79,9 +76,7 @@ var spawn_position: Vector2
 var climb_started := false
 var climb_completed := false
 
-# ── SPAWN GUARD: blocks _process physics until initial_grab() completes ──────
 var _grab_initialized: bool = false
-# ─────────────────────────────────────────────────────────────────────────────
 
 const ARM_UPPER_LENGTH := 50.0
 const ARM_LOWER_LENGTH := 50.0
@@ -92,27 +87,30 @@ const HIP_OFFSET := 0.0
 const HIP_DOWN := 20.0
 const HEAD_OFFSET := -20.0
 
-const BODY_PULL_STRENGTH := 0.35   # stronger pull keeps body under holds, reduces arm tension
+const BODY_PULL_STRENGTH := 0.35
 const JOINT_STIFFNESS := 0.98
 const LIMB_STIFFNESS := 0.98
-const FOOT_SUPPORT_STRENGTH := 0.15
+
+const FOOT_SUPPORT_STRENGTH := 0.40
 const FOOT_SUPPORT_MIN_Y := -30.0
 const FOOT_SUPPORT_MAX_PUSH := 80.0
 const FOOT_LATERAL_ASSIST := 0.08
+
 const GRAVITY := 2200.0
 const BODY_DRAG := 0.96
 const LIMB_DRAG := 0.94
-const MAX_JOINT_STRETCH := 1.0   # arms never stretch — hard anatomical limit
-const MAX_LIMB_STRETCH := 1.0    # forearm hard limit too
+const MAX_JOINT_STRETCH := 1.0
+const MAX_LIMB_STRETCH := 1.0
 const PREVENT_UPSIDE_DOWN := false
 
-const MAX_LEG_TOTAL_STRETCH := 1.0    # legs also hard limited
-const LEG_FORCE_RELEASE_THRESHOLD := 1.04  # release a bit before visual pop
+const MAX_LEG_TOTAL_STRETCH := 1.0
+const LEG_FORCE_RELEASE_THRESHOLD := 1.15
 
 const COM_OFFSET_Y := 15.0
-const FOOT_CUT_THRESHOLD := 150.0
-const HAND_LOAD_TOLERANCE := 1.25   # safety release — arm visually can't stretch (MAX_JOINT_STRETCH=1.0)
-								 # so this only fires on extreme body swings, not micro-movements
+
+const FOOT_CUT_THRESHOLD := 320.0
+
+const HAND_LOAD_TOLERANCE := 1.25
 const MOMENTUM_TRANSFER_STRENGTH := 0.2
 const DYNO_VELOCITY_BOOST := 0.8
 
@@ -131,7 +129,8 @@ const LEG_ASSIST_MAX_EXTENSION := 0.92
 const FOOT_SEARCH_RADIUS := 110.0
 const FOOT_PLACEMENT_TIMER := 0.35
 const FOOT_PREFERENCE_BELOW := 30.0
-const FOOT_RELEASE_THRESHOLD := 1.8
+
+const FOOT_RELEASE_THRESHOLD := 2.2
 const FOOT_SNAP_SPEED := 0.12
 const FOOT_RESTABILIZE_TIME := 0.6
 const CRIMP_LEG_SPEED_FACTOR := 0.45
@@ -153,95 +152,79 @@ const SHAKE_OUT_RECOVERY_RATE := 14.0
 const FALL_DETECTION_TIME := 2.0
 const FALL_VELOCITY_THRESHOLD := 400.0
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 1 — EXERTION MODIFIER CONSTANTS
-# ─────────────────────────────────────────────────────────────────────────────
-const UPWARD_VELOCITY_THRESHOLD    := -80.0   # px/s (negative = upward in screen-space)
-const UPWARD_DRAIN_MULT            := 1.5     # +50% drain while driving upward movement
-const SOLE_SUPPORT_DRAIN_MULT      := 1.75    # +75% drain when sole limb holding body
+const HIP_SHIFT_STRENGTH   := 0.022
+const HIP_SHIFT_MAX_RADIUS := 60.0
+const HIP_SHIFT_DEADZONE   := 18.0
 
-# PHASE 1 — CATCH PENALTY CONSTANTS
-const CATCH_BURST_1_LIMB           := 0.20    # fraction of PRESSURE_FAIL burst on 1-limb catch
-const CATCH_BURST_2_LIMB           := 0.08    # fraction of PRESSURE_FAIL burst on 2-limb catch
-const CATCH_DRAIN_BOOST_1          := 1.5     # drain multiplier after 1-limb catch
-const CATCH_DRAIN_BOOST_2          := 1.2     # drain multiplier after 2-limb catch
-const CATCH_DRAIN_BOOST_DURATION_1 := 1.0     # seconds the boost lasts (1-limb)
-const CATCH_DRAIN_BOOST_DURATION_2 := 0.5     # seconds the boost lasts (2-limb)
+var _hip_shift_offset: Vector2 = Vector2.ZERO
 
-# Catch boost timers — one per hand limb (feet don't catch falling body weight)
-var left_hand_catch_boost: float  = 1.0   # current drain multiplier
+var _load_lh: float = 0.0
+var _load_rh: float = 0.0
+var _load_lf: float = 0.0
+var _load_rf: float = 0.0
+const LOAD_LERP_SPEED := 4.0
+@export var show_load_hud: bool = true
+
+const UPWARD_VELOCITY_THRESHOLD    := -80.0
+const UPWARD_DRAIN_MULT            := 1.5
+const SOLE_SUPPORT_DRAIN_MULT      := 1.75
+
+const CATCH_BURST_1_LIMB           := 0.20
+const CATCH_BURST_2_LIMB           := 0.08
+const CATCH_DRAIN_BOOST_1          := 1.5
+const CATCH_DRAIN_BOOST_2          := 1.2
+const CATCH_DRAIN_BOOST_DURATION_1 := 1.0
+const CATCH_DRAIN_BOOST_DURATION_2 := 0.5
+
+var left_hand_catch_boost: float  = 1.0
 var right_hand_catch_boost: float = 1.0
-var left_hand_catch_timer: float  = 0.0   # seconds remaining on boost
+var left_hand_catch_timer: float  = 0.0
 var right_hand_catch_timer: float = 0.0
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 2 — PROGRESSIVE STRENGTH LOSS
-# ─────────────────────────────────────────────────────────────────────────────
-# Force scalar breakpoints (pressure as fraction of PRESSURE_FAIL)
-const P2_FORCE_ONSET   := 0.45   # below this: full strength
-const P2_FORCE_MID     := 0.70   # 0.45→0.70: 100%→75%
-const P2_FORCE_HIGH    := 0.90   # 0.70→0.90: 75%→50%
-								  # 0.90→1.00: 50%→0%
+const P2_FORCE_ONSET   := 0.45
+const P2_FORCE_MID     := 0.70
+const P2_FORCE_HIGH    := 0.90
 
-# Body sag: how far (px) the CoM drops at max fatigue
 const P2_MAX_SAG_PX    := 10.0
 
-# Arm straightening removed — not readable, keeping physics-driven elbow only
-const P2_ARM_STRAIGHTEN_ONSET := 0.60   # unused — kept so Phase 2 refs compile
-const P2_ARM_STRAIGHTEN_MAX   := 0.85   # unused
+const P2_ARM_STRAIGHTEN_ONSET := 0.60
+const P2_ARM_STRAIGHTEN_MAX   := 0.85
 
-# PHASE 2 — REST MODE
-const P2_REST_DRAIN_BOTH_FEET  := 0.30  # drain multiplier when both feet on wall
-const P2_REST_DRAIN_ONE_FOOT   := 0.65  # drain multiplier when one foot on wall
-const P2_REST_RECOVERY_SCALE   := 1.5   # extra recovery rate multiplier during rest
+const P2_REST_DRAIN_BOTH_FEET  := 0.30
+const P2_REST_DRAIN_ONE_FOOT   := 0.65
+const P2_REST_RECOVERY_SCALE   := 1.5
 
-# PHASE 2 — IMPROVED PUMP FEEDBACK (shake is now pressure-driven, not state-driven)
-# Shake amplitude (px) at various pressure fractions
-const P2_SHAKE_ONSET      := 0.15   # shake only begins well into pump
-const P2_SHAKE_MAX_AMP    := 3.0    # max shake amplitude (px) at 100% — subtle
-const P2_SHAKE_LERP_IN    := 0.2    # how fast shake builds  (lower = slower ramp-in)
-const P2_SHAKE_LERP_OUT   := 1.2    # how fast shake fades when pressure drops
-# Pulse: slow rhythmic bob at very high pump, layered on top of fast shake
+const P2_SHAKE_ONSET      := 0.15
+const P2_SHAKE_MAX_AMP    := 3.0
+const P2_SHAKE_LERP_IN    := 0.2
+const P2_SHAKE_LERP_OUT   := 1.2
 const P2_PULSE_ONSET   := 0.65
-const P2_PULSE_AMP     := 1.8    # px — kept subtle
-const P2_PULSE_FREQ    := 3.0    # Hz
-# Darkening: forearm tints very slightly toward brown-grey — NOT red
-# Blend stays very low so it reads as "darker" not "coloured"
+const P2_PULSE_AMP     := 1.8
+const P2_PULSE_FREQ    := 3.0
 const P2_DARK_ONSET    := 0.35
-const P2_DARK_COLOR    := Color(0.18, 0.12, 0.12, 1.0)   # very dark warm grey at 100%
-const P2_DARK_MAX_BLEND := 0.55   # never fully reach P2_DARK_COLOR — cap the blend
+const P2_DARK_COLOR    := Color(0.18, 0.12, 0.12, 1.0)
+const P2_DARK_MAX_BLEND := 0.55
 
-# Runtime state
 var rest_mode_active: bool = false
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 3 CONSTANTS
-# ─────────────────────────────────────────────────────────────────────────────
-# 3.1 Leg Efficiency Bonus
-const P3_LEG_BONUS_DRAIN_MULT := 0.88   # global drain multiplier when well-positioned
-const P3_LEG_BONUS_COM_TOL    := 50.0   # px horizontal tolerance for "on-balance"
-const P3_LEG_BONUS_RAMP       := 0.5    # lerp speed for smoothing the bonus in/out
+const P3_LEG_BONUS_DRAIN_MULT := 0.88
+const P3_LEG_BONUS_COM_TOL    := 50.0
+const P3_LEG_BONUS_RAMP       := 0.5
 
-# 3.2 Failure Escalation
-const P3_SLIP_THRESHOLD       := 0.90   # fraction of PRESSURE_FAIL that triggers slip
-const P3_STRUGGLE_THRESHOLD   := 1.00   # fraction that triggers struggle
-const P3_STRUGGLE_WINDOW      := 0.55   # seconds the player has to shift load
-const P3_SLIP_SHAKE_MULT      := 1.4    # modest boost at slip — still readable
-const P3_STRUGGLE_SHAKE_MULT  := 2.0    # visible burst during struggle window
+const P3_SLIP_THRESHOLD       := 0.90
+const P3_STRUGGLE_THRESHOLD   := 1.00
+const P3_STRUGGLE_WINDOW      := 0.55
+const P3_SLIP_SHAKE_MULT      := 1.4
+const P3_STRUGGLE_SHAKE_MULT  := 2.0
 
 enum FailureStage { NONE, SLIP, STRUGGLE, FALLING }
 
-# Per-hand failure state (feet don't escalate the same way)
 var left_hand_fail_stage:  FailureStage = FailureStage.NONE
 var right_hand_fail_stage: FailureStage = FailureStage.NONE
 var left_hand_struggle_timer:  float = 0.0
 var right_hand_struggle_timer: float = 0.0
 
-# Smoothed leg efficiency bonus (lerped to avoid flicker)
 var _leg_bonus_smooth: float = 1.0
-# ─────────────────────────────────────────────────────────────────────────────
 
 var swing_momentum: Vector2 = Vector2.ZERO
 const SWING_DAMPENING := 0.92
@@ -264,6 +247,20 @@ const ALLOW_ARM_CROSSING := true
 const ALLOW_FOOT_CROSSING := true
 const MIN_HAND_SEPARATION := 20.0
 const MIN_FOOT_SEPARATION := 15.0
+
+const MOUSE_GHOST_CHASE_HAND  := 0.2
+const MOUSE_GHOST_CHASE_FOOT  := 0.2
+const LIMB_TO_GHOST_SPEED     := 0.2
+
+var _ghost_lh: Vector2 = Vector2.ZERO
+var _ghost_rh: Vector2 = Vector2.ZERO
+var _ghost_lf: Vector2 = Vector2.ZERO
+var _ghost_rf: Vector2 = Vector2.ZERO
+
+var _ghost_lh_init: bool = false
+var _ghost_rh_init: bool = false
+var _ghost_lf_init: bool = false
+var _ghost_rf_init: bool = false
 
 const BASE_HAND_MOVE_SPEED := 0.75
 const BASE_REACH_DISTANCE := 200.0
@@ -370,15 +367,6 @@ var _ragdoll_active: bool = false
 var _ragdoll_elapsed: float = 0.0
 var _ragdoll_max_time: float = 2.0
 
-var _saved_lh_pos:  Vector2
-var _saved_rh_pos:  Vector2
-var _saved_lf_pos:  Vector2
-var _saved_rf_pos:  Vector2
-var _saved_lhj_pos: Vector2
-var _saved_rhj_pos: Vector2
-var _saved_lfj_pos: Vector2
-var _saved_rfj_pos: Vector2
-
 func _ready():
 	spawn_position = global_position
 
@@ -407,11 +395,9 @@ func _ready():
 	call_deferred("initial_grab")
 
 func _process(delta):
-	# ── SPAWN GUARD: do nothing until initial_grab() has completed ────────────
 	if not _grab_initialized:
-		queue_redraw()   # keep drawing so the stick figure is visible at spawn pos
+		queue_redraw()
 		return
-	# ─────────────────────────────────────────────────────────────────────────
 
 	if _ragdoll_active:
 		_ragdoll_elapsed += delta
@@ -430,10 +416,60 @@ func _process(delta):
 	if AUTO_FOOT_PLACEMENT:
 		auto_place_feet(delta)
 
+	_update_load_distribution(delta)
+
 	check_fall_detection(delta)
 	check_climb_completion()
 	update_camera()
 	queue_redraw()
+
+func _update_load_distribution(delta: float):
+	var anchors: Array[Vector2] = []
+	var limb_ids: Array[int] = []
+
+	if left_hand_hold and not left_hand_grabbing:
+		anchors.append(left_hand_hold.get_limb_anchor(left_hand))
+		limb_ids.append(0)
+	if right_hand_hold and not right_hand_grabbing:
+		anchors.append(right_hand_hold.get_limb_anchor(right_hand))
+		limb_ids.append(1)
+	if left_foot_hold and not left_foot_grabbing:
+		anchors.append(left_foot_hold.get_limb_anchor(left_foot))
+		limb_ids.append(2)
+	if right_foot_hold and not right_foot_grabbing:
+		anchors.append(right_foot_hold.get_limb_anchor(right_foot))
+		limb_ids.append(3)
+
+	var raw: Array[float] = [0.0, 0.0, 0.0, 0.0]
+
+	if anchors.size() == 0:
+		pass
+	elif anchors.size() == 1:
+		raw[limb_ids[0]] = 1.0
+	elif anchors.size() == 2:
+		var a := anchors[0]; var b := anchors[1]
+		var span := a.distance_to(b)
+		if span < 1.0:
+			raw[limb_ids[0]] = 0.5; raw[limb_ids[1]] = 0.5
+		else:
+			var t = clamp((com_position - a).dot((b - a).normalized()) / span, 0.0, 1.0)
+			raw[limb_ids[0]] = 1.0 - t
+			raw[limb_ids[1]] = t
+	else:
+		var weights: Array[float] = []
+		var total_w := 0.0
+		for anc in anchors:
+			var d := maxf(com_position.distance_to(anc), 1.0)
+			var w := 1.0 / d
+			weights.append(w)
+			total_w += w
+		for i in range(anchors.size()):
+			raw[limb_ids[i]] = weights[i] / total_w
+
+	_load_lh = lerp(_load_lh, raw[0], LOAD_LERP_SPEED * delta)
+	_load_rh = lerp(_load_rh, raw[1], LOAD_LERP_SPEED * delta)
+	_load_lf = lerp(_load_lf, raw[2], LOAD_LERP_SPEED * delta)
+	_load_rf = lerp(_load_rf, raw[3], LOAD_LERP_SPEED * delta)
 
 func play_crashpad_ragdoll(duration: float) -> void:
 	if _ragdoll_active:
@@ -473,29 +509,17 @@ func play_crashpad_ragdoll(duration: float) -> void:
 	t.tween_property(right_foot,       "position", Vector2( 18, 68),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
 
 func update_grip_states(delta: float):
-	# ── PHASE 3: tick leg efficiency bonus before hand states ─────────────────
 	var leg_bonus_target := _compute_leg_bonus_target()
 	_leg_bonus_smooth = lerp(_leg_bonus_smooth, leg_bonus_target, P3_LEG_BONUS_RAMP * delta)
-	# ─────────────────────────────────────────────────────────────────────────
 	update_hand_grip_state(Limb.LEFT_HAND, delta)
 	update_hand_grip_state(Limb.RIGHT_HAND, delta)
 	update_foot_grip_state(Limb.LEFT_FOOT, delta)
 	update_foot_grip_state(Limb.RIGHT_FOOT, delta)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 1 HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Returns true when this hand limb is the primary structure holding the body up.
-# Used to decide whether the "upward movement" multiplier should fire.
 func _is_hand_load_bearing(hand: Limb) -> bool:
 	var hold = left_hand_hold if hand == Limb.LEFT_HAND else right_hand_hold
 	return hold != null and not (left_hand_grabbing if hand == Limb.LEFT_HAND else right_hand_grabbing)
 
-# Exertion multiplier for hand limbs.
-#   - Sole support (1 total limb held): x1.75
-#   - Driving upward movement while load-bearing: x1.5
-#   - Otherwise: x1.0 (base, combined with the catch boost below)
 func _get_hand_exertion_mult(hand: Limb) -> float:
 	var held := count_held_limbs()
 	if held == 1 and _is_hand_load_bearing(hand):
@@ -504,7 +528,6 @@ func _get_hand_exertion_mult(hand: Limb) -> float:
 		return UPWARD_DRAIN_MULT
 	return 1.0
 
-# Returns the current catch-boost multiplier for a hand and ticks its timer down.
 func _tick_catch_boost(hand: Limb, delta: float) -> float:
 	if hand == Limb.LEFT_HAND:
 		if left_hand_catch_timer > 0.0:
@@ -521,14 +544,11 @@ func _tick_catch_boost(hand: Limb, delta: float) -> float:
 				right_hand_catch_boost = 1.0
 		return right_hand_catch_boost
 
-# Called from attempt_grab() immediately after a successful hand catch.
-# Applies burst pressure and starts the elevated-drain window.
 func _apply_catch_penalty(hand: Limb) -> void:
-	# Only penalise if the body was genuinely falling hard
 	if com_velocity.y < FALL_VELOCITY_THRESHOLD:
 		return
 
-	var held := count_held_limbs()   # count AFTER this grab registered
+	var held := count_held_limbs()
 	var burst: float
 	var boost: float
 	var duration: float
@@ -546,23 +566,11 @@ func _apply_catch_penalty(hand: Limb) -> void:
 		left_hand_pressure    = minf(left_hand_pressure + burst, PRESSURE_FAIL)
 		left_hand_catch_boost = boost
 		left_hand_catch_timer = duration
-		if debug:
-			print("CATCH PENALTY [LH] burst=%.1f boost=%.2f for %.2fs" % [burst, boost, duration])
 	else:
 		right_hand_pressure    = minf(right_hand_pressure + burst, PRESSURE_FAIL)
 		right_hand_catch_boost = boost
 		right_hand_catch_timer = duration
-		if debug:
-			print("CATCH PENALTY [RH] burst=%.1f boost=%.2f for %.2fs" % [burst, boost, duration])
 
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 2 HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Returns a 0→1 grip force scalar. At full pump the hand contributes nothing to
-# pulling the body up; applied to BODY_PULL_STRENGTH in apply_limb_tension.
 func _get_grip_force_scalar(pressure: float) -> float:
 	var t := pressure / PRESSURE_FAIL
 	if t < P2_FORCE_ONSET:
@@ -573,7 +581,6 @@ func _get_grip_force_scalar(pressure: float) -> float:
 		return lerp(0.75, 0.50, (t - P2_FORCE_MID) / (P2_FORCE_HIGH - P2_FORCE_MID))
 	return lerp(0.50, 0.0, (t - P2_FORCE_HIGH) / (1.0 - P2_FORCE_HIGH))
 
-# Returns the average grip scalar across all held hands — used for body sag.
 func _get_body_fatigue_t() -> float:
 	var total := 0.0
 	var count := 0
@@ -585,16 +592,12 @@ func _get_body_fatigue_t() -> float:
 		count += 1
 	return total / max(count, 1)
 
-# Pressure-driven shake amplitude for a hand limb (replaces state-based shake).
-# Returns a target shake amplitude in pixels.
-# Returns a 0→1 shake fraction (not pixels — multiply by P2_SHAKE_MAX_AMP in the caller).
 func _get_pressure_shake_frac(pressure: float) -> float:
 	var t := pressure / PRESSURE_FAIL
 	if t < P2_SHAKE_ONSET:
 		return 0.0
-	return (t - P2_SHAKE_ONSET) / (1.0 - P2_SHAKE_ONSET)  # 0→1 over onset→100%
+	return (t - P2_SHAKE_ONSET) / (1.0 - P2_SHAKE_ONSET)
 
-# Slow rhythmic pulse offset for very high pump.
 func _get_pulse_offset(pressure: float, phase_offset: float) -> Vector2:
 	var t := pressure / PRESSURE_FAIL
 	if t < P2_PULSE_ONSET:
@@ -604,8 +607,6 @@ func _get_pulse_offset(pressure: float, phase_offset: float) -> Vector2:
 	var pulse := sin(time * P2_PULSE_FREQ * TAU + phase_offset) * P2_PULSE_AMP * strength
 	return Vector2(pulse * 0.25, pulse)
 
-# Forearm colour: stays very close to black — just a barely-perceptible warm darkening.
-# P2_DARK_MAX_BLEND caps how far toward P2_DARK_COLOR we ever go.
 func _get_limb_color(pressure: float) -> Color:
 	var t := pressure / PRESSURE_FAIL
 	if t < P2_DARK_ONSET:
@@ -613,14 +614,6 @@ func _get_limb_color(pressure: float) -> Color:
 	var blend := minf((t - P2_DARK_ONSET) / (1.0 - P2_DARK_ONSET), 1.0) * P2_DARK_MAX_BLEND
 	return Color.BLACK.lerp(P2_DARK_COLOR, blend)
 
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 3 HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Returns a drain multiplier for the leg efficiency bonus.
-# Smoothly lerped via _leg_bonus_smooth each frame to avoid flicker.
 func _compute_leg_bonus_target() -> float:
 	if not (left_foot_hold and right_foot_hold):
 		return 1.0
@@ -630,10 +623,7 @@ func _compute_leg_bonus_target() -> float:
 		return P3_LEG_BONUS_DRAIN_MULT
 	return 1.0
 
-# Called from update_grip_states. Advances failure escalation for one hand limb.
-# Returns the current FailureStage so the grip-state function can use it.
 func _update_hand_failure_stage(hand: Limb, pressure: float, delta: float) -> FailureStage:
-	# Only escalate when the hand is actually gripping something
 	var hold := left_hand_hold if hand == Limb.LEFT_HAND else right_hand_hold
 	if hold == null:
 		if hand == Limb.LEFT_HAND:
@@ -649,15 +639,12 @@ func _update_hand_failure_stage(hand: Limb, pressure: float, delta: float) -> Fa
 	var struggle_timer: float = left_hand_struggle_timer if hand == Limb.LEFT_HAND else right_hand_struggle_timer
 
 	if t < P3_SLIP_THRESHOLD:
-		# Recovering — reset cleanly
 		stage = FailureStage.NONE
 		struggle_timer = 0.0
 	elif t < P3_STRUGGLE_THRESHOLD:
-		# In the slip zone — visual-only, no timer
 		stage = FailureStage.SLIP
 		struggle_timer = 0.0
 	else:
-		# At 100% — begin struggle window
 		if stage != FailureStage.STRUGGLE:
 			stage = FailureStage.STRUGGLE
 			struggle_timer = P3_STRUGGLE_WINDOW
@@ -674,8 +661,6 @@ func _update_hand_failure_stage(hand: Limb, pressure: float, delta: float) -> Fa
 		right_hand_struggle_timer = struggle_timer
 
 	return stage
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 func update_hand_grip_state(hand: Limb, delta: float):
 	var hold: Area2D
@@ -712,9 +697,6 @@ func update_hand_grip_state(hand: Limb, delta: float):
 		var held_limb_count = count_held_limbs()
 		var loading_multiplier = get_loading_multiplier(held_limb_count)
 
-		var shoulder_pos = global_position + Vector2(-SHOULDER_OFFSET if hand == Limb.LEFT_HAND else SHOULDER_OFFSET, 0)
-		var hand_pos = limb_node.global_position
-		var to_hand = hand_pos - shoulder_pos
 		var pull_force = abs(com_velocity.y) + (abs(com_velocity.x) * 0.3)
 		force = pull_force * (1.0 - foot_support)
 
@@ -730,25 +712,17 @@ func update_hand_grip_state(hand: Limb, delta: float):
 		hold_pressure *= loading_multiplier
 		hold_pressure *= lock_off_mult
 
-		# ── PHASE 1: exertion multiplier ─────────────────────────────────────
 		hold_pressure *= _get_hand_exertion_mult(hand)
-		# ── PHASE 1: catch drain boost (ticks timer, returns current boost) ──
 		hold_pressure *= _tick_catch_boost(hand, delta)
-		# ─────────────────────────────────────────────────────────────────────
 
-		# ── PHASE 2: Rest Mode drain reduction ───────────────────────────────
 		if rest_mode_active:
-			foot_support = calculate_foot_support_ratio()  # 0.0, 0.5, or 1.0
+			foot_support = calculate_foot_support_ratio()
 			if foot_support >= 1.0:
 				hold_pressure *= P2_REST_DRAIN_BOTH_FEET
 			elif foot_support > 0.0:
 				hold_pressure *= P2_REST_DRAIN_ONE_FOOT
-			# no feet = no benefit, hold_pressure unchanged
-		# ─────────────────────────────────────────────────────────────────────
 
-		# ── PHASE 3: Leg Efficiency Bonus ────────────────────────────────────
 		hold_pressure *= _leg_bonus_smooth
-		# ─────────────────────────────────────────────────────────────────────
 
 		var pressure_floor = EASY_HOLD_BASE_PRESSURE * loading_multiplier * 0.5 * delta
 		if hold_pressure < pressure_floor:
@@ -762,10 +736,8 @@ func update_hand_grip_state(hand: Limb, delta: float):
 		var body_balance = calculate_body_balance()
 		var recovery = hold.get_recovery_rate(delta, body_balance, foot_support)
 		if recovery > 0.0:
-			# ── PHASE 2: extra recovery while resting ─────────────────────────
 			if rest_mode_active and foot_support > 0.0:
 				recovery *= P2_REST_RECOVERY_SCALE
-			# ─────────────────────────────────────────────────────────────────
 			pressure -= recovery
 	else:
 		force = 0.0
@@ -774,16 +746,13 @@ func update_hand_grip_state(hand: Limb, delta: float):
 
 	pressure = clamp(pressure, 0.0, PRESSURE_FAIL)
 
-	# ── PHASE 3: Failure Escalation replaces binary pop-off ──────────────────
 	var fail_stage := _update_hand_failure_stage(hand, pressure, delta)
 	if fail_stage == FailureStage.FALLING:
 		state = GripState.FAIL
 		release_limb(hand)
 	elif pressure >= PRESSURE_FAIL:
-		# Clamp at max — struggle window will resolve it via escalation above
 		state = GripState.PUMPED
 	elif pressure >= PRESSURE_PUMPED:
-	# ─────────────────────────────────────────────────────────────────────────
 		state = GripState.PUMPED
 	elif pressure >= PRESSURE_ENGAGED:
 		state = GripState.ENGAGED
@@ -836,9 +805,6 @@ func update_foot_grip_state(foot: Limb, delta: float):
 		var held_limb_count = count_held_limbs()
 		var loading_multiplier = get_loading_multiplier(held_limb_count)
 
-		var hip_pos = global_position + Vector2(-HIP_OFFSET if foot == Limb.LEFT_FOOT else HIP_OFFSET, HIP_DOWN)
-		var foot_pos = limb_node.global_position
-		var to_foot = foot_pos - hip_pos
 		var push_force = abs(com_velocity.y) * 0.3
 		force = push_force
 
@@ -961,7 +927,7 @@ func calculate_foot_support_ratio() -> float:
 		support += 0.5
 	return support
 
-func update_momentum_system(delta: float):
+func update_momentum_system(_delta: float):
 	pass
 
 func get_limb_swing_velocity(limb: Limb, delta: float) -> Vector2:
@@ -987,19 +953,12 @@ func get_limb_swing_velocity(limb: Limb, delta: float) -> Vector2:
 func update_shake_effects(delta: float):
 	var t_now := Time.get_ticks_msec() * 0.001
 
-	# ── PHASE 2: pressure-driven shake replaces coarse state-based shake ─────
-	# shake_lerp tracks a 0→1 fraction; multiply by P2_SHAKE_MAX_AMP for pixels.
-	# Separate lerp speeds: slow ramp-in, faster fade-out.
-
-	# Left hand
 	var lh_base_frac := _get_pressure_shake_frac(left_hand_pressure)
-	# ── PHASE 3: failure stage adds a small flat bump on top ─────────────────
 	var lh_fail_add := 0.0
 	match left_hand_fail_stage:
 		FailureStage.SLIP:     lh_fail_add = 0.15
 		FailureStage.STRUGGLE: lh_fail_add = 0.35
 	var lh_target_frac := minf(lh_base_frac + lh_fail_add, 1.0)
-	# ─────────────────────────────────────────────────────────────────────────
 	var lh_lerp_speed := P2_SHAKE_LERP_IN if lh_target_frac > left_hand_shake_lerp else P2_SHAKE_LERP_OUT
 	left_hand_shake_lerp = lerp(left_hand_shake_lerp, lh_target_frac, lh_lerp_speed * delta)
 	if left_hand_shake_lerp > 0.01:
@@ -1012,7 +971,6 @@ func update_shake_effects(delta: float):
 	else:
 		left_hand_shake_offset = Vector2.ZERO
 
-	# Right hand
 	var rh_base_frac := _get_pressure_shake_frac(right_hand_pressure)
 	var rh_fail_add := 0.0
 	match right_hand_fail_stage:
@@ -1031,7 +989,6 @@ func update_shake_effects(delta: float):
 	else:
 		right_hand_shake_offset = Vector2.ZERO
 
-	# Left foot (state-based — feet matter less visually)
 	var left_foot_mods := get_foot_modifiers(left_foot_state)
 	var target_lf_shake = left_foot_mods.shake
 	left_foot_shake_lerp = lerp(left_foot_shake_lerp, target_lf_shake, SHAKE_LERP_SPEED * delta)
@@ -1042,7 +999,6 @@ func update_shake_effects(delta: float):
 	else:
 		left_foot_shake_offset = Vector2.ZERO
 
-	# Right foot
 	var right_foot_mods := get_foot_modifiers(right_foot_state)
 	var target_rf_shake = right_foot_mods.shake
 	right_foot_shake_lerp = lerp(right_foot_shake_lerp, target_rf_shake, SHAKE_LERP_SPEED * delta)
@@ -1052,7 +1008,6 @@ func update_shake_effects(delta: float):
 		right_foot_shake_offset = Vector2(sin(t_now * freq + 1.5) * amp, sin(t_now * freq * 1.2 + 1.3) * amp)
 	else:
 		right_foot_shake_offset = Vector2.ZERO
-	# ─────────────────────────────────────────────────────────────────────────
 
 func handle_input():
 	if Input.is_action_just_pressed("ui_cancel") or Input.is_key_pressed(KEY_R):
@@ -1062,12 +1017,8 @@ func handle_input():
 	building_momentum = false
 	var shift_held = Input.is_key_pressed(KEY_SHIFT)
 
-	# ── PHASE 2: Rest Mode — Shift with no limb selected ─────────────────────
-	# We evaluate this every frame so it turns on/off smoothly.
-	# Must be done before the limb-select block so shift_held is still plain shift.
 	rest_mode_active = shift_held and selected_limbs.is_empty() and \
 		(left_hand_hold != null or right_hand_hold != null)
-	# ─────────────────────────────────────────────────────────────────────────
 
 	if Input.is_action_just_pressed("select_left"):
 		if shift_held:
@@ -1075,6 +1026,8 @@ func handle_input():
 		else:
 			selected_limbs.clear()
 			selected_limbs.append(Limb.LEFT_HAND)
+		_ghost_lh = left_hand.global_position
+		_ghost_lh_init = true
 		if left_hand_hold != null and Limb.LEFT_HAND in selected_limbs:
 			release_limb(Limb.LEFT_HAND)
 			left_hand_grabbing = false
@@ -1085,6 +1038,8 @@ func handle_input():
 		else:
 			selected_limbs.clear()
 			selected_limbs.append(Limb.RIGHT_HAND)
+		_ghost_rh = right_hand.global_position
+		_ghost_rh_init = true
 		if right_hand_hold != null and Limb.RIGHT_HAND in selected_limbs:
 			release_limb(Limb.RIGHT_HAND)
 			right_hand_grabbing = false
@@ -1096,6 +1051,8 @@ func handle_input():
 			if Limb.LEFT_HAND not in selected_limbs and Limb.RIGHT_HAND not in selected_limbs:
 				selected_limbs.clear()
 			selected_limbs.append(Limb.LEFT_FOOT)
+		_ghost_lf = left_foot.global_position
+		_ghost_lf_init = true
 		left_foot_user_override = true
 		left_foot_auto_disabled = true
 		left_foot_auto_animating = false
@@ -1110,6 +1067,8 @@ func handle_input():
 			if Limb.LEFT_HAND not in selected_limbs and Limb.RIGHT_HAND not in selected_limbs:
 				selected_limbs.clear()
 			selected_limbs.append(Limb.RIGHT_FOOT)
+		_ghost_rf = right_foot.global_position
+		_ghost_rf_init = true
 		right_foot_user_override = true
 		right_foot_auto_disabled = true
 		right_foot_auto_animating = false
@@ -1132,7 +1091,7 @@ func handle_input():
 
 	if Input.is_action_just_released("select_left"):
 		if Limb.LEFT_HAND in selected_limbs:
-			_fire_dyno_impulse()   # ── dyno: impulse before grab attempt clears selection
+			_fire_dyno_impulse()
 			attempt_grab(Limb.LEFT_HAND)
 		if not shift_held:
 			selected_limbs.clear()
@@ -1194,10 +1153,14 @@ func get_limb_position(limb: Limb) -> Vector2:
 		Limb.RIGHT_FOOT: return right_foot.global_position
 		_: return global_position
 
+func _reset_ghost_targets():
+	_ghost_lh = left_hand.global_position
+	_ghost_rh = right_hand.global_position
+	_ghost_lf = left_foot.global_position
+	_ghost_rf = right_foot.global_position
+
 func reset_climb():
-	# ── Block physics again while initial_grab re-runs ────────────────────────
 	_grab_initialized = false
-	# ─────────────────────────────────────────────────────────────────────────
 
 	global_position = spawn_position
 	com_position = spawn_position + Vector2(0, COM_OFFSET_Y)
@@ -1282,20 +1245,19 @@ func reset_climb():
 	right_foot_shake_lerp = 0.0
 	fall_timer = 0.0
 
-	# ── PHASE 1: reset catch boost state ─────────────────────────────────────
 	left_hand_catch_boost  = 1.0
 	right_hand_catch_boost = 1.0
 	left_hand_catch_timer  = 0.0
 	right_hand_catch_timer = 0.0
-	# ── PHASE 2: reset rest mode ──────────────────────────────────────────────
 	rest_mode_active = false
-	# ── PHASE 3: reset failure escalation and leg bonus ───────────────────────
 	left_hand_fail_stage  = FailureStage.NONE
 	right_hand_fail_stage = FailureStage.NONE
 	left_hand_struggle_timer  = 0.0
 	right_hand_struggle_timer = 0.0
 	_leg_bonus_smooth = 1.0
-	# ─────────────────────────────────────────────────────────────────────────
+
+	_hip_shift_offset = Vector2.ZERO
+	_load_lh = 0.0; _load_rh = 0.0; _load_lf = 0.0; _load_rf = 0.0
 
 	left_foot_auto_animating = false
 	right_foot_auto_animating = false
@@ -1305,6 +1267,8 @@ func reset_climb():
 	right_foot_settle_timer = 0.0
 	left_foot_user_override = false
 	right_foot_user_override = false
+
+	_reset_ghost_targets()
 
 	if rope_system and is_instance_valid(rope_system):
 		if rope_system.has_method("setup_rope"):
@@ -1382,6 +1346,8 @@ func simulate_physics(delta):
 		if rope_system.has_method("apply_rope_force_to_player"):
 			com_velocity = rope_system.apply_rope_force_to_player(com_velocity)
 
+	_apply_hip_shift(delta, held_hand_count, held_foot_count)
+
 	pin_held_limbs()
 	apply_limb_gravity(delta)
 
@@ -1436,6 +1402,40 @@ func simulate_physics(delta):
 	else:
 		com_velocity *= BODY_DRAG
 	apply_limb_drag()
+
+func _apply_hip_shift(delta: float, held_hand_count: int, held_foot_count: int):
+	if held_hand_count == 0:
+		_hip_shift_offset = _hip_shift_offset.lerp(Vector2.ZERO, 3.0 * delta)
+		return
+
+	var mouse_global := get_global_mouse_position()
+	var to_mouse := mouse_global - global_position
+	var dist := to_mouse.length()
+
+	if selected_limbs.size() > 0:
+		_hip_shift_offset = _hip_shift_offset.lerp(Vector2.ZERO, 0.8 * delta)
+		_apply_hip_shift_bias()
+		return
+
+	if dist < HIP_SHIFT_DEADZONE:
+		_hip_shift_offset = _hip_shift_offset.lerp(Vector2.ZERO, 2.5 * delta)
+		_apply_hip_shift_bias()
+		return
+
+	var desired := to_mouse.normalized() * minf(dist - HIP_SHIFT_DEADZONE, HIP_SHIFT_MAX_RADIUS)
+
+	if held_foot_count == 0:
+		desired *= 0.4
+
+	_hip_shift_offset = _hip_shift_offset.lerp(desired, HIP_SHIFT_STRENGTH * delta * 60.0)
+
+	_apply_hip_shift_bias()
+
+func _apply_hip_shift_bias():
+	if _hip_shift_offset.length() < 1.0:
+		return
+	var bias_target := com_position + _hip_shift_offset
+	com_velocity += (bias_target - com_position) * 0.18
 
 func check_leg_overstretch():
 	var left_hip := global_position + Vector2(-HIP_OFFSET, HIP_DOWN)
@@ -1525,27 +1525,41 @@ func get_foot_move_speed(limb: Limb) -> float:
 		return BASE_HAND_MOVE_SPEED * CRIMP_LEG_SPEED_FACTOR
 	return BASE_HAND_MOVE_SPEED
 
-func apply_mouse_control_multi(delta):
-	var target_pos = mouse_aim_position
-	for limb in selected_limbs:
-		match limb:
-			Limb.LEFT_HAND:
-				if left_hand_hold == null and not left_hand_grabbing:
-					apply_hand_control(left_hand, left_hand_state, Vector2(-SHOULDER_OFFSET, 0), target_pos, true, delta)
-			Limb.RIGHT_HAND:
-				if right_hand_hold == null and not right_hand_grabbing:
-					apply_hand_control(right_hand, right_hand_state, Vector2(SHOULDER_OFFSET, 0), target_pos, false, delta)
-			Limb.LEFT_FOOT:
-				if left_foot_hold == null and not left_foot_grabbing:
-					apply_foot_control(left_foot, Vector2(-HIP_OFFSET, HIP_DOWN), target_pos, true, delta)
-			Limb.RIGHT_FOOT:
-				if right_foot_hold == null and not right_foot_grabbing:
-					apply_foot_control(right_foot, Vector2(HIP_OFFSET, HIP_DOWN), target_pos, false, delta)
+func apply_mouse_control_multi(delta: float):
+	var mouse_global := mouse_aim_position
 
-func apply_hand_control(hand: Node2D, state: GripState, shoulder_offset: Vector2,
+	if Limb.LEFT_HAND in selected_limbs and left_hand_hold == null and not left_hand_grabbing:
+		var mods := get_hand_modifiers(left_hand_state)
+		var ghost_speed = MOUSE_GHOST_CHASE_HAND * mods.speed_mult
+		_ghost_lh = _ghost_lh.lerp(mouse_global, ghost_speed * delta * 60.0)
+
+	if Limb.RIGHT_HAND in selected_limbs and right_hand_hold == null and not right_hand_grabbing:
+		var mods := get_hand_modifiers(right_hand_state)
+		var ghost_speed = MOUSE_GHOST_CHASE_HAND * mods.speed_mult
+		_ghost_rh = _ghost_rh.lerp(mouse_global, ghost_speed * delta * 60.0)
+
+	if Limb.LEFT_FOOT in selected_limbs and left_foot_hold == null and not left_foot_grabbing:
+		_ghost_lf = _ghost_lf.lerp(mouse_global, MOUSE_GHOST_CHASE_FOOT * delta * 60.0)
+
+	if Limb.RIGHT_FOOT in selected_limbs and right_foot_hold == null and not right_foot_grabbing:
+		_ghost_rf = _ghost_rf.lerp(mouse_global, MOUSE_GHOST_CHASE_FOOT * delta * 60.0)
+
+	if Limb.LEFT_HAND in selected_limbs and left_hand_hold == null and not left_hand_grabbing:
+		apply_hand_control(left_hand, left_hand_state, Vector2(-SHOULDER_OFFSET, 0), _ghost_lh, true, delta)
+
+	if Limb.RIGHT_HAND in selected_limbs and right_hand_hold == null and not right_hand_grabbing:
+		apply_hand_control(right_hand, right_hand_state, Vector2(SHOULDER_OFFSET, 0), _ghost_rh, false, delta)
+
+	if Limb.LEFT_FOOT in selected_limbs and left_foot_hold == null and not left_foot_grabbing:
+		apply_foot_control(left_foot, Vector2(-HIP_OFFSET, HIP_DOWN), _ghost_lf, true, delta)
+
+	if Limb.RIGHT_FOOT in selected_limbs and right_foot_hold == null and not right_foot_grabbing:
+		apply_foot_control(right_foot, Vector2(HIP_OFFSET, HIP_DOWN), _ghost_rf, false, delta)
+
+func apply_hand_control(hand: Node2D, state: GripState, _shoulder_offset: Vector2,
 						target: Vector2, is_left: bool, delta: float):
-	var mods = get_hand_modifiers(state)
-	var move_speed = BASE_HAND_MOVE_SPEED * mods.speed_mult
+	var mods := get_hand_modifiers(state)
+	var move_speed = LIMB_TO_GHOST_SPEED * mods.speed_mult
 	hand.global_position = hand.global_position.lerp(target, move_speed)
 	if is_left:
 		left_hand_velocity = Vector2.ZERO
@@ -1556,10 +1570,10 @@ func apply_hand_control(hand: Node2D, state: GripState, shoulder_offset: Vector2
 		right_hand_joint_velocity = Vector2.ZERO
 		apply_limb_momentum(right_hand.global_position, previous_right_hand_pos, delta)
 
-func apply_foot_control(foot: Node2D, hip_offset: Vector2, target: Vector2,
+func apply_foot_control(foot: Node2D, _hip_offset: Vector2, target: Vector2,
 						is_left: bool, delta: float):
-	var foot_speed = get_foot_move_speed(Limb.LEFT_FOOT if is_left else Limb.RIGHT_FOOT)
-	foot.global_position = foot.global_position.lerp(target, foot_speed)
+	var move_speed := LIMB_TO_GHOST_SPEED * 0.85
+	foot.global_position = foot.global_position.lerp(target, move_speed)
 	if is_left:
 		left_foot_velocity = Vector2.ZERO
 		left_foot_joint_velocity = Vector2.ZERO
@@ -1569,7 +1583,7 @@ func apply_foot_control(foot: Node2D, hip_offset: Vector2, target: Vector2,
 		right_foot_joint_velocity = Vector2.ZERO
 		apply_limb_momentum(right_foot.global_position, previous_right_foot_pos, delta)
 
-func apply_natural_limb_positions(delta):
+func apply_natural_limb_positions(_delta):
 	var relax = 0.18
 	if left_hand_hold == null and Limb.LEFT_HAND not in selected_limbs and not left_hand_grabbing:
 		var shoulder = global_position + Vector2(-SHOULDER_OFFSET, 0)
@@ -1610,7 +1624,7 @@ func apply_natural_limb_positions(delta):
 		right_foot_velocity = Vector2.ZERO
 		right_foot_joint_velocity = Vector2.ZERO
 
-func apply_adaptive_leg_assistance(delta):
+func apply_adaptive_leg_assistance(_delta):
 	if not use_mouse_aim:
 		return
 	if Limb.LEFT_HAND not in selected_limbs and Limb.RIGHT_HAND not in selected_limbs:
@@ -1676,22 +1690,13 @@ func update_grab_animations():
 	if left_foot_visual_offset.length() < 0.5: left_foot_visual_offset = Vector2.ZERO
 	if right_foot_visual_offset.length() < 0.5: right_foot_visual_offset = Vector2.ZERO
 
-func apply_limb_momentum(current_pos: Vector2, previous_pos: Vector2, delta: float):
-	# Legacy: small continuous nudge while moving a free limb (minimal now — dyno handled separately)
-	if delta <= 0:
-		return
-	var limb_velocity := (current_pos - previous_pos) / delta
-	# Tiny nudge — the real momentum is from _fire_dyno_impulse at release
-	com_velocity += limb_velocity * 0.04 * delta
+func apply_limb_momentum(_current_pos: Vector2, _previous_pos: Vector2, _delta: float):
+	pass
 
-# Fired once when a hand is released mid-swing toward a target.
-# Adds a single velocity impulse in the aim direction scaled by how fast the
-# hand was moving — makes dynos feel like you actually threw yourself.
 func _fire_dyno_impulse():
 	if not use_mouse_aim:
 		return
 	var aim_dir := (mouse_aim_position - com_position).normalized()
-	# How fast was the hand travelling toward the target this frame?
 	var hand_vel := Vector2.ZERO
 	for limb in selected_limbs:
 		match limb:
@@ -1702,16 +1707,12 @@ func _fire_dyno_impulse():
 				if right_hand_hold == null:
 					hand_vel += (right_hand.global_position - previous_right_hand_pos)
 	var speed := hand_vel.length() / get_process_delta_time() if get_process_delta_time() > 0 else 0.0
-	# Only fire if there's real movement (not a stationary click)
 	if speed < 30.0:
 		return
-	# Impulse strength: proportional to hand speed, capped, biased toward aim direction
 	var dot := hand_vel.normalized().dot(aim_dir) if hand_vel.length() > 1.0 else 0.5
 	dot = clamp(dot, 0.0, 1.0)
 	var impulse_strength = clamp(speed * 0.18, 60.0, 420.0) * dot
 	com_velocity += aim_dir * impulse_strength
-	if debug:
-		print("DYNO impulse: speed=%.0f dot=%.2f strength=%.0f" % [speed, dot, impulse_strength])
 
 func apply_foot_support(delta):
 	var support_force := Vector2.ZERO
@@ -1742,7 +1743,7 @@ func apply_foot_support(delta):
 		hand_count += 1
 
 	var raw_reach = hand_reach_sum / max(hand_count, 1)
-	var reach_factor := smoothstep(0.05, 0.85, raw_reach)
+	var reach_factor := smoothstep(0.0, 0.6, raw_reach + 0.25)
 
 	if not "foot_push_smooth" in self:
 		set_meta("foot_push_smooth", reach_factor)
@@ -1778,7 +1779,7 @@ func apply_foot_support(delta):
 
 	com_velocity += support_force
 
-func apply_limb_tension(delta, held_hand_count: int, held_foot_count: int):
+func apply_limb_tension(_delta, _held_hand_count: int, held_foot_count: int):
 	var target_pos := Vector2.ZERO
 	var total_weight := 0.0
 
@@ -1799,16 +1800,13 @@ func apply_limb_tension(delta, held_hand_count: int, held_foot_count: int):
 		target_pos /= total_weight
 		target_pos += Vector2(0, 60.0 if held_foot_count == 0 else 30.0)
 
-		# ── PHASE 2: fatigue weakens the body-pull force ──────────────────────
-		var fatigue_t    := _get_body_fatigue_t()                   # 0→1
+		var fatigue_t    := _get_body_fatigue_t()
 		var force_scalar := _get_grip_force_scalar(fatigue_t * PRESSURE_FAIL)
-		# Also add body sag: CoM drifts down as arms tire
 		var sag_y := fatigue_t * P2_MAX_SAG_PX
 		target_pos += Vector2(0, sag_y)
 		com_velocity += (target_pos - com_position) * BODY_PULL_STRENGTH * force_scalar
-		# ─────────────────────────────────────────────────────────────────────
 
-func check_limb_overload(held_hand_count: int, held_foot_count: int):
+func check_limb_overload(_held_hand_count: int, _held_foot_count: int):
 	if left_hand_hold:
 		var left_shoulder := global_position + Vector2(-SHOULDER_OFFSET, 0)
 		var anchor = left_hand_hold.get_limb_anchor(left_hand)
@@ -1899,7 +1897,7 @@ func constrain_arm(elbow: Node2D, hand: Node2D, shoulder: Vector2, upper_len: fl
 			else:
 				hand.global_position -= elbow_to_hand.normalized() * (hand_dist - lower_len) * LIMB_STIFFNESS
 
-func constrain_leg_strict(knee: Node2D, foot: Node2D, hip: Vector2, upper_len: float, lower_len: float, foot_pinned: bool, is_left: bool):
+func constrain_leg_strict(knee: Node2D, foot: Node2D, hip: Vector2, upper_len: float, lower_len: float, foot_pinned: bool, _is_left: bool):
 	var to_foot := foot.global_position - hip
 	var dist := to_foot.length()
 	if dist < 0.01:
@@ -2000,7 +1998,7 @@ func auto_place_feet(delta):
 				foot_placement_timer = FOOT_PLACEMENT_TIMER
 				return
 
-func _animate_auto_foot(delta: float, is_left: bool):
+func _animate_auto_foot(_delta: float, is_left: bool):
 	var animating  := left_foot_auto_animating  if is_left else right_foot_auto_animating
 	if not animating:
 		return
@@ -2138,12 +2136,10 @@ func find_best_foot_hold(foot_position: Vector2, is_left: bool) -> Area2D:
 	return best_hold
 
 func initial_grab():
-	print("=== INITIAL GRAB SEQUENCE START ===")
 	await get_tree().process_frame
 	await get_tree().process_frame
 
 	var start_holds := find_start_holds()
-	print("Found " + str(start_holds.size()) + " start holds")
 
 	if left_hand_hold: left_hand_hold.release(left_hand); left_hand_hold = null
 	if right_hand_hold: right_hand_hold.release(right_hand); right_hand_hold = null
@@ -2162,22 +2158,14 @@ func initial_grab():
 		var hold = start_holds[0]
 		var hold_point: Marker2D = hold.get_node_or_null("HoldPoint")
 		if not hold_point:
-			print("ERROR: Start hold missing HoldPoint!")
 			return
 		var hold_pos = hold_point.global_position
-		print("Single start hold at: " + str(hold_pos))
 		if hold.can_grab(left_hand, false):
 			if hold.try_claim(left_hand, false, hold_pos):
 				left_hand_hold = hold; left_hand.global_position = hold_pos; left_hand_anchor = hold_pos; left_hand_pin = hold_pos
-				print("  ✓ Left hand claimed hold")
-			else: print("  ✗ Left hand failed to claim hold")
-		else: print("  ✗ Left hand cannot grab hold")
 		if hold.can_grab(right_hand, false):
 			if hold.try_claim(right_hand, false, hold_pos):
 				right_hand_hold = hold; right_hand.global_position = hold_pos; right_hand_anchor = hold_pos; right_hand_pin = hold_pos
-				print("  ✓ Right hand claimed hold")
-			else: print("  ✗ Right hand failed to claim hold")
-		else: print("  ✗ Right hand cannot grab hold")
 		global_position.x = hold_pos.x
 		global_position.y = hold_pos.y + 80
 
@@ -2185,7 +2173,6 @@ func initial_grab():
 		var hold_0_point: Marker2D = start_holds[0].get_node_or_null("HoldPoint")
 		var hold_1_point: Marker2D = start_holds[1].get_node_or_null("HoldPoint")
 		if not hold_0_point or not hold_1_point:
-			print("ERROR: Start holds missing HoldPoint!")
 			return
 		var a_x = hold_0_point.global_position.x
 		var b_x = hold_1_point.global_position.x
@@ -2193,27 +2180,18 @@ func initial_grab():
 		var right_start = start_holds[1] if a_x <= b_x else start_holds[0]
 		var lp: Marker2D = left_start.get_node("HoldPoint")
 		var left_pos = lp.global_position
-		print("Left start hold at: " + str(left_pos))
 		if left_start.can_grab(left_hand, false):
 			if left_start.try_claim(left_hand, false, left_pos):
 				left_hand_hold = left_start; left_hand.global_position = left_pos; left_hand_anchor = left_pos; left_hand_pin = left_pos
-				print("  ✓ Left hand claimed hold")
-			else: print("  ✗ Left hand failed to claim hold")
-		else: print("  ✗ Left hand cannot grab hold")
 		var rp: Marker2D = right_start.get_node("HoldPoint")
 		var right_pos = rp.global_position
-		print("Right start hold at: " + str(right_pos))
 		if right_start.can_grab(right_hand, false):
 			if right_start.try_claim(right_hand, false, right_pos):
 				right_hand_hold = right_start; right_hand.global_position = right_pos; right_hand_anchor = right_pos; right_hand_pin = right_pos
-				print("  ✓ Right hand claimed hold")
-			else: print("  ✗ Right hand failed to claim hold")
-		else: print("  ✗ Right hand cannot grab hold")
 		global_position.x = (left_pos.x + right_pos.x) / 2.0
 		global_position.y = left_pos.y + 80
 
 	else:
-		print("No start holds found - using fallback")
 		var left_hold := find_nearest_hold(left_hand.global_position)
 		var right_hold := find_nearest_hold(right_hand.global_position)
 		if left_hold and left_hold.can_grab(left_hand, false):
@@ -2262,25 +2240,13 @@ func initial_grab():
 	left_hand_joint_velocity = Vector2.ZERO; right_hand_joint_velocity = Vector2.ZERO
 	left_foot_joint_velocity = Vector2.ZERO; right_foot_joint_velocity = Vector2.ZERO
 
-	print("=== NOTIFYING ALL HOLDS: CLIMB START ===")
-	var notify_count = 0
+	_reset_ghost_targets()
+
 	for hold in get_tree().get_nodes_in_group("holds"):
 		if hold.has_method("notify_climb_start"):
 			hold.notify_climb_start()
-			notify_count += 1
-	print("Notified " + str(notify_count) + " holds that climb has started")
-	print("========================================")
-	print("=== SPAWN STATE ===")
-	print("Body position: " + str(global_position))
-	print("Left hand hold: " + ("YES" if left_hand_hold else "NO"))
-	print("Right hand hold: " + ("YES" if right_hand_hold else "NO"))
-	print("Left foot hold: " + ("YES" if left_foot_hold else "NO"))
-	print("Right foot hold: " + ("YES" if right_foot_hold else "NO"))
-	print("===================")
 
-	# ── SPAWN GUARD: physics can now run ─────────────────────────────────────
 	_grab_initialized = true
-	# ─────────────────────────────────────────────────────────────────────────
 
 func find_start_holds() -> Array[Area2D]:
 	var start_holds: Array[Area2D] = []
@@ -2337,8 +2303,6 @@ func attempt_grab(limb: Limb):
 		var hold_point := hold.get_node_or_null("HoldPoint")
 		if hold_point == null: continue
 		if not hold.can_grab(limb_node, is_foot): continue
-		# Distance used only for ranking — NOT as a pass/fail gate.
-		# The limb area overlapping the hold is sufficient proof it's reachable.
 		var d := limb_node.global_position.distance_to(hold_point.global_position)
 		if d < closest_dist:
 			closest_dist = d
@@ -2356,15 +2320,11 @@ func attempt_grab(limb: Limb):
 		Limb.LEFT_HAND:
 			left_hand_hold = closest_hold; left_hand_grab_target = grab_pos; left_hand_pin = grab_pos
 			left_hand_grabbing = true; left_hand_velocity = Vector2.ZERO; left_hand_joint_velocity = Vector2.ZERO
-			# ── PHASE 1: catch penalty on successful hand grab ────────────────
 			_apply_catch_penalty(Limb.LEFT_HAND)
-			# ─────────────────────────────────────────────────────────────────
 		Limb.RIGHT_HAND:
 			right_hand_hold = closest_hold; right_hand_grab_target = grab_pos; right_hand_pin = grab_pos
 			right_hand_grabbing = true; right_hand_velocity = Vector2.ZERO; right_hand_joint_velocity = Vector2.ZERO
-			# ── PHASE 1: catch penalty on successful hand grab ────────────────
 			_apply_catch_penalty(Limb.RIGHT_HAND)
-			# ─────────────────────────────────────────────────────────────────
 		Limb.LEFT_FOOT:
 			left_foot_hold = closest_hold; left_foot_grab_target = grab_pos; left_foot_pin = grab_pos
 			left_foot_grabbing = true; left_foot_velocity = Vector2.ZERO; left_foot_joint_velocity = Vector2.ZERO
@@ -2374,13 +2334,11 @@ func attempt_grab(limb: Limb):
 
 	if not climb_started:
 		climb_started = true
-		print("🎬 FIRST GRAB - Climb started!")
 		var game_scene = get_tree().get_current_scene()
 		if game_scene and game_scene.has_method("on_climb_start"):
-			print("  Notifying game scene...")
 			game_scene.on_climb_start()
 
-func calculate_grab_position(limb: Limb, hold: Area2D, hold_point: Vector2, limb_pos: Vector2) -> Vector2:
+func calculate_grab_position(limb: Limb, hold: Area2D, hold_point: Vector2, _limb_pos: Vector2) -> Vector2:
 	var is_hand := (limb == Limb.LEFT_HAND or limb == Limb.RIGHT_HAND)
 	var left_hand_here  := (left_hand_hold  == hold and not left_hand_grabbing)
 	var right_hand_here := (right_hand_hold == hold and not right_hand_grabbing)
@@ -2432,7 +2390,6 @@ func check_fall_detection(delta: float):
 	if held_limbs == 0 and com_velocity.y > FALL_VELOCITY_THRESHOLD and not in_water:
 		fall_timer += delta
 		if fall_timer >= FALL_DETECTION_TIME:
-			print("Fell off - resetting climb")
 			if current_discipline == 2 and speed_timer:
 				if speed_timer.has_method("pause_timer"):
 					speed_timer.pause_timer()
@@ -2447,20 +2404,10 @@ func check_climb_completion():
 	var right_on_top = right_hand_hold and right_hand_hold.has_method("is_top_out") and right_hand_hold.is_top_out()
 	if left_on_top and right_on_top:
 		climb_completed = true
-		var is_granite := false
-		if Engine.has_singleton("EnvironmentConfig"):
-			var env_config = EnvironmentConfig
-			is_granite = env_config.get_current_environment() == EnvironmentConfig.EnvironmentType.GRANITE
 		match current_discipline:
-			0:
-				if is_granite: print("Climb completed via granite top-out!")
-				else: print("Climb completed via top hold!")
-			1: print("Roped climb completed!")
 			2:
 				if speed_timer and speed_timer.has_method("pause_timer"):
 					speed_timer.pause_timer()
-				var time = speed_timer.get_time_remaining() if speed_timer else 0
-				print("Speed climb completed with ", time, " seconds remaining!")
 		var game_scene = get_tree().get_current_scene()
 		if game_scene and game_scene.has_method("on_level_complete"):
 			game_scene.on_level_complete()
@@ -2472,17 +2419,64 @@ func update_camera():
 func _draw():
 	if aesthetic:
 		draw_stick_figure()
-	if debug:
-		draw_debug_info()
+
+func _draw_load_hud():
+	if not show_load_hud:
+		return
+
+	var any_held := left_hand_hold or right_hand_hold or left_foot_hold or right_foot_hold
+	if not any_held:
+		return
+
+	var MIN_R := 3.0
+	var MAX_R := 9.0
+
+	var _draw_indicator = func(local_pos: Vector2, load_amount: float, is_hand: bool, is_held: bool):
+		if not is_held:
+			return
+		var r = lerp(MIN_R, MAX_R, load_amount)
+		var alpha = clamp(0.25 + load_amount * 0.75, 0.25, 1.0)
+		var base_color: Color
+		if is_hand:
+			base_color = Color(1.0, lerp(1.0, 0.65, load_amount), lerp(1.0, 0.1, load_amount), alpha)
+		else:
+			base_color = Color(lerp(1.0, 0.3, load_amount), 1.0, lerp(1.0, 0.3, load_amount), alpha)
+		draw_circle(local_pos, r + 1.5, Color(0, 0, 0, alpha * 0.5))
+		draw_circle(local_pos, r, base_color)
+
+	_draw_indicator.call(
+		left_hand.position + left_hand_shake_offset + left_hand_visual_offset + Vector2(-12, 0),
+		_load_lh, true, left_hand_hold != null)
+	_draw_indicator.call(
+		right_hand.position + right_hand_shake_offset + right_hand_visual_offset + Vector2(12, 0),
+		_load_rh, true, right_hand_hold != null)
+	_draw_indicator.call(
+		left_foot.position + left_foot_shake_offset + left_foot_visual_offset + Vector2(-10, 0),
+		_load_lf, false, left_foot_hold != null)
+	_draw_indicator.call(
+		right_foot.position + right_foot_shake_offset + right_foot_visual_offset + Vector2(10, 0),
+		_load_rf, false, right_foot_hold != null)
+
+	if selected_limbs.is_empty() and (left_hand_hold or right_hand_hold):
+		var shift_len := _hip_shift_offset.length()
+		if shift_len > 2.0:
+			var arrow_dir := _hip_shift_offset.normalized()
+			var origin := Vector2(0, HIP_DOWN)
+			var arrow_end := origin + arrow_dir * minf(shift_len * 0.7, 22.0)
+			var perp := Vector2(-arrow_dir.y, arrow_dir.x) * 3.5
+			var alpha = clamp(shift_len / HIP_SHIFT_MAX_RADIUS, 0.0, 1.0)
+			var col := Color(0.4, 0.85, 1.0, 0.35 + alpha * 0.55)
+			draw_line(origin, arrow_end, col, 2.5)
+			draw_line(arrow_end, arrow_end - arrow_dir * 7.0 + perp, col, 2.5)
+			draw_line(arrow_end, arrow_end - arrow_dir * 7.0 - perp, col, 2.5)
+			draw_circle(origin, 4.0, Color(0.4, 0.85, 1.0, 0.25 + alpha * 0.4))
 
 func draw_stick_figure():
 	var black := Color.BLACK
 	var line_width := 4.0
 
-	# ── PHASE 2: per-limb fatigue colour (forearm darkens subtly) ────────────
 	var lh_color := _get_limb_color(left_hand_pressure)
 	var rh_color := _get_limb_color(right_hand_pressure)
-	# ─────────────────────────────────────────────────────────────────────────
 
 	var lh_hand_draw := left_hand.position + left_hand_shake_offset + left_hand_visual_offset
 	var rh_hand_draw := right_hand.position + right_hand_shake_offset + right_hand_visual_offset
@@ -2490,10 +2484,8 @@ func draw_stick_figure():
 	draw_circle(Vector2(0, HEAD_OFFSET), 16, black)
 	draw_line(Vector2(0, HEAD_OFFSET + 12), Vector2(0, HIP_DOWN + 5), black, line_width)
 
-	# Upper arms — always black
 	draw_line(Vector2(-SHOULDER_OFFSET, 0), left_hand_joint.position, black, line_width)
 	draw_line(Vector2( SHOULDER_OFFSET, 0), right_hand_joint.position, black, line_width)
-	# Forearms — coloured by fatigue
 	draw_line(left_hand_joint.position, lh_hand_draw, lh_color, line_width - 1)
 	draw_line(right_hand_joint.position, rh_hand_draw, rh_color, line_width - 1)
 
@@ -2502,7 +2494,6 @@ func draw_stick_figure():
 	draw_line(Vector2(HIP_OFFSET, HIP_DOWN), right_foot_joint.position, black, line_width)
 	draw_line(right_foot_joint.position, right_foot.position + right_foot_shake_offset + right_foot_visual_offset, black, line_width - 1)
 
-	# Hand dots coloured by fatigue
 	draw_circle(lh_hand_draw, 5, lh_color)
 	draw_circle(rh_hand_draw, 5, rh_color)
 	draw_circle(left_foot.position + left_foot_shake_offset + left_foot_visual_offset, 5, black)
@@ -2513,47 +2504,22 @@ func draw_stick_figure():
 		draw_circle(mouse_local, 6, Color(1, 1, 0, 0.5))
 		draw_arc(mouse_local, 10, 0, TAU, 12, Color(1, 1, 0, 0.7), 1.5)
 
-	# ── PHASE 2: Rest Mode indicator ─────────────────────────────────────────
 	if rest_mode_active:
 		var alpha := 0.5 + sin(Time.get_ticks_msec() * 0.004) * 0.25
 		draw_circle(Vector2(0, 0), 8, Color(0.4, 0.8, 1.0, alpha))
-	# ─────────────────────────────────────────────────────────────────────────
 
-func draw_debug_info():
-	var com_local = to_local(com_position)
-	var vel_normalized = com_velocity.normalized() if com_velocity.length() > 10 else Vector2.ZERO
-	if vel_normalized.length() > 0.1:
-		var arrow_length = min(com_velocity.length() * 0.1, 15.0)
-		var arrow_end = com_local + vel_normalized * arrow_length
-		draw_line(com_local, arrow_end, Color(1, 0.3, 0, 0.9), 2.0)
-		var perp = Vector2(-vel_normalized.y, vel_normalized.x) * 3.0
-		draw_line(arrow_end, arrow_end - vel_normalized * 5.0 + perp, Color(1, 0.3, 0, 0.9), 2.0)
-		draw_line(arrow_end, arrow_end - vel_normalized * 5.0 - perp, Color(1, 0.3, 0, 0.9), 2.0)
-	draw_circle(com_local, 4, Color(1, 0.5, 0, 0.8))
-	draw_arc(com_local, 6, 0, TAU, 12, Color(1, 0.5, 0, 1.0), 1.5)
-	if swing_momentum.length() > 10:
-		var swing_normalized = swing_momentum.normalized()
-		var swing_length = min(swing_momentum.length() * 0.08, 20.0)
-		var swing_end = com_local + swing_normalized * swing_length
-		draw_line(com_local, swing_end, Color(0, 1, 1, 0.9), 2.5)
-		var perp = Vector2(-swing_normalized.y, swing_normalized.x) * 4.0
-		draw_line(swing_end, swing_end - swing_normalized * 6.0 + perp, Color(0, 1, 1, 0.9), 2.5)
-		draw_line(swing_end, swing_end - swing_normalized * 6.0 - perp, Color(0, 1, 1, 0.9), 2.5)
+	_draw_load_hud()
 
 func set_climbing_discipline(discipline: int):
 	current_discipline = discipline
-	match discipline:
-		0: print("Character: Set to BOULDERING mode")
-		1: print("Character: Set to ROPED CLIMBING mode")
-		2: print("Character: Set to SPEED CLIMBING mode"); speed_climb_active = true
+	if discipline == 2:
+		speed_climb_active = true
 
 func set_rope_system(rope: Node2D):
 	rope_system = rope
-	print("Character: Rope system attached")
 
 func set_speed_timer(timer: Node):
 	speed_timer = timer
-	print("Character: Speed timer attached")
 
 func get_climbing_discipline() -> int:
 	return current_discipline
