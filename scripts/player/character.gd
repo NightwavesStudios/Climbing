@@ -155,6 +155,7 @@ const FALL_VELOCITY_THRESHOLD := 400.0
 const HIP_SHIFT_STRENGTH   := 0.022
 const HIP_SHIFT_MAX_RADIUS := 60.0
 const HIP_SHIFT_DEADZONE   := 18.0
+const HIP_SHIFT_MAX_SPEED  := 300.0
 
 var _hip_shift_offset: Vector2 = Vector2.ZERO
 
@@ -248,9 +249,7 @@ const ALLOW_FOOT_CROSSING := true
 const MIN_HAND_SEPARATION := 20.0
 const MIN_FOOT_SEPARATION := 15.0
 
-const MOUSE_GHOST_CHASE_HAND  := 0.2
-const MOUSE_GHOST_CHASE_FOOT  := 0.2
-const LIMB_TO_GHOST_SPEED     := 0.2
+const LIMB_TO_GHOST_SPEED := 0.3
 
 var _ghost_lh: Vector2 = Vector2.ZERO
 var _ghost_rh: Vector2 = Vector2.ZERO
@@ -267,8 +266,8 @@ const BASE_REACH_DISTANCE := 200.0
 
 @export var GRAB_RADIUS := 35.0
 
-const SHARED_HOLD_HAND_OFFSET := 10.0
-const SHARED_HOLD_HAND_FOOT_OFFSET := 10.0
+const SHARED_HOLD_HAND_OFFSET := 5.0
+const SHARED_HOLD_HAND_FOOT_OFFSET := 5.0
 
 func get_hand_modifiers(state: GripState) -> Dictionary:
 	match state:
@@ -1435,7 +1434,10 @@ func _apply_hip_shift_bias():
 	if _hip_shift_offset.length() < 1.0:
 		return
 	var bias_target := com_position + _hip_shift_offset
-	com_velocity += (bias_target - com_position) * 0.18
+	var bias_force := (bias_target - com_position) * 0.18
+	if bias_force.length() > HIP_SHIFT_MAX_SPEED:
+		bias_force = bias_force.normalized() * HIP_SHIFT_MAX_SPEED
+	com_velocity += bias_force
 
 func check_leg_overstretch():
 	var left_hip := global_position + Vector2(-HIP_OFFSET, HIP_DOWN)
@@ -1524,64 +1526,90 @@ func get_foot_move_speed(limb: Limb) -> float:
 	if hold and hold.is_crimp():
 		return BASE_HAND_MOVE_SPEED * CRIMP_LEG_SPEED_FACTOR
 	return BASE_HAND_MOVE_SPEED
-
 func apply_mouse_control_multi(delta: float):
+	_update_ghost_with_reach(delta, Limb.LEFT_HAND,  left_hand,  left_hand_state,
+		left_hand_hold, left_hand_grabbing,
+		global_position + Vector2(-SHOULDER_OFFSET, 0),
+		ARM_UPPER_LENGTH + ARM_LOWER_LENGTH, true)
+
+	_update_ghost_with_reach(delta, Limb.RIGHT_HAND, right_hand, right_hand_state,
+		right_hand_hold, right_hand_grabbing,
+		global_position + Vector2(SHOULDER_OFFSET, 0),
+		ARM_UPPER_LENGTH + ARM_LOWER_LENGTH, false)
+
+	_update_ghost_with_reach(delta, Limb.LEFT_FOOT,  left_foot,  GripState.RELAXED,
+		left_foot_hold, left_foot_grabbing,
+		global_position + Vector2(-HIP_OFFSET, HIP_DOWN),
+		LEG_UPPER_LENGTH + LEG_LOWER_LENGTH, true)
+
+	_update_ghost_with_reach(delta, Limb.RIGHT_FOOT, right_foot, GripState.RELAXED,
+		right_foot_hold, right_foot_grabbing,
+		global_position + Vector2(HIP_OFFSET, HIP_DOWN),
+		LEG_UPPER_LENGTH + LEG_LOWER_LENGTH, false)
+
+func _update_ghost_with_reach(delta: float, limb: Limb, limb_node: Node2D,
+		state: GripState, hold, grabbing: bool,
+		anchor: Vector2, max_reach: float, is_left: bool):
+
+	if limb not in selected_limbs or hold != null or grabbing:
+		return
+
 	var mouse_global := mouse_aim_position
 
-	if Limb.LEFT_HAND in selected_limbs and left_hand_hold == null and not left_hand_grabbing:
-		var mods := get_hand_modifiers(left_hand_state)
-		var ghost_speed = MOUSE_GHOST_CHASE_HAND * mods.speed_mult
-		_ghost_lh = _ghost_lh.lerp(mouse_global, ghost_speed * delta * 60.0)
-
-	if Limb.RIGHT_HAND in selected_limbs and right_hand_hold == null and not right_hand_grabbing:
-		var mods := get_hand_modifiers(right_hand_state)
-		var ghost_speed = MOUSE_GHOST_CHASE_HAND * mods.speed_mult
-		_ghost_rh = _ghost_rh.lerp(mouse_global, ghost_speed * delta * 60.0)
-
-	if Limb.LEFT_FOOT in selected_limbs and left_foot_hold == null and not left_foot_grabbing:
-		_ghost_lf = _ghost_lf.lerp(mouse_global, MOUSE_GHOST_CHASE_FOOT * delta * 60.0)
-
-	if Limb.RIGHT_FOOT in selected_limbs and right_foot_hold == null and not right_foot_grabbing:
-		_ghost_rf = _ghost_rf.lerp(mouse_global, MOUSE_GHOST_CHASE_FOOT * delta * 60.0)
-
-	if Limb.LEFT_HAND in selected_limbs and left_hand_hold == null and not left_hand_grabbing:
-		apply_hand_control(left_hand, left_hand_state, Vector2(-SHOULDER_OFFSET, 0), _ghost_lh, true, delta)
-
-	if Limb.RIGHT_HAND in selected_limbs and right_hand_hold == null and not right_hand_grabbing:
-		apply_hand_control(right_hand, right_hand_state, Vector2(SHOULDER_OFFSET, 0), _ghost_rh, false, delta)
-
-	if Limb.LEFT_FOOT in selected_limbs and left_foot_hold == null and not left_foot_grabbing:
-		apply_foot_control(left_foot, Vector2(-HIP_OFFSET, HIP_DOWN), _ghost_lf, true, delta)
-
-	if Limb.RIGHT_FOOT in selected_limbs and right_foot_hold == null and not right_foot_grabbing:
-		apply_foot_control(right_foot, Vector2(HIP_OFFSET, HIP_DOWN), _ghost_rf, false, delta)
-
-func apply_hand_control(hand: Node2D, state: GripState, _shoulder_offset: Vector2,
-						target: Vector2, is_left: bool, delta: float):
-	var mods := get_hand_modifiers(state)
-	var move_speed = LIMB_TO_GHOST_SPEED * mods.speed_mult
-	hand.global_position = hand.global_position.lerp(target, move_speed)
-	if is_left:
-		left_hand_velocity = Vector2.ZERO
-		left_hand_joint_velocity = Vector2.ZERO
-		apply_limb_momentum(left_hand.global_position, previous_left_hand_pos, delta)
+	var to_mouse := mouse_global - anchor
+	var dist := to_mouse.length()
+	var clamped_target: Vector2
+	if dist > max_reach:
+		clamped_target = anchor + to_mouse.normalized() * max_reach
 	else:
-		right_hand_velocity = Vector2.ZERO
-		right_hand_joint_velocity = Vector2.ZERO
-		apply_limb_momentum(right_hand.global_position, previous_right_hand_pos, delta)
+		clamped_target = mouse_global
 
-func apply_foot_control(foot: Node2D, _hip_offset: Vector2, target: Vector2,
-						is_left: bool, delta: float):
-	var move_speed := LIMB_TO_GHOST_SPEED * 0.85
-	foot.global_position = foot.global_position.lerp(target, move_speed)
-	if is_left:
-		left_foot_velocity = Vector2.ZERO
-		left_foot_joint_velocity = Vector2.ZERO
-		apply_limb_momentum(left_foot.global_position, previous_left_foot_pos, delta)
-	else:
-		right_foot_velocity = Vector2.ZERO
-		right_foot_joint_velocity = Vector2.ZERO
-		apply_limb_momentum(right_foot.global_position, previous_right_foot_pos, delta)
+	var reach_ratio = clamp(dist / max_reach, 0.0, 1.0)
+	var fatigue_slow := 1.0
+	if limb == Limb.LEFT_HAND or limb == Limb.RIGHT_HAND:
+		var mods := get_hand_modifiers(state)
+		fatigue_slow = mods.speed_mult
+	var proximity_slow = lerp(1.0, 0.45, smoothstep(0.6, 1.0, reach_ratio))
+	var move_speed = clamp(60.0 * fatigue_slow * proximity_slow * delta, 0.0, 1.0)
+
+	match limb:
+		Limb.LEFT_HAND:
+			if not _ghost_lh_init: _ghost_lh = limb_node.global_position; _ghost_lh_init = true
+			_ghost_lh = _ghost_lh.lerp(clamped_target, move_speed)
+			limb_node.global_position = _ghost_lh
+			var shoulder_l := global_position + Vector2(-SHOULDER_OFFSET, 0)
+			left_hand_joint.global_position = left_hand_joint.global_position.lerp(
+				shoulder_l + ((_ghost_lh - shoulder_l).normalized() * ARM_UPPER_LENGTH), 0.35)
+			left_hand_velocity = Vector2.ZERO
+			left_hand_joint_velocity = Vector2.ZERO
+		Limb.RIGHT_HAND:
+			if not _ghost_rh_init: _ghost_rh = limb_node.global_position; _ghost_rh_init = true
+			_ghost_rh = _ghost_rh.lerp(clamped_target, move_speed)
+			limb_node.global_position = _ghost_rh
+			var shoulder_r := global_position + Vector2(SHOULDER_OFFSET, 0)
+			right_hand_joint.global_position = right_hand_joint.global_position.lerp(
+				shoulder_r + ((_ghost_rh - shoulder_r).normalized() * ARM_UPPER_LENGTH), 0.35)
+			right_hand_velocity = Vector2.ZERO
+			right_hand_joint_velocity = Vector2.ZERO
+		Limb.LEFT_FOOT:
+			if not _ghost_lf_init: _ghost_lf = limb_node.global_position; _ghost_lf_init = true
+			_ghost_lf = _ghost_lf.lerp(clamped_target, move_speed * 0.8)
+			limb_node.global_position = _ghost_lf
+			var hip_l := global_position + Vector2(-HIP_OFFSET, HIP_DOWN)
+			left_foot_joint.global_position = left_foot_joint.global_position.lerp(
+				hip_l + ((_ghost_lf - hip_l).normalized() * LEG_UPPER_LENGTH), 0.35)
+			left_foot_velocity = Vector2.ZERO
+			left_foot_joint_velocity = Vector2.ZERO
+		Limb.RIGHT_FOOT:
+			if not _ghost_rf_init: _ghost_rf = limb_node.global_position; _ghost_rf_init = true
+			_ghost_rf = _ghost_rf.lerp(clamped_target, move_speed * 0.8)
+			limb_node.global_position = _ghost_rf
+			var hip_r := global_position + Vector2(HIP_OFFSET, HIP_DOWN)
+			right_foot_joint.global_position = right_foot_joint.global_position.lerp(
+				hip_r + ((_ghost_rf - hip_r).normalized() * LEG_UPPER_LENGTH), 0.35)
+			right_foot_velocity = Vector2.ZERO
+			right_foot_joint_velocity = Vector2.ZERO
+
 
 func apply_natural_limb_positions(_delta):
 	var relax = 0.18
@@ -2420,57 +2448,6 @@ func _draw():
 	if aesthetic:
 		draw_stick_figure()
 
-func _draw_load_hud():
-	if not show_load_hud:
-		return
-
-	var any_held := left_hand_hold or right_hand_hold or left_foot_hold or right_foot_hold
-	if not any_held:
-		return
-
-	var MIN_R := 3.0
-	var MAX_R := 9.0
-
-	var _draw_indicator = func(local_pos: Vector2, load_amount: float, is_hand: bool, is_held: bool):
-		if not is_held:
-			return
-		var r = lerp(MIN_R, MAX_R, load_amount)
-		var alpha = clamp(0.25 + load_amount * 0.75, 0.25, 1.0)
-		var base_color: Color
-		if is_hand:
-			base_color = Color(1.0, lerp(1.0, 0.65, load_amount), lerp(1.0, 0.1, load_amount), alpha)
-		else:
-			base_color = Color(lerp(1.0, 0.3, load_amount), 1.0, lerp(1.0, 0.3, load_amount), alpha)
-		draw_circle(local_pos, r + 1.5, Color(0, 0, 0, alpha * 0.5))
-		draw_circle(local_pos, r, base_color)
-
-	_draw_indicator.call(
-		left_hand.position + left_hand_shake_offset + left_hand_visual_offset + Vector2(-12, 0),
-		_load_lh, true, left_hand_hold != null)
-	_draw_indicator.call(
-		right_hand.position + right_hand_shake_offset + right_hand_visual_offset + Vector2(12, 0),
-		_load_rh, true, right_hand_hold != null)
-	_draw_indicator.call(
-		left_foot.position + left_foot_shake_offset + left_foot_visual_offset + Vector2(-10, 0),
-		_load_lf, false, left_foot_hold != null)
-	_draw_indicator.call(
-		right_foot.position + right_foot_shake_offset + right_foot_visual_offset + Vector2(10, 0),
-		_load_rf, false, right_foot_hold != null)
-
-	if selected_limbs.is_empty() and (left_hand_hold or right_hand_hold):
-		var shift_len := _hip_shift_offset.length()
-		if shift_len > 2.0:
-			var arrow_dir := _hip_shift_offset.normalized()
-			var origin := Vector2(0, HIP_DOWN)
-			var arrow_end := origin + arrow_dir * minf(shift_len * 0.7, 22.0)
-			var perp := Vector2(-arrow_dir.y, arrow_dir.x) * 3.5
-			var alpha = clamp(shift_len / HIP_SHIFT_MAX_RADIUS, 0.0, 1.0)
-			var col := Color(0.4, 0.85, 1.0, 0.35 + alpha * 0.55)
-			draw_line(origin, arrow_end, col, 2.5)
-			draw_line(arrow_end, arrow_end - arrow_dir * 7.0 + perp, col, 2.5)
-			draw_line(arrow_end, arrow_end - arrow_dir * 7.0 - perp, col, 2.5)
-			draw_circle(origin, 4.0, Color(0.4, 0.85, 1.0, 0.25 + alpha * 0.4))
-
 func draw_stick_figure():
 	var black := Color.BLACK
 	var line_width := 4.0
@@ -2499,16 +2476,9 @@ func draw_stick_figure():
 	draw_circle(left_foot.position + left_foot_shake_offset + left_foot_visual_offset, 5, black)
 	draw_circle(right_foot.position + right_foot_shake_offset + right_foot_visual_offset, 5, black)
 
-	if use_mouse_aim and selected_limbs.size() > 0:
-		var mouse_local = to_local(mouse_aim_position)
-		draw_circle(mouse_local, 6, Color(1, 1, 0, 0.5))
-		draw_arc(mouse_local, 10, 0, TAU, 12, Color(1, 1, 0, 0.7), 1.5)
-
 	if rest_mode_active:
 		var alpha := 0.5 + sin(Time.get_ticks_msec() * 0.004) * 0.25
 		draw_circle(Vector2(0, 0), 8, Color(0.4, 0.8, 1.0, alpha))
-
-	_draw_load_hud()
 
 func set_climbing_discipline(discipline: int):
 	current_discipline = discipline

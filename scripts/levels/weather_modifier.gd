@@ -16,8 +16,8 @@ var rain_speed       := 1100.0
 var rain_density     := 600
 var rain_wind        := 0.0
 
-var splash_duration  := 0.22
-var splash_radius    := 8.0
+var splash_duration  := 0.30
+var splash_radius    := 6.0
 
 var rain_sky_top      := Color(0.14, 0.16, 0.22)
 var rain_sky_horizon  := Color(0.28, 0.30, 0.36)
@@ -26,6 +26,7 @@ var rain_cloud_shadow := Color(0.18, 0.20, 0.26)
 var rain_fog_color    := Color(0.22, 0.24, 0.30, 0.28)
 
 var _time: float = 0.0
+# Each drop is a Dictionary with stable identity — no re-seeding every frame.
 var _drops: Array[Dictionary] = []
 var _splashes: Array[Dictionary] = []
 var _wall_ref: Node2D = null
@@ -42,9 +43,13 @@ const RAIN_VOLUME_DB   := -4.0
 const RAIN_VOLUME_MIN  := -18.0
 const FADE_IN_DURATION := 2.5
 
+# ─── Stable per-drop RNG (seeded once at creation) ───────────────────────────
+var _drop_rng := RandomNumberGenerator.new()
+
 func _ready() -> void:
 	z_index = 20
 	_wall_ref = get_parent() if get_parent().has_method("get_bounds") else null
+	_drop_rng.randomize()
 	_setup_audio()
 	set_weather(weather)
 
@@ -79,25 +84,28 @@ func set_weather(new_weather: int) -> void:
 
 func _init_rain() -> void:
 	var count = int(rain_density * clamp(intensity, 0.05, 1.0))
-	var rng = RandomNumberGenerator.new()
-	rng.randomize()
 	for i in range(count):
-		_drops.append(_make_drop(rng, true))
+		_drops.append(_make_drop(true))
 
-func _make_drop(rng: RandomNumberGenerator, spread: bool) -> Dictionary:
+# ─── Drop factory — uses the stable _drop_rng, no frame-time seed ─────────────
+func _make_drop(spread: bool) -> Dictionary:
 	var b := _get_draw_bounds()
-	var layer := rng.randi() % LAYERS
+	var layer := _drop_rng.randi() % LAYERS
 	var speed_scale = lerp(0.6, 1.0, float(layer) / float(LAYERS - 1))
 	var alpha_scale = lerp(0.45, 1.0, float(layer) / float(LAYERS - 1))
-	var x := rng.randf_range(b.x - 200.0, b.x + b.z + 200.0)
-	var y := rng.randf_range(b.y, b.y + b.w) if spread else b.y - rng.randf() * 150.0
+	var x := _drop_rng.randf_range(b.x - 200.0, b.x + b.z + 200.0)
+	var y := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
+			else b.y - _drop_rng.randf() * 150.0
 	return {
-		"x": x, "y": y,
+		"x":     x,
+		"y":     y,
 		"layer": layer,
-		"speed": rain_speed * speed_scale * (0.82 + rng.randf() * 0.36),
-		"alpha": (0.55 + rng.randf() * 0.45) * alpha_scale,
-		"len":   rain_streak_len * speed_scale * (0.7 + rng.randf() * 0.6),
+		"speed": rain_speed * speed_scale * (0.82 + _drop_rng.randf() * 0.36),
+		"alpha": (0.55 + _drop_rng.randf() * 0.45) * alpha_scale,
+		"len":   rain_streak_len * speed_scale * (0.7 + _drop_rng.randf() * 0.6),
 		"width": lerp(1.0, 2.2, float(layer) / float(LAYERS - 1)),
+		# Slight per-drop horizontal wobble to break up uniform slant
+		"wx":    (_drop_rng.randf() - 0.5) * 0.04,
 	}
 
 func _process(delta: float) -> void:
@@ -112,7 +120,6 @@ func _process(delta: float) -> void:
 	if weather == WeatherType.RAIN:
 		_update_rain(delta)
 
-		# Volume tracks intensity — louder when heavier
 		var target_db = lerp(RAIN_VOLUME_MIN, RAIN_VOLUME_DB, intensity)
 		if _audio_fading_in:
 			_audio_fade_elapsed += delta
@@ -123,9 +130,9 @@ func _process(delta: float) -> void:
 				_audio.volume_db = target_db
 				_audio_fading_in = false
 		else:
-			# Smoothly track intensity changes after fade-in
 			_audio.volume_db = move_toward(_audio.volume_db, target_db, 6.0 * delta)
 
+	# Advance splashes — simple ring ripple only, no physics
 	var alive: Array[Dictionary] = []
 	for s in _splashes:
 		s["t"] += delta
@@ -147,36 +154,40 @@ func _update_rain(delta: float) -> void:
 	var dy := cos(angle_rad)
 	var b  := _get_draw_bounds()
 	var ground_y := _get_ground_y()
-	var rng := RandomNumberGenerator.new()
-	rng.seed = int(_time * 4000.0) ^ 0xC0FFEE
 
 	for i in range(_drops.size()):
 		var d := _drops[i]
-		d["x"] += dx * d["speed"] * delta
+		d["x"] += (dx + d["wx"]) * d["speed"] * delta
 		d["y"] += dy * d["speed"] * delta
-		if d["y"] >= ground_y or d["x"] > b.x + b.z + 300.0 or d["x"] < b.x - 300.0:
-			if d["y"] >= ground_y:
-				_splashes.append({"x": d["x"], "y": ground_y, "t": 0.0, "alpha": d["alpha"] * 0.8, "layer": d["layer"]})
-			_drops[i] = _make_drop(rng, false)
+
+		var out_bottom = d["y"] >= ground_y
+		var out_sides  = d["x"] > b.x + b.z + 300.0 or d["x"] < b.x - 300.0
+
+		if out_bottom or out_sides:
+			if out_bottom:
+				_spawn_splash(d["x"], ground_y, d["alpha"], d["layer"])
+			_drops[i] = _make_drop(false)
 		else:
 			_drops[i] = d
+
+# ─── Spawn a minimal ground ripple — 2D side view, keep it subtle ─────────────
+func _spawn_splash(sx: float, gy: float, drop_alpha: float, layer: int) -> void:
+	# Only track a fraction of hits to keep count very low
+	if _drop_rng.randf() > 0.12:
+		return
+	_splashes.append({
+		"x":     sx,
+		"gy":    gy,
+		"t":     0.0,
+		"alpha": drop_alpha * clamp(intensity, 0.3, 0.7),
+	})
 
 func _draw() -> void:
 	if _blend < 0.01:
 		return
-	_draw_rain_atmosphere()
 	_draw_rain_streaks()
 	_draw_splashes()
-	_draw_rain_mist()
-
-func _draw_rain_atmosphere() -> void:
-	var b := _get_draw_bounds()
-	# Heavier overlay — scales strongly with intensity for dramatic effect
-	var atmo_alpha = lerp(0.18, 0.52, intensity) * _blend
-	draw_rect(Rect2(b.x, b.y, b.z, b.w + 2000.0), Color(0.05, 0.07, 0.12, atmo_alpha), true)
-	# Second pass: cool blue-grey tint in the lower half to sell the wet look
-	draw_rect(Rect2(b.x, b.y + b.w * 0.5, b.z, b.w * 0.5 + 2000.0),
-			  Color(0.10, 0.14, 0.20, atmo_alpha * 0.5), true)
+	_draw_rain_fog()
 
 func _draw_rain_streaks() -> void:
 	var angle_rad := deg_to_rad(rain_angle_deg)
@@ -191,35 +202,82 @@ func _draw_rain_streaks() -> void:
 				continue
 			var px: float = d["x"]
 			var py: float = d["y"]
-			draw_line(Vector2(px, py), Vector2(px - udx * d["len"], py - udy * d["len"]),
-					  Color(rain_color.r, rain_color.g, rain_color.b, a), d["width"], true)
-
-func _draw_splashes() -> void:
-	for s in _splashes:
-		var t_norm = s["t"] / splash_duration
-		var eased  = 1.0 - (1.0 - t_norm) * (1.0 - t_norm)
-		var r      = splash_radius * eased * (0.8 + intensity * 0.6)
-		var a      = s["alpha"] * (1.0 - t_norm) * _blend
-		var cx: float = s["x"]
-		var cy: float = s["y"]
-		for si in range(12):
-			var ang0 := PI + float(si) / 12.0 * PI
-			var ang1 := PI + float(si + 1) / 12.0 * PI
 			draw_line(
-				Vector2(cx + cos(ang0) * r * 1.8, cy + sin(ang0) * r * 0.5),
-				Vector2(cx + cos(ang1) * r * 1.8, cy + sin(ang1) * r * 0.5),
-				Color(rain_color.r, rain_color.g + 0.08, rain_color.b + 0.10, a), 1.4, true)
+				Vector2(px, py),
+				Vector2(px - udx * d["len"], py - udy * d["len"]),
+				Color(rain_color.r, rain_color.g, rain_color.b, a),
+				d["width"], true)
 
-func _draw_rain_mist() -> void:
-	var b := _get_draw_bounds()
+# ─── Minimal splash: one tiny expanding ellipse ring at ground level ──────────
+func _draw_splashes() -> void:
+	var rc := Color(rain_color.r + 0.10, rain_color.g + 0.05, rain_color.b + 0.03)
+	for s in _splashes:
+		var t_norm = clamp(s["t"] / splash_duration, 0.0, 1.0)
+		var ring_r  = t_norm * splash_radius * 2.2
+		var ring_a  = (1.0 - t_norm) * s["alpha"] * _blend * 0.55
+		if ring_r > 0.3 and ring_a > 0.01:
+			_draw_ellipse_ring(s["x"], s["gy"], ring_r, ring_r * 0.28, ring_a, rc, 1.0)
+
+# ─── Draw an ellipse as a polyline (no fill) ─────────────────────────────────
+func _draw_ellipse_ring(cx: float, cy: float, rx: float, ry: float,
+						alpha: float, color: Color, line_w: float) -> void:
+	if rx < 0.5 or ry < 0.5 or alpha < 0.01:
+		return
+	const STEPS := 14
+	var prev := Vector2.ZERO
+	for i in range(STEPS + 1):
+		var angle := (float(i) / float(STEPS)) * TAU
+		var pt := Vector2(cx + cos(angle) * rx, cy + sin(angle) * ry)
+		if i > 0:
+			draw_line(prev, pt, Color(color.r, color.g, color.b, alpha), line_w, true)
+		prev = pt
+
+# ─── Gradient quad helper — two triangles for correct per-vertex colour ───────
+func _draw_grad_quad(x: float, y0: float, w: float, y1: float,
+					 c_top: Color, c_bot: Color) -> void:
+	var tl := Vector2(x,     y0)
+	var tr := Vector2(x + w, y0)
+	var br := Vector2(x + w, y1)
+	var bl := Vector2(x,     y1)
+	draw_polygon(PackedVector2Array([tl, tr, br]), PackedColorArray([c_top, c_top, c_bot]))
+	draw_polygon(PackedVector2Array([tl, br, bl]), PackedColorArray([c_top, c_bot, c_bot]))
+
+# ─── Atmospheric fog — gradient triangle pairs ────────────────────────────────
+func _draw_rain_fog() -> void:
+	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
-	var mist_a = lerp(0.06, 0.18, intensity) * _blend
-	# More mist bands and taller for heavier rain
-	var band_count := 3 + int(intensity * 4)
-	for mi in range(band_count):
-		var band_h = lerp(14.0, 28.0, intensity)
-		draw_rect(Rect2(b.x, ground_y - float(mi) * band_h - 6.0, b.z, band_h),
-				  Color(0.68, 0.74, 0.84, mist_a * (1.0 - float(mi) / float(band_count))), true)
+	var total_h  := ground_y - b.y + 300.0
+	var w        := b.z
+
+	# ── Sky haze: quadratic curve — nearly invisible at top, peaks at ground ──
+	var haze_max_a = lerp(0.0, 0.35, intensity * _blend)
+	var haze_steps := 8
+	for i in range(haze_steps):
+		var t0     := float(i)     / float(haze_steps)
+		var t1     := float(i + 1) / float(haze_steps)
+		var a0     = haze_max_a * (t0 * t0)
+		var a1     = haze_max_a * (t1 * t1)
+		var y0     := b.y + t0 * total_h
+		var y1     := b.y + t1 * total_h
+		_draw_grad_quad(b.x, y0, w, y1,
+			Color(0.08, 0.11, 0.18, a0),
+			Color(0.10, 0.14, 0.22, a1))
+
+	# ── Ground mist: fades upward from ground line ────────────────────────────
+	var mist_max_a   = lerp(0.0, 0.20, intensity * _blend)
+	var mist_h       = lerp(30.0, 110.0, intensity)
+	var mist_col     := Color(0.55, 0.64, 0.78)
+	var mist_steps   := 6
+	for i in range(mist_steps):
+		var t0 := float(i)     / float(mist_steps)
+		var t1 := float(i + 1) / float(mist_steps)
+		var a0 = mist_max_a * (1.0 - t0)
+		var a1 = mist_max_a * (1.0 - t1)
+		var y0 = ground_y - t0 * mist_h
+		var y1 = ground_y - t1 * mist_h
+		_draw_grad_quad(b.x, y0, w, y1,
+			Color(mist_col.r, mist_col.g, mist_col.b, a0),
+			Color(mist_col.r, mist_col.g, mist_col.b, a1))
 
 func get_blend() -> float:
 	return _blend

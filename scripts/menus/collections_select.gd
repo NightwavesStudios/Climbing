@@ -1,11 +1,5 @@
 extends Control
 
-## Collection Select Screen - HBox Version
-##
-## ZERO manual maintenance required.
-## Add/remove collections in GameState.COLLECTIONS — buttons auto show/hide.
-## Button node names just need to share a word with the collection ID.
-
 @onready var map_container: Control = $HBoxContainer
 
 var button_to_collection: Dictionary = {}

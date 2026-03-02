@@ -19,7 +19,7 @@ var climb_metadata: Dictionary = {}  # level_path: {name: String, grade: String}
 # Collection definitions
 const COLLECTIONS = {
 	"intro-gym": {
-		"name": "Intro Gym",
+		"name": "Gym",
 		"description": "Learn the basics of climbing",
 		"unlock_requirement": {"type": "always"},
 		"levels": [
@@ -36,7 +36,7 @@ const COLLECTIONS = {
 		]
 	},
 	"granite-crag": {
-		"name": "Granite Crag",
+		"name": "Granite",
 		"description": "",
 		"unlock_requirement": {
 			"type": "collection_complete",
@@ -45,9 +45,36 @@ const COLLECTIONS = {
 		"levels": [
 			"res://scenes/levels/granite_crag/granite_crag_01.json",
 			"res://scenes/levels/granite_crag/granite_crag_02.json",
-			"res://scenes/levels/granite_crag/granite_crag_03.json"
+			"res://scenes/levels/granite_crag/granite_crag_03.json",
+			"res://scenes/levels/granite_crag/granite_crag_04.json",
+			"res://scenes/levels/granite_crag/granite_crag_05.json",
+			"res://scenes/levels/granite_crag/granite_crag_06.json",
+			"res://scenes/levels/granite_crag/granite_crag_07.json",
+			"res://scenes/levels/granite_crag/granite_crag_08.json",
+			"res://scenes/levels/granite_crag/granite_crag_09.json",
+			"res://scenes/levels/granite_crag/granite_crag_10.json",
 		]
 	},
+	"sandstone": {
+		"name": "Sandstone",
+		"description": "",
+		"unlock_requirement": {
+			"type": "collection_complete",
+			"collection": "granite-crag"
+		},
+		"levels": [
+			"res://scenes/levels/sandstone/sandstone_01.json",
+			"res://scenes/levels/sandstone/sandstone_02.json",
+			"res://scenes/levels/sandstone/sandstone_03.json",
+			"res://scenes/levels/sandstone/sandstone_04.json",
+			"res://scenes/levels/sandstone/sandstone_05.json",
+			"res://scenes/levels/sandstone/sandstone_06.json",
+			"res://scenes/levels/sandstone/sandstone_07.json",
+			"res://scenes/levels/sandstone/sandstone_08.json",
+			"res://scenes/levels/sandstone/sandstone_09.json",
+			"res://scenes/levels/sandstone/sandstone_10.json",
+		]
+	}
 	#"flow": {
 		#"name": "Flow State",
 		#"description": "Smooth, continuous climbing",

@@ -294,8 +294,6 @@ func update_environment_settings():
 func _apply_environment_theme():
 	match current_environment:
 		"granite", "sandstone", "night":
-			# 0 = daytime, 1 = sunset/sunrise, 2 = night  (seeded so it's stable per level)
-			# XOR+multiply to spread seeds so adjacent levels vary; different offset from gym
 			var time_of_day = (abs((_scenery_seed ^ 0x9E3779B9) * 1664525 + 1013904223) >> 7) % 3
 			match time_of_day:
 				1:  # Sunset / Sunrise
@@ -344,8 +342,6 @@ func _apply_environment_theme():
 						"fog_color": Color(0.65, 0.80, 0.95, 0.0),
 					}
 		"gym":
-			# 0 = daytime, 1 = dusk/sunset, 2 = night — stable per level via seed
-			# Different hash offset from outdoor so gym window TOD is independent
 			var gym_tod = (abs((_scenery_seed ^ 0x6B43FA1D) * 22695477 + 1) >> 9) % 3
 			match gym_tod:
 				1:  # Gym — Dusk / Sunset outside the windows
@@ -356,20 +352,16 @@ func _apply_environment_theme():
 						"has_sun": false, "has_mountains": false,
 						"has_gym_interior": true,
 						"gym_time_of_day": 1,
-						# Window sky gradient
 						"gym_sky_top":   Color(0.12, 0.10, 0.32),
 						"gym_sky_mid":   Color(0.72, 0.28, 0.12),
 						"gym_sky_haze":  Color(0.98, 0.52, 0.18),
-						# Sun disc colour (low on horizon)
 						"gym_sun_color": Color(1.0, 0.55, 0.10),
-						# Mountain silhouette layers (warm dusk tones)
 						"gym_mtn_colors": [
 							Color(0.58, 0.35, 0.28),
 							Color(0.42, 0.22, 0.18),
 							Color(0.28, 0.14, 0.12),
 							Color(0.16, 0.08, 0.08),
 						],
-						# Ground strip colour visible at bottom of window
 						"gym_grass_color": Color(0.14, 0.22, 0.10),
 						"ground_type": "gym_floor",
 						"ground_top": Color(0.22, 0.22, 0.24),
@@ -384,13 +376,10 @@ func _apply_environment_theme():
 						"has_sun": false, "has_mountains": false,
 						"has_gym_interior": true,
 						"gym_time_of_day": 2,
-						# Window sky gradient (very dark)
 						"gym_sky_top":   Color(0.02, 0.02, 0.08),
 						"gym_sky_mid":   Color(0.04, 0.06, 0.14),
 						"gym_sky_haze":  Color(0.06, 0.08, 0.20),
-						# No sun at night
 						"gym_sun_color": Color(0.0, 0.0, 0.0),
-						# Mountain silhouettes (near-black, barely visible)
 						"gym_mtn_colors": [
 							Color(0.14, 0.16, 0.22),
 							Color(0.10, 0.12, 0.18),
@@ -398,7 +387,6 @@ func _apply_environment_theme():
 							Color(0.03, 0.04, 0.08),
 						],
 						"gym_grass_color": Color(0.08, 0.14, 0.07),
-						# Moon & stars drawn inside windows
 						"has_gym_stars": true,
 						"has_gym_moon":  true,
 						"ground_type": "gym_floor",
@@ -414,7 +402,6 @@ func _apply_environment_theme():
 						"has_sun": false, "has_mountains": false,
 						"has_gym_interior": true,
 						"gym_time_of_day": 0,
-						# Window sky gradient (bright blue day)
 						"gym_sky_top":   Color(0.20, 0.45, 0.78),
 						"gym_sky_mid":   Color(0.44, 0.70, 0.93),
 						"gym_sky_haze":  Color(0.70, 0.86, 0.97),
@@ -724,15 +711,32 @@ func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color):
 		pts.append(Vector2(cx + cos(angle) * rx, cy + sin(angle) * ry))
 	draw_colored_polygon(pts, color)
 
+# ─── Fog — gradient polygons, no flat opacity rect ────────────────────────────
 func _draw_fog():
 	var rb := _get_weather_blend()
 	var base_fc: Color = _env.get("fog_color", Color(0, 0, 0, 0))
 	var fc := _rain_lerp_color(base_fc, "fog_color", rb)
 	if fc.a < 0.01: return
-	var bl = wall_min.x - BACKGROUND_EXPANSION
-	var br = wall_max.x + BACKGROUND_EXPANSION
-	var bt = wall_min.y - BACKGROUND_EXPANSION
-	draw_rect(Rect2(Vector2(bl, bt), Vector2(br - bl, 99999.0)), fc, true)
+	var bl := wall_min.x - BACKGROUND_EXPANSION
+	var br := wall_max.x + BACKGROUND_EXPANSION
+	var bt := wall_min.y - BACKGROUND_EXPANSION
+	var total_h := (ground_y + 99999.0) - bt
+
+	# Gradient via triangle pairs: full alpha at sky, 35% less near ground.
+	var steps := 8
+	for i in range(steps):
+		var t0 := float(i)     / float(steps)
+		var t1 := float(i + 1) / float(steps)
+		var a0 := fc.a * (1.0 - t0 * 0.65)
+		var a1 := fc.a * (1.0 - t1 * 0.65)
+		var y0 := bt + t0 * total_h
+		var y1 := bt + t1 * total_h
+		var c0 := Color(fc.r, fc.g, fc.b, a0)
+		var c1 := Color(fc.r, fc.g, fc.b, a1)
+		var tl := Vector2(bl, y0); var tr2 := Vector2(br, y0)
+		var br2 := Vector2(br, y1); var bl2 := Vector2(bl, y1)
+		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
 func _draw_gym_interior():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
@@ -760,7 +764,6 @@ func _draw_gym_interior():
 	var zoom  = ct.x.x
 	var cam_x = -ct.origin.x / zoom
 
-	# ── Read time-of-day sky colours from _env (with rain blending) ──────────
 	var rb      := _get_weather_blend()
 	var gym_tod = _env.get("gym_time_of_day", 0)
 
@@ -768,7 +771,6 @@ func _draw_gym_interior():
 	var sky_mid_c  : Color = _env.get("gym_sky_mid",  Color(0.44, 0.70, 0.93))
 	var sky_haze_c : Color = _env.get("gym_sky_haze", Color(0.70, 0.86, 0.97))
 
-	# Darken toward overcast grey when rain is blending
 	var rain_sky = Color(0.18, 0.20, 0.26)
 	sky_top_c  = sky_top_c.lerp(rain_sky,                       rb)
 	sky_mid_c  = sky_mid_c.lerp(rain_sky.lightened(0.06),       rb)
@@ -777,10 +779,9 @@ func _draw_gym_interior():
 	var sun_wx = wall_min.x + (wall_max.x - wall_min.x) * 0.68 + cam_x * 0.03
 	var gym_sun_color : Color = _env.get("gym_sun_color", Color(1.0, 0.96, 0.78))
 
-	# Dusk: sun is near the horizon (low in the window)
-	var sun_y_frac := 0.15  # default: high up (daytime)
+	var sun_y_frac := 0.15
 	if gym_tod == 1:
-		sun_y_frac = 0.72   # dusk: low on horizon
+		sun_y_frac = 0.72
 
 	var gym_mtn_colors: Array = _env.get("gym_mtn_colors", [
 		Color(0.72, 0.82, 0.91), Color(0.54, 0.67, 0.80),
@@ -837,7 +838,6 @@ func _draw_gym_interior():
 			draw_circle(Vector2(sun_wx, sun_y), 10.0,
 						Color(gym_sun_color.r + 0.05, gym_sun_color.g + 0.02, gym_sun_color.b * 0.8,
 							  0.72 * sfade))
-			# Dusk: add a warm horizon glow band
 			if gym_tod == 1:
 				var glow_y = sun_y - 4.0
 				var glow_steps := 8
@@ -929,20 +929,62 @@ func _draw_gym_interior():
 		draw_line(Vector2(bl+mi*900.0, vis_bot-28.0), Vector2(bl+mi*900.0, vis_bot),
 				  Color(0.17, 0.17, 0.19), 2.0, true)
 
+# ─── Window rain — gradient fog + improved streaks, no flat rects ─────────────
 func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: float, blend: float):
 	var win_h := win_bot - win_top
-	var streak_count := int(12.0 * blend)
+	var win_w := wx2 - wx
+
+	# ── Gradient atmosphere tint — triangle pairs for correct interpolation ───
+	var haze_steps := 8
+	var haze_max_a := blend * 0.28
+	for i in range(haze_steps):
+		var t0 := float(i)     / float(haze_steps)
+		var t1 := float(i + 1) / float(haze_steps)
+		var a0 := haze_max_a * (t0 * t0)
+		var a1 := haze_max_a * (t1 * t1)
+		var y0 := win_top + t0 * win_h
+		var y1 := win_top + t1 * win_h
+		var c0 := Color(0.08, 0.11, 0.18, a0)
+		var c1 := Color(0.10, 0.14, 0.22, a1)
+		var tl := Vector2(wx, y0);  var tr2 := Vector2(wx2, y0)
+		var br2 := Vector2(wx2, y1); var bl2 := Vector2(wx, y1)
+		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+
+	# ── Ground mist rising from sill ─────────────────────────────────────────
+	var mist_col   := Color(0.55, 0.64, 0.78)
+	var mist_h     := win_h * 0.16 * blend
+	var mist_steps := 6
+	for i in range(mist_steps):
+		var t0 := float(i)     / float(mist_steps)
+		var t1 := float(i + 1) / float(mist_steps)
+		var a0 := blend * 0.12 * (1.0 - t0)
+		var a1 := blend * 0.12 * (1.0 - t1)
+		var y0 := win_bot - t0 * mist_h
+		var y1 := win_bot - t1 * mist_h
+		var c0 := Color(mist_col.r, mist_col.g, mist_col.b, a0)
+		var c1 := Color(mist_col.r, mist_col.g, mist_col.b, a1)
+		var tl := Vector2(wx, y0);  var tr2 := Vector2(wx2, y0)
+		var br2 := Vector2(wx2, y1); var bl2 := Vector2(wx, y1)
+		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+
+	# ── Rain streaks on glass ─────────────────────────────────────────────────
+	var streak_count := int(14.0 * blend)
 	for si in range(streak_count):
 		var sseed := (_scenery_seed ^ 0xF00D) + si * 41
-		var sx    := wx + _hf(sseed) * (wx2 - wx)
-		var sy    := win_top + _hf(sseed + 1) * win_h * 0.7
+		var sx    := wx + _hf(sseed) * win_w
 		var slen  := 18.0 + _hf(sseed + 2) * 28.0
-		var salp  := (0.08 + _hf(sseed + 3) * 0.14) * blend
-		var anim_y := fmod(_cloud_time * (40.0 + _hf(sseed + 4) * 30.0) + sy, win_bot - win_top)
-		var draw_y := win_top + anim_y
+		var salp  := (0.07 + _hf(sseed + 3) * 0.13) * blend
+		var period   := win_h / (40.0 + _hf(sseed + 4) * 30.0)
+		var anim_y   := fmod(_cloud_time / period + _hf(sseed + 1), 1.0) * win_h
+		var draw_y   := win_top + anim_y
 		if draw_y + slen > win_bot: continue
-		draw_line(Vector2(sx, draw_y), Vector2(sx + 2.0, draw_y + slen),
+		draw_line(Vector2(sx, draw_y), Vector2(sx + 1.5, draw_y + slen),
 				  Color(0.65, 0.75, 0.92, salp), 1.0, true)
+		if salp > 0.08:
+			draw_circle(Vector2(sx + 0.75, draw_y + slen), 1.5,
+						Color(0.75, 0.88, 1.0, salp * 0.7))
 
 func _draw_scaffold():
 	var post_inset = 28.0; var post_w = 18.0
@@ -1159,8 +1201,6 @@ func _draw_ground_gym():
 				  Color(cd.r, cd.g, cd.b, 0.8), 2.0, true)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), Color(0.50, 0.50, 0.52, 0.9), 2.0, true)
 
-# ─── Water surface — improved with caustic shimmer, subsurface glow, better foam ───
-
 func _draw_water_surface():
 	if not wall_valid: return
 	var bl := wall_min.x - BACKGROUND_EXPANSION
@@ -1168,7 +1208,6 @@ func _draw_water_surface():
 	var width := br - bl
 	var t := _water_time
 
-	# ── 1. Subsurface depth tint — gives the water body its colour ──────────
 	var depth_layers := 8
 	for di in range(depth_layers):
 		var t0 := float(di) / float(depth_layers)
@@ -1184,7 +1223,6 @@ func _draw_water_surface():
 		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
 		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
-	# ── 2. Caustic shimmer bands under the surface ───────────────────────────
 	var caustic_count := 6
 	for ci in range(caustic_count):
 		var cseed := (_scenery_seed ^ 0x4C00) + ci * 29
@@ -1194,11 +1232,9 @@ func _draw_water_surface():
 		var phase := t * (0.7 + _hf(cseed + 3) * 0.8) + _hf(cseed + 4) * TAU
 		var alpha := 0.04 + 0.04 * sin(phase)
 		alpha = max(0.0, alpha)
-		# Animate caustic x drift
 		var drift := sin(t * (0.3 + _hf(cseed + 5) * 0.4) + float(ci)) * 20.0
 		_draw_oval(cx + drift, cy, cw, cw * 0.3, Color(0.4, 0.75, 1.0, alpha))
 
-	# ── 3. Main animated wave layers ─────────────────────────────────────────
 	var segs := 120
 	var step := width / float(segs)
 	for wi in range(4):
@@ -1224,7 +1260,6 @@ func _draw_water_surface():
 		pts.append(Vector2(br, ground_y + 300.0))
 		draw_colored_polygon(pts, wcol)
 
-	# ── 4. Surface specular highlight band ───────────────────────────────────
 	var spec_segs := 80
 	var spec_step := width / float(spec_segs)
 	for si in range(spec_segs):
@@ -1236,8 +1271,6 @@ func _draw_water_surface():
 			draw_circle(Vector2(sx, sy), 3.5 + sin(float(si) * 2.1) * 1.5,
 						Color(0.92, 0.97, 1.0, spec_a))
 
-	# ── 5. Foam line with secondary sub-foam ─────────────────────────────────
-	# Sub-foam (slightly below, darker)
 	var foam_segs := 70
 	var fstep := width / float(foam_segs)
 	for fi in range(foam_segs):
@@ -1248,7 +1281,6 @@ func _draw_water_surface():
 		if sub_alpha > 0.03:
 			draw_circle(Vector2(fx, fy), 3.0 + sin(float(fi) * 1.9) * 1.2,
 						Color(0.7, 0.85, 1.0, sub_alpha))
-	# Main bright foam
 	for fi in range(foam_segs):
 		var fx := bl + fi * fstep
 		var fy := ground_y - sin(fx * 0.011 + t * 0.95) * 9.5 \
@@ -1258,7 +1290,6 @@ func _draw_water_surface():
 			draw_circle(Vector2(fx, fy), 4.5 + sin(float(fi) * 2.3) * 2.2,
 						Color(1.0, 1.0, 1.0, foam_alpha))
 
-	# ── 6. Glint sparks on crests ────────────────────────────────────────────
 	for gi in range(18):
 		var gseed := (_scenery_seed ^ 0x7E00) + gi * 23
 		var gx    := bl + _hf(gseed) * width
@@ -1268,7 +1299,6 @@ func _draw_water_surface():
 		draw_circle(Vector2(gx, gy), 2.0 + _hf(gseed + 3) * 3.5,
 					Color(1.0, 1.0, 1.0, galp * 0.65))
 
-	# ── 7. Wall-edge water swirl ──────────────────────────────────────────────
 	for si in range(3):
 		for side in [-1, 1]:
 			var sx = (wall_min.x if side < 0 else wall_max.x) + side * 8.0
@@ -1276,17 +1306,13 @@ func _draw_water_surface():
 			draw_circle(Vector2(sx, sy), 3.0 + si * 2.0,
 						Color(1.0, 1.0, 1.0, 0.18 - si * 0.05))
 
-# ─── Splash rendering ─────────────────────────────────────────────────────────
-
 func _draw_splashes():
 	for s in _splashes:
 		var age = s["time"]
 
-		# Expanding ring ripple
 		var ring_r = s["ring_radius"]
 		if ring_r < 250.0:
 			var ring_alpha = (1.0 - ring_r / 250.0) * 0.55
-			# Draw ring as polyline circle
 			var ring_steps := 24
 			var last_pt := Vector2.ZERO
 			for ri in range(ring_steps + 1):
@@ -1299,7 +1325,6 @@ func _draw_splashes():
 					draw_line(last_pt, pt, Color(0.7, 0.88, 1.0, ring_alpha), 1.5, true)
 				last_pt = pt
 
-		# Second tighter ring (delayed)
 		var ring2_r = max(0.0, ring_r - 40.0)
 		if ring2_r > 0.0 and ring2_r < 180.0:
 			var ring2_alpha = (1.0 - ring2_r / 180.0) * 0.35
@@ -1315,68 +1340,44 @@ func _draw_splashes():
 					draw_line(last_pt, pt, Color(0.85, 0.95, 1.0, ring2_alpha), 1.0, true)
 				last_pt = pt
 
-		# Droplets
 		for d in s["droplets"]:
 			if d["life"] <= 0.0:
 				continue
 			var life_frac = d["life"] / d["max_life"]
 			var alpha = life_frac * 0.85
 			var drop_pos := Vector2(d["x"], d["y"])
-			# Tail line for fast-moving droplets
 			var spd := Vector2(d["vx"], d["vy"]).length()
 			if spd > 80.0:
 				var tail_len = min(spd * 0.04, 12.0)
 				var vel_dir := Vector2(d["vx"], d["vy"]).normalized()
 				draw_line(drop_pos, drop_pos - vel_dir * tail_len,
 						  Color(0.7, 0.88, 1.0, alpha * 0.5), 1.2, true)
-			# Droplet circle — slightly elongated vertically for realism
 			draw_circle(drop_pos, d["size"] * life_frac, Color(0.82, 0.94, 1.0, alpha))
-			# Bright specular core
 			if d["size"] > 3.0:
 				draw_circle(drop_pos, d["size"] * life_frac * 0.4,
 							Color(1.0, 1.0, 1.0, alpha * 0.7))
 
-# ─────────────────────────────────────────────────────────────────────────────
-
-## Returns water state for the player at world_pos.
-## Also triggers splash on entry and handles in/out signalling.
-## Returns: { in_water, depth, surface_y, drag }
-## drag is a Vector2 multiplier applied to velocity each frame.
 func check_water_collision(player_pos: Vector2, player_velocity: Vector2) -> Dictionary:
-	# Early-out: if this environment has no water, or geometry is not yet ready,
-	# return a safe "not in water" result.  This eliminates the timing race where
-	# character.gd previously read _env directly before call_deferred("update_environment_settings")
-	# had run, and also avoids divide-by-zero when ground_y is still 0.
 	if not _env.get("has_water", false) or not wall_valid or ground_y == 0.0:
 		return {"in_water": false, "depth": 0.0, "surface_y": 0.0,
 				"drag": Vector2(1.0, 1.0), "buoyancy": 0.0}
 
 	var t := _water_time
-	# Sample surface height at player x using same formula as drawing
 	var surface_y := ground_y \
 		- sin(player_pos.x * 0.011 + t * 0.95) * 9.5 \
 		- sin(player_pos.x * 0.018 + t * 0.6) * 4.0
 	var in_water := player_pos.y > surface_y
 	var depth = max(0.0, player_pos.y - surface_y)
 
-	# ── Drag — scales with depth and entry speed ─────────────────────────────
-	# At the surface: gentle resistance.  Deep: strong drag.  Very fast entry: spike.
-	var drag_factor := 1.0
 	if in_water:
 		var depth_norm = clamp(depth / 280.0, 0.0, 1.0)
-		# Horizontal drag: water slows lateral movement strongly
 		var h_drag = lerp(0.82, 0.62, depth_norm)
-		# Vertical drag: downward slows more than upward (buoyancy assist)
 		var v_drag = lerp(0.78, 0.55, depth_norm)
-		# Fast entry spike: extra braking on the first frames
 		var entry_speed := player_velocity.length()
 		var speed_drag = clamp(1.0 - entry_speed * 0.0003, 0.55, 1.0)
-		drag_factor = h_drag * speed_drag
 
 		if not _player_in_water:
-			# Just entered water
 			_player_in_water = true
-			var entry_vel_y = abs(player_velocity.y)
 			spawn_splash(Vector2(player_pos.x, surface_y), player_velocity.y)
 			emit_signal("player_entered_water", depth)
 
@@ -1384,9 +1385,8 @@ func check_water_collision(player_pos: Vector2, player_velocity: Vector2) -> Dic
 			"in_water": true,
 			"depth": depth,
 			"surface_y": surface_y,
-			# Separate H/V drag so caller can apply correctly
 			"drag": Vector2(h_drag * speed_drag, v_drag * speed_drag),
-			"buoyancy": lerp(0.0, 380.0, depth_norm),  # upward force (px/s²) added per frame
+			"buoyancy": lerp(0.0, 380.0, depth_norm),
 		}
 	else:
 		if _player_in_water:
