@@ -83,7 +83,7 @@ var belayer_position: Vector2 = Vector2.ZERO
 # Weather state
 var current_weather: int = 0
 var current_weather_intensity: float = 1.0
-const WEATHER_NAMES := ["None", "Rain"]
+const WEATHER_NAMES := ["None", "Rain", "Night", "Snow"]
 
 # Grid
 var grid_enabled: bool = true
@@ -1303,10 +1303,6 @@ func _on_preview():
 		show_notification("Need at least one START hold!", true)
 		play_sound(pitch_error)
 		return
-	#if top_holds.size() == 0:
-		#show_notification("Need at least one TOP hold!", true)
-		#play_sound(pitch_error)
-		#return
 
 	var player_scene_path = "res://scenes/player/character.tscn"
 	if not ResourceLoader.exists(player_scene_path):
@@ -1322,9 +1318,7 @@ func _on_preview():
 	player.name = "PreviewPlayer"
 	add_child(player)
 
-	# ── Disable every Camera2D inside the player immediately after adding.
-	# We use call_deferred so the player's own _ready() has run first, which
-	# means any camera it creates programmatically is also caught.
+	# Disable every Camera2D inside the player immediately after adding.
 	_disable_player_cameras.call_deferred(player)
 
 	preview_player_ref = player
@@ -1351,13 +1345,10 @@ func _on_preview():
 	play_sound(pitch_preview)
 	show_notification("Testing route — Press ESC to exit")
 
-## Disable all Camera2D nodes inside the player tree.
-## Called deferred so the player's _ready() has fully run first.
 func _disable_player_cameras(player: Node) -> void:
 	for cam in player.find_children("*", "Camera2D", true, false):
 		cam.enabled = false
-		cam.make_current()    # let it briefly become current …
-	# … then immediately give control back to the editor camera
+		cam.make_current()
 	camera.make_current()
 
 func _stop_testing() -> void:

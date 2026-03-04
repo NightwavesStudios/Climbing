@@ -1,7 +1,8 @@
-[gd_scene load_steps=5 format=3 uid="uid://c5s02ajy6gea3"]
+[gd_scene load_steps=6 format=3 uid="uid://c5s02ajy6gea3"]
 
 [ext_resource type="Script" uid="uid://bl2to4omx6gks" path="res://scripts/player/character.gd" id="1_pjt0s"]
 [ext_resource type="Texture2D" uid="uid://k8jd38xjth1r" path="res://assets/textures/icon.svg" id="2_wa5vi"]
+[ext_resource type="Texture2D" uid="uid://dk6fuvvqaqxos" path="res://assets/textures/light.png" id="3_unmdi"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wfnr8"]
 size = Vector2(150, 150)
@@ -10,9 +11,11 @@ size = Vector2(150, 150)
 size = Vector2(49, 50)
 
 [node name="Character" type="CharacterBody2D"]
+position = Vector2(0, 994.97345)
 script = ExtResource("1_pjt0s")
 
 [node name="RightHand" type="Node2D" parent="."]
+position = Vector2(36.872643, 90.020935)
 scale = Vector2(0.4, 0.4)
 
 [node name="Sprite2D" type="Sprite2D" parent="RightHand"]
@@ -28,6 +31,7 @@ shape = SubResource("RectangleShape2D_wfnr8")
 [node name="Marker2D" type="Marker2D" parent="RightHand"]
 
 [node name="LeftHand" type="Node2D" parent="."]
+position = Vector2(-36.872643, 90.020935)
 scale = Vector2(0.4, 0.4)
 
 [node name="Sprite2D" type="Sprite2D" parent="LeftHand"]
@@ -43,6 +47,7 @@ shape = SubResource("RectangleShape2D_wfnr8")
 [node name="Marker2D" type="Marker2D" parent="LeftHand"]
 
 [node name="RightHandJoint" type="Node2D" parent="."]
+position = Vector2(21.618303, 43.692444)
 scale = Vector2(0.4, 0.4)
 
 [node name="Area2D" type="Area2D" parent="RightHandJoint"]
@@ -60,6 +65,7 @@ scale = Vector2(0.5, 0.8)
 texture = ExtResource("2_wa5vi")
 
 [node name="LeftHandJoint" type="Node2D" parent="."]
+position = Vector2(-21.618303, 43.692444)
 scale = Vector2(0.4, 0.4)
 
 [node name="Area2D" type="Area2D" parent="LeftHandJoint"]
@@ -71,6 +77,7 @@ shape = SubResource("RectangleShape2D_wfnr8")
 [node name="Marker2D" type="Marker2D" parent="LeftHandJoint"]
 
 [node name="RightFoot" type="Node2D" parent="."]
+position = Vector2(11.9137, 109.3526)
 scale = Vector2(0.4, 0.4)
 
 [node name="Sprite2D" type="Sprite2D" parent="RightFoot"]
@@ -86,6 +93,7 @@ shape = SubResource("RectangleShape2D_wfnr8")
 [node name="Marker2D" type="Marker2D" parent="RightFoot"]
 
 [node name="LeftFoot" type="Node2D" parent="."]
+position = Vector2(-11.9137, 109.3526)
 scale = Vector2(0.4, 0.4)
 
 [node name="Sprite2D" type="Sprite2D" parent="LeftFoot"]
@@ -101,6 +109,7 @@ shape = SubResource("RectangleShape2D_wfnr8")
 [node name="Marker2D" type="Marker2D" parent="LeftFoot"]
 
 [node name="RightFootJoint" type="Node2D" parent="."]
+position = Vector2(6.31685, 64.67633)
 scale = Vector2(0.4, 0.4)
 
 [node name="Area2D" type="Area2D" parent="RightFootJoint"]
@@ -112,6 +121,7 @@ shape = SubResource("RectangleShape2D_wfnr8")
 [node name="Marker2D" type="Marker2D" parent="RightFootJoint"]
 
 [node name="LeftFootJoint" type="Node2D" parent="."]
+position = Vector2(-6.31685, 64.67633)
 scale = Vector2(0.4, 0.4)
 
 [node name="Area2D" type="Area2D" parent="LeftFootJoint"]
@@ -125,3 +135,20 @@ shape = SubResource("RectangleShape2D_wfnr8")
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(-0.5, 0)
 shape = SubResource("RectangleShape2D_px5sl")
+
+[node name="SpotLight2D" type="PointLight2D" parent="."]
+position = Vector2(-6.0000005, -336.97342)
+rotation = 3.145846
+scale = Vector2(1.8806171, 1.8806171)
+texture = ExtResource("3_unmdi")
+offset = Vector2(0, -188)
+texture_scale = 2.0
+
+[node name="ColorRect" type="ColorRect" parent="."]
+visible = false
+offset_left = -226.0
+offset_top = -334.97345
+offset_right = -186.0
+offset_bottom = -294.97345
+scale = Vector2(11.673236, 17.316816)
+color = Color(0.30692267, 0.3069227, 0.3069227, 1)

@@ -269,6 +269,9 @@ const BASE_REACH_DISTANCE := 200.0
 const SHARED_HOLD_HAND_OFFSET := 5.0
 const SHARED_HOLD_HAND_FOOT_OFFSET := 5.0
 
+var _weather_modifier: Node = null
+var _spotlight: Node = null
+
 func get_hand_modifiers(state: GripState) -> Dictionary:
 	match state:
 		GripState.RELAXED:
@@ -388,6 +391,9 @@ func _ready():
 	previous_left_foot_pos = left_foot.global_position
 	previous_right_foot_pos = right_foot.global_position
 
+	_weather_modifier = get_tree().get_first_node_in_group("weather_modifier")
+	_spotlight = get_node_or_null("SpotLight2D")
+
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -420,7 +426,25 @@ func _process(delta):
 	check_fall_detection(delta)
 	check_climb_completion()
 	update_camera()
+	_update_spotlight()
+
 	queue_redraw()
+
+
+func _update_spotlight() -> void:
+	if not _spotlight:
+		return
+	# Search all nodes that have a weather property
+	for node in get_tree().get_nodes_in_group("weather_modifier"):
+		if "weather" in node:
+			_spotlight.visible = node.weather == 2
+			return
+	# Also check dynamic_wall group
+	for node in get_tree().get_nodes_in_group("dynamic_wall"):
+		if "weather" in node:
+			_spotlight.visible = node.weather == 2
+			return
+	_spotlight.visible = false
 
 func _update_load_distribution(delta: float):
 	var anchors: Array[Vector2] = []
@@ -1282,6 +1306,10 @@ func reset_climb():
 		if speed_timer.has_method("stop_timer"):
 			speed_timer.stop_timer()
 
+	# Re-cache weather modifier in case scene changed
+	_weather_modifier = get_tree().get_first_node_in_group("weather_modifier")
+	_spotlight = get_node_or_null("SpotLight2D")
+
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -1526,6 +1554,7 @@ func get_foot_move_speed(limb: Limb) -> float:
 	if hold and hold.is_crimp():
 		return BASE_HAND_MOVE_SPEED * CRIMP_LEG_SPEED_FACTOR
 	return BASE_HAND_MOVE_SPEED
+
 func apply_mouse_control_multi(delta: float):
 	_update_ghost_with_reach(delta, Limb.LEFT_HAND,  left_hand,  left_hand_state,
 		left_hand_hold, left_hand_grabbing,
@@ -1549,7 +1578,7 @@ func apply_mouse_control_multi(delta: float):
 
 func _update_ghost_with_reach(delta: float, limb: Limb, limb_node: Node2D,
 		state: GripState, hold, grabbing: bool,
-		anchor: Vector2, max_reach: float, is_left: bool):
+		anchor: Vector2, max_reach: float, _is_left: bool):
 
 	if limb not in selected_limbs or hold != null or grabbing:
 		return

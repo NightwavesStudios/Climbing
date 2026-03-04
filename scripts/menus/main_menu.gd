@@ -55,13 +55,21 @@ func _process(delta: float) -> void:
 func _maybe_set_weather() -> void:
 	if EnvironmentConfig.get_current_environment_name() == "Gym":
 		return
-	if randf() > 0.3:
-		return
 	var wm: Node = _wall.get_node_or_null("WeatherModifier")
 	if wm == null:
 		return
-	wm.intensity = randf_range(0.3, 1.0)
-	wm.set_weather(1)
+	
+	var roll := randf()
+	
+	if roll < 0.1:
+		# Snow (10%)
+		wm.intensity = randf_range(0.3, 1.0)
+		wm.set_weather(3)
+	elif roll < 0.3:
+		# Rain (your existing 30% logic — keeping threshold at 0.3)
+		wm.intensity = randf_range(0.3, 1.0)
+		wm.set_weather(1)
+	# else: no weather (remaining %)
 
 func _fade_in_menu() -> void:
 	var tween = create_tween()

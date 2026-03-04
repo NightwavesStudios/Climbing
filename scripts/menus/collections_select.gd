@@ -8,11 +8,6 @@ const COLOR_UNLOCKED    := Color(1.0, 1.0, 1.0, 1.0)
 const COLOR_COMPLETED   := Color(0.4, 1.0, 0.4, 1.0)
 const COLOR_LOCKED      := Color(0.3, 0.3, 0.3, 0.5)
 
-
-# =============================================================================
-# READY
-# =============================================================================
-
 func _ready() -> void:
 	if not map_container:
 		push_error("collection_select: $HBoxContainer node not found!")
@@ -20,11 +15,6 @@ func _ready() -> void:
 
 	_find_and_map_buttons()
 	_update_collection_states()
-
-
-# =============================================================================
-# BUTTON DISCOVERY
-# =============================================================================
 
 func _find_and_map_buttons() -> void:
 	var active_ids: Array = GameState.get_all_collection_ids()
@@ -75,11 +65,6 @@ func _button_matches(btn_lower: String, collection_id: String) -> bool:
 			return true
 
 	return false
-
-
-# =============================================================================
-# VISUAL STATE
-# =============================================================================
 
 func _update_collection_states() -> void:
 	for button in button_to_collection.keys():
@@ -165,11 +150,6 @@ func _show_unlock_requirement(id: String) -> void:
 				% [req.count, GameState.completed_collections.size(), req.count]
 
 	print(msg)
-
-
-# =============================================================================
-# BACK
-# =============================================================================
 
 func _on_back_pressed() -> void:
 	Transition.to("res://scenes/menus/main_menu.tscn")
