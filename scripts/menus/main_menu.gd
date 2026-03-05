@@ -1,6 +1,11 @@
 extends Control
 
 @onready var buttons: VBoxContainer = $CanvasLayer/Buttons
+@onready var music_player: AudioStreamPlayer = $MainMenuTheme
+
+# 🎵 Set these to your desired loop timestamps (in seconds)
+const MUSIC_LOOP_START := 48.0
+const MUSIC_LOOP_END   := 115.5
 
 var _wall: Node2D = null
 var _wall_ready := false
@@ -10,6 +15,7 @@ func _ready() -> void:
 	modulate = Color(1, 1, 1, 0)
 	_randomize_environment()
 	_setup_background_wall()
+	music_player.play()
 
 func _randomize_environment() -> void:
 	var env_types = EnvironmentConfig.get_all_environment_types()
@@ -22,6 +28,10 @@ func _setup_background_wall() -> void:
 	move_child(_wall, 0)
 
 func _process(delta: float) -> void:
+	# --- Music loop check ---
+	if music_player.playing and music_player.get_playback_position() >= MUSIC_LOOP_END:
+		music_player.seek(MUSIC_LOOP_START)
+
 	if not _wall_ready and _wall != null and _wall.get_script() != null:
 		var vp := get_viewport_rect().size
 		var center := vp / 2.0
@@ -40,7 +50,6 @@ func _process(delta: float) -> void:
 		_wall_ready = true
 		_fade_in_menu()
 
-	# Wait a separate frame after wall is ready before touching weather modifier
 	if _wall_ready and not _weather_set:
 		_weather_set = true
 		_maybe_set_weather()
@@ -62,14 +71,11 @@ func _maybe_set_weather() -> void:
 	var roll := randf()
 	
 	if roll < 0.1:
-		# Snow (10%)
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(3)
 	elif roll < 0.3:
-		# Rain (your existing 30% logic — keeping threshold at 0.3)
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(1)
-	# else: no weather (remaining %)
 
 func _fade_in_menu() -> void:
 	var tween = create_tween()
