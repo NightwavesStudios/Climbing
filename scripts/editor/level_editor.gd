@@ -903,14 +903,15 @@ func _on_paste_json():
 			"bouldering": discipline_dropdown.select(0)
 			"roped":      discipline_dropdown.select(1)
 			"speed":      discipline_dropdown.select(2)
-		_on_discipline_changed(discipline_dropdown.selected)
+		_on_discipline_changed(discipline_dropdown.selected)  # this repopulates grade_dropdown
 
-	populate_grade_dropdown()
+	# Grade selection must come AFTER _on_discipline_changed, which resets the dropdown
 	if grade_dropdown:
 		var grades = V_GRADES if current_discipline == "bouldering" else YDS_GRADES
 		var idx    = grades.find(climb_grade)
 		if idx >= 0:
 			grade_dropdown.select(idx)
+			_on_grade_changed(idx)  # sync the internal climb_grade variable too
 
 	if speed_time_input:
 		speed_time_input.value = speed_time_limit
