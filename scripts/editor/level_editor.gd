@@ -1,18 +1,4 @@
 extends Node2D
-## Improved Level Editor - Compact Bar with Expandable Drawer
-##
-## UI Layout:
-##   [PERSISTENT BAR ~40px] — always visible, shows the essentials
-##   [DRAWER ~160px]        — slides in/out, shows secondary settings
-##
-## The persistent bar contains:
-##   • Route name (short)  • Discipline  • Grade  • Hold type selector
-##   • Copy / Paste / Test  • ▲/▼ Expand toggle
-##
-## The drawer (expanded only) contains:
-##   • Environment  • Weather + Intensity  • Crashpad / Belayer buttons
-##   • Grid toggle  • Edit Wall  • Clear  • Back
-##   • Discipline-specific settings (speed time, belayer button)
 
 var camera: Camera2D
 var holds_container: Node2D
@@ -20,7 +6,6 @@ var preview_container: Node2D
 var crashpads_container: Node2D
 var wall: Node2D
 
-# UI
 var ui_layer: CanvasLayer
 var info_label: Label
 var hold_type_dropdown: OptionButton
@@ -28,7 +13,6 @@ var environment_dropdown: OptionButton
 var climb_name_input: LineEdit
 var grade_dropdown: OptionButton
 
-# Discipline UI
 var discipline_dropdown: OptionButton
 var discipline_settings_panel: VBoxContainer
 var speed_time_input: SpinBox
@@ -36,15 +20,12 @@ var belayer_placement_button: Button
 var placing_belayer: bool = false
 var belayer_marker: Node2D = null
 
-# Crashpad UI
 var crashpad_button: Button
 
-# Weather UI
 var weather_dropdown: OptionButton
 var weather_intensity_slider: HSlider
 var weather_intensity_label: Label
 
-# ── Foldable UI ──────────────────────────────────────────────────────────────
 var ui_panel_collapsed: bool = true
 var top_bar: ColorRect
 var drawer_panel: ColorRect
@@ -54,56 +35,45 @@ var fold_button: Button
 const BAR_HEIGHT:    float = 42.0
 const DRAWER_HEIGHT: float = 148.0
 
-# State
 var selected_hold_type: String = ""
 var preview_hold: Node2D = null
 var dragging_hold: Node2D = null
 var drag_offset: Vector2 = Vector2.ZERO
 var drag_start_position: Vector2 = Vector2.ZERO
 
-# Test mode
 var is_testing: bool = false
 var preview_player_ref: Node2D = null
 
-# Speed fail state (test mode)
-var _speed_timer_node: Node = null   # SpeedTimer instance created during test
+var _speed_timer_node: Node = null
 var _speed_fail_pending: bool = false
 
-# Crashpad state
 var placing_crashpad: bool = false
 var preview_crashpad: Node2D = null
 var dragging_crashpad: Node2D = null
 var crashpad_drag_start_position: Vector2 = Vector2.ZERO
 
-# Climb metadata
 var climb_name: String = ""
 var climb_grade: String = "VB"
 
-# Discipline state
 var current_discipline: String = "bouldering"
 var speed_time_limit: float = 60.0
 var belayer_position: Vector2 = Vector2.ZERO
 
-# Weather state
 var current_weather: int = 0
 var current_weather_intensity: float = 1.0
 const WEATHER_NAMES := ["None", "Rain", "Night", "Snow"]
 
-# Grid
 var grid_enabled: bool = true
 var grid_size: float = 32.0
 
-# Undo system
 var undo_stack: Array = []
 const MAX_UNDO_STACK: int = 50
 
-# Hold limits
 const MAX_START_HOLDS: int = 2
 const MAX_TOP_HOLDS: int = 1
 const MIN_HOLD_DISTANCE: float = 40.0
 const MAX_REACH_DISTANCE: float = 250.0
 
-# Grades / hold types
 const V_GRADES   = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
 const YDS_GRADES = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
 					"5.11a","5.11b","5.11c","5.11d","5.12a","5.12b","5.12c","5.12d","5.13a","5.13b"]
@@ -122,25 +92,21 @@ const CRASHPAD_SCENE = "res://scenes/props/crashpad.tscn"
 var loaded_scenes: Dictionary = {}
 var crashpad_scene: PackedScene = null
 
-# Camera settings
 const ZOOM_SPEED          = 0.15
 const TRACKPAD_ZOOM_SPEED = 0.2
 const PAN_SPEED           = 1000.0
 const MIN_ZOOM            = 0.2
 const MAX_ZOOM            = 3.0
 
-# Canvas boundaries
 const CANVAS_MIN_X = -1500.0
 const CANVAS_MAX_X =  2500.0
 const CANVAS_MIN_Y = -3000.0
 const CANVAS_MAX_Y =  2000.0
 
-# Wall padding
 const WALL_PADDING_SIDES  = 100.0
 const WALL_PADDING_TOP    = 100.0
 const WALL_PADDING_BOTTOM = 150.0
 
-# Audio
 @export_group("Audio Settings")
 @export var enable_editor_sounds: bool = true
 @export var master_volume_db: float = -6.0
@@ -164,10 +130,6 @@ const CLICK_SOUND = preload("res://assets/audio/sfx/button-clicked.wav")
 var _audio_player: AudioStreamPlayer
 
 
-# =============================================================================
-# LIFECYCLE
-# =============================================================================
-
 func _ready():
 	_setup_audio()
 
@@ -177,7 +139,6 @@ func _ready():
 	if wall and wall.has_method("_init_weather"):
 		wall._init_weather()
 
-	# Camera
 	if has_node("Camera2D"):
 		camera = get_node("Camera2D")
 	else:
@@ -194,13 +155,11 @@ func _ready():
 		camera.drag_horizontal_enabled = false
 		camera.drag_vertical_enabled   = false
 
-	# Containers
 	holds_container     = _get_or_create_node2d("Holds")
 	crashpads_container = _get_or_create_node2d("Crashpads")
 	preview_container   = _get_or_create_node2d("PreviewContainer")
 	preview_container.z_index = 100
 
-	# Load scenes
 	for type_name in HOLD_SCENES:
 		if ResourceLoader.exists(HOLD_SCENES[type_name]):
 			loaded_scenes[type_name] = load(HOLD_SCENES[type_name])
@@ -227,10 +186,6 @@ func _process(delta):
 	queue_redraw()
 
 
-# =============================================================================
-# AUDIO
-# =============================================================================
-
 func _setup_audio():
 	_audio_player = AudioStreamPlayer.new()
 	_audio_player.name      = "EditorAudioPlayer"
@@ -248,16 +203,12 @@ func play_sound(base_pitch: float):
 	_audio_player.play()
 
 
-# =============================================================================
-# UI SETUP
-# =============================================================================
-
 func setup_ui():
-	ui_layer      = CanvasLayer.new()
-	ui_layer.name = "UI"
+	ui_layer       = CanvasLayer.new()
+	ui_layer.name  = "UI"
+	ui_layer.layer = 10
 	add_child(ui_layer)
 
-	# ── Persistent top bar ────────────────────────────────────────────────────
 	top_bar       = ColorRect.new()
 	top_bar.color = Color(0.10, 0.10, 0.13, 0.96)
 	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -286,7 +237,6 @@ func setup_ui():
 	bar_hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	bar_margin.add_child(bar_hbox)
 
-	# ── Left: tiny label + name ───────────────────────────────────────────────
 	var logo_label = create_simple_label("✦ ROUTE")
 	logo_label.add_theme_font_size_override("font_size", 10)
 	logo_label.add_theme_color_override("font_color", Color(0.4, 0.65, 1.0))
@@ -302,7 +252,6 @@ func setup_ui():
 
 	_add_bar_separator(bar_hbox)
 
-	# ── Discipline ────────────────────────────────────────────────────────────
 	discipline_dropdown = OptionButton.new()
 	discipline_dropdown.custom_minimum_size = Vector2(90, 28)
 	discipline_dropdown.add_item("Boulder")
@@ -312,7 +261,6 @@ func setup_ui():
 	discipline_dropdown.item_selected.connect(_on_discipline_changed)
 	bar_hbox.add_child(discipline_dropdown)
 
-	# ── Grade ─────────────────────────────────────────────────────────────────
 	grade_dropdown = OptionButton.new()
 	grade_dropdown.custom_minimum_size = Vector2(70, 28)
 	populate_grade_dropdown()
@@ -321,7 +269,6 @@ func setup_ui():
 
 	_add_bar_separator(bar_hbox)
 
-	# ── Hold type ─────────────────────────────────────────────────────────────
 	hold_type_dropdown = OptionButton.new()
 	hold_type_dropdown.custom_minimum_size = Vector2(90, 28)
 	if has_node("/root/HoldRegistry"):
@@ -338,7 +285,6 @@ func setup_ui():
 
 	_add_bar_separator(bar_hbox)
 
-	# ── Quick action buttons ───────────────────────────────────────────────────
 	var copy_btn  = _make_bar_button("Copy",   func(): _on_copy_json())
 	var paste_btn = _make_bar_button("Paste",  func(): _on_paste_json())
 	var test_btn  = _make_bar_button("▶ Test", func(): _on_preview())
@@ -355,7 +301,6 @@ func setup_ui():
 	fold_button.add_theme_color_override("font_color", Color(0.75, 0.75, 0.85))
 	bar_hbox.add_child(fold_button)
 
-	# ── Drawer ────────────────────────────────────────────────────────────────
 	drawer_panel       = ColorRect.new()
 	drawer_panel.color = Color(0.10, 0.11, 0.14, 0.93)
 	drawer_panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -378,7 +323,6 @@ func setup_ui():
 	drawer_hbox.add_theme_constant_override("separation", 16)
 	drawer_container.add_child(drawer_hbox)
 
-	# ── Drawer col 1: Environment + Weather ───────────────────────────────────
 	var env_col = VBoxContainer.new()
 	env_col.add_theme_constant_override("separation", 6)
 	drawer_hbox.add_child(env_col)
@@ -415,7 +359,6 @@ func setup_ui():
 
 	_add_drawer_separator(drawer_hbox)
 
-	# ── Drawer col 2: Placement ────────────────────────────────────────────────
 	var place_col = VBoxContainer.new()
 	place_col.add_theme_constant_override("separation", 6)
 	drawer_hbox.add_child(place_col)
@@ -455,7 +398,6 @@ func setup_ui():
 
 	_add_drawer_separator(drawer_hbox)
 
-	# ── Drawer col 3: Editor actions ──────────────────────────────────────────
 	var act_col = VBoxContainer.new()
 	act_col.add_theme_constant_override("separation", 6)
 	drawer_hbox.add_child(act_col)
@@ -490,7 +432,6 @@ func setup_ui():
 	back_btn.add_theme_color_override("font_color", Color(1.0, 0.55, 0.55))
 	act_row2.add_child(back_btn)
 
-	# ── Info label (bottom of screen) ─────────────────────────────────────────
 	info_label = Label.new()
 	info_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	info_label.position.y = -26
@@ -503,10 +444,6 @@ func setup_ui():
 
 	_apply_panel_fold_state()
 
-
-# =============================================================================
-# HELPERS — bar / drawer widget factories
-# =============================================================================
 
 func _add_bar_separator(parent: HBoxContainer):
 	var sep = ColorRect.new()
@@ -556,10 +493,6 @@ func _make_bar_button(label_text: String, callback: Callable) -> Button:
 	return btn
 
 
-# =============================================================================
-# FOLD / UNFOLD
-# =============================================================================
-
 func _on_fold_button_pressed() -> void:
 	ui_panel_collapsed = !ui_panel_collapsed
 	_apply_panel_fold_state()
@@ -578,10 +511,6 @@ func is_mouse_over_ui() -> bool:
 	return false
 
 
-# =============================================================================
-# WEATHER
-# =============================================================================
-
 func _populate_weather_dropdown() -> void:
 	weather_dropdown.clear()
 	for n in WEATHER_NAMES:
@@ -593,6 +522,11 @@ func _on_weather_changed(index: int) -> void:
 	if weather_intensity_slider.has_meta("intensity_row"):
 		weather_intensity_slider.get_meta("intensity_row").visible = index > 0
 	_apply_weather_to_wall()
+
+	var is_night = (index < WEATHER_NAMES.size() and WEATHER_NAMES[index] == "Night")
+	for hold in holds_container.get_children():
+		hold.modulate = Color(1.4, 1.4, 1.6) if is_night else Color(1, 1, 1)
+
 	show_notification("Weather: " + (WEATHER_NAMES[index] if index < WEATHER_NAMES.size() else "?"))
 
 func _on_weather_intensity_changed(value: float) -> void:
@@ -604,10 +538,6 @@ func _apply_weather_to_wall() -> void:
 	if wall and wall.has_method("set_weather"):
 		wall.set_weather(current_weather, current_weather_intensity)
 
-
-# =============================================================================
-# ENVIRONMENT
-# =============================================================================
 
 func _populate_environment_dropdown():
 	environment_dropdown.clear()
@@ -621,10 +551,6 @@ func _populate_environment_dropdown():
 		environment_dropdown.add_item("Granite")
 		environment_dropdown.select(0)
 
-
-# =============================================================================
-# UI HELPERS
-# =============================================================================
 
 func create_simple_label(text: String) -> Label:
 	var label = Label.new()
@@ -672,19 +598,15 @@ func populate_grade_dropdown():
 	grade_dropdown.select(0)
 
 
-# =============================================================================
-# DISCIPLINE CALLBACKS
-# =============================================================================
-
 func _on_discipline_changed(index: int):
 	match index:
-		0:  # Bouldering
+		0:
 			current_discipline = "bouldering"
 			climb_grade = "VB"
 			discipline_settings_panel.visible = false
 			crashpad_button.visible = true
 			_clear_belayer_marker()
-		1:  # Roped
+		1:
 			current_discipline = "roped"
 			climb_grade = "5.5"
 			discipline_settings_panel.visible = true
@@ -692,7 +614,7 @@ func _on_discipline_changed(index: int):
 			belayer_placement_button.visible = true
 			crashpad_button.visible = true
 			show_notification("Click '⚓ Place Rope Anchor' to set belay point")
-		2:  # Speed
+		2:
 			current_discipline = "speed"
 			climb_grade = "5.5"
 			discipline_settings_panel.visible = true
@@ -760,10 +682,6 @@ func _on_place_crashpad_pressed():
 	placing_belayer   = false
 	clear_preview()
 
-
-# =============================================================================
-# INPUT HANDLING
-# =============================================================================
 
 func _input(event):
 	if event is InputEventKey and event.pressed:
@@ -843,6 +761,7 @@ func _input(event):
 
 func handle_left_click():
 	var pos = get_global_mouse_position()
+	var wall_is_editing = wall and "edit_mode" in wall and wall.edit_mode
 
 	if placing_belayer:
 		var snapped_pos = snap_to_grid(pos)
@@ -856,11 +775,13 @@ func handle_left_click():
 	elif selected_hold_type and selected_hold_type in loaded_scenes:
 		place_hold(snap_to_grid(pos))
 	else:
+		if wall_is_editing:
+			return
 		var hold = get_hold_at_position(pos)
 		if hold:
 			save_undo_state()
-			dragging_hold      = hold
-			drag_offset        = hold.global_position - pos
+			dragging_hold       = hold
+			drag_offset         = hold.global_position - pos
 			drag_start_position = hold.global_position
 		else:
 			var crashpad = get_crashpad_at_position(pos)
@@ -870,10 +791,6 @@ func handle_left_click():
 				drag_offset       = crashpad.global_position - pos
 				crashpad_drag_start_position = crashpad.global_position
 
-
-# =============================================================================
-# CRASHPAD MANAGEMENT
-# =============================================================================
 
 func place_crashpad(pos: Vector2) -> bool:
 	if not crashpad_scene:
@@ -907,10 +824,6 @@ func get_crashpad_at_position(pos: Vector2, max_dist: float = 60.0) -> Node2D:
 			closest      = crashpad
 	return closest
 
-
-# =============================================================================
-# JSON EXPORT / IMPORT
-# =============================================================================
 
 func _on_copy_json():
 	var env_config = get_node_or_null("/root/EnvironmentConfig")
@@ -1059,10 +972,6 @@ func _on_paste_json():
 	show_notification("Route loaded: " + climb_name)
 
 
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-
 func get_hold_type(hold: Node2D) -> String:
 	if hold.has_meta("editor_type"):
 		return hold.get_meta("editor_type")
@@ -1173,10 +1082,6 @@ func snap_to_grid(pos: Vector2) -> Vector2:
 				   round(pos.y / grid_size) * grid_size)
 
 
-# =============================================================================
-# CAMERA
-# =============================================================================
-
 func update_camera(delta):
 	if is_testing:
 		return
@@ -1188,10 +1093,6 @@ func update_camera(delta):
 	if move.length() > 0:
 		camera.position += move.normalized() * PAN_SPEED * delta / camera.zoom.x
 
-
-# =============================================================================
-# PREVIEW (hover ghost)
-# =============================================================================
 
 func update_preview():
 	if placing_crashpad and crashpad_scene:
@@ -1244,10 +1145,6 @@ func clear_preview():
 	preview_crashpad = null
 
 
-# =============================================================================
-# CALLBACKS
-# =============================================================================
-
 func _on_climb_name_changed(new_text: String):
 	climb_name = new_text
 
@@ -1274,10 +1171,6 @@ func on_environment_changed(index: int):
 		if crashpad.has_method("_update_sprite_for_environment"):
 			crashpad._update_sprite_for_environment()
 
-
-# =============================================================================
-# TEST / PREVIEW
-# =============================================================================
 
 func _on_preview():
 	if holds_container.get_child_count() == 0:
@@ -1314,7 +1207,6 @@ func _on_preview():
 	is_testing         = true
 	_speed_fail_pending = false
 
-	# Spawn position
 	var spawn_pos = Vector2.ZERO
 	if start_holds.size() == 1:
 		var hp = start_holds[0].get_node_or_null("HoldPoint")
@@ -1331,7 +1223,6 @@ func _on_preview():
 	camera.zoom            = Vector2(1.0, 1.0)
 	camera.make_current()
 
-	# ── Speed discipline: create and wire a live SpeedTimer ───────────────────
 	if current_discipline == "speed":
 		_setup_speed_timer_for_test()
 
@@ -1357,7 +1248,6 @@ func _setup_speed_timer_for_test() -> void:
 	_speed_timer_node.start_timer()
 
 	_speed_timer_node.time_expired.connect(_on_test_speed_time_expired)
-	print("LevelEditor: Speed test timer started — ", speed_time_limit, "s")
 
 func _on_test_speed_time_expired() -> void:
 	if not is_testing or _speed_fail_pending:
@@ -1439,10 +1329,6 @@ func _stop_testing() -> void:
 	camera.make_current()
 
 
-# =============================================================================
-# CLEAR
-# =============================================================================
-
 func _on_clear():
 	for hold     in holds_container.get_children():    hold.queue_free()
 	for crashpad in crashpads_container.get_children(): crashpad.queue_free()
@@ -1504,17 +1390,17 @@ func _on_toggle_wall_edit():
 	var is_editing = wall.edit_mode if "edit_mode" in wall else false
 	if not is_editing:
 		save_undo_state()
+		selected_hold_type = ""
+		placing_crashpad   = false
+		placing_belayer    = false
+		clear_preview()
 	wall.enable_edit_mode(not is_editing)
 	if not is_editing:
-		show_notification("Wall edit: Click line to add point, drag to move, right-click to delete")
+		show_notification("Wall edit ON — hold dragging suspended. Click line to add point, drag to move, right-click to delete")
 	else:
 		save_undo_state()
-		show_notification("Wall edit mode OFF")
+		show_notification("Wall edit mode OFF — hold placement/dragging re-enabled")
 
-
-# =============================================================================
-# UNDO SYSTEM
-# =============================================================================
 
 func save_undo_state():
 	var state = {
@@ -1593,10 +1479,6 @@ func undo_last_action():
 	show_notification("Undo successful")
 
 
-# =============================================================================
-# INFO / NOTIFICATIONS
-# =============================================================================
-
 func show_notification(text: String, is_error: bool = false):
 	var old_notif = ui_layer.get_node_or_null("NotificationLabel")
 	if old_notif:
@@ -1653,10 +1535,6 @@ func update_info_label():
 	info_label.text = "  ·  ".join(parts)
 
 
-# =============================================================================
-# ROUTE BOUNDS
-# =============================================================================
-
 func get_route_bounds() -> Dictionary:
 	if holds_container.get_child_count() == 0:
 		return { "min": Vector2.ZERO, "max": Vector2.ZERO, "valid": false }
@@ -1677,20 +1555,21 @@ func get_route_bounds() -> Dictionary:
 	}
 
 
-# =============================================================================
-# DRAWING
-# =============================================================================
-
 func _draw():
+	var is_night = (current_weather < WEATHER_NAMES.size() and WEATHER_NAMES[current_weather] == "Night")
+	var grid_color   = Color(0.55, 0.55, 0.65, 0.45) if is_night else Color(0.3, 0.3, 0.3, 0.2)
+	var border_color = Color(0.55, 0.75, 1.0, 0.70)  if is_night else Color(0.15, 0.15, 0.2, 0.3)
+
 	draw_rect(
 		Rect2(CANVAS_MIN_X, CANVAS_MIN_Y,
 			  CANVAS_MAX_X - CANVAS_MIN_X, CANVAS_MAX_Y - CANVAS_MIN_Y),
-		Color(0.15, 0.15, 0.2, 0.3), false, 2.0)
+		border_color, false, 2.0)
 
 	var bounds = get_route_bounds()
 	if bounds.valid:
-		draw_rect(Rect2(bounds.min, bounds.size), Color(0.3,  0.5, 0.8, 0.25), true)
-		draw_rect(Rect2(bounds.min, bounds.size), Color(0.4, 0.7, 1.0, 0.60), false, 3.0)
+		var fill_alpha = 0.40 if is_night else 0.25
+		draw_rect(Rect2(bounds.min, bounds.size), Color(0.3, 0.5, 0.8, fill_alpha), true)
+		draw_rect(Rect2(bounds.min, bounds.size), Color(0.4, 0.7, 1.0, 0.80 if is_night else 0.60), false, 3.0)
 
 	if belayer_position != Vector2.ZERO:
 		draw_circle(belayer_position, 15, Color(1, 0.5, 0, 0.3))
@@ -1718,12 +1597,10 @@ func _draw():
 
 	var x = start_x
 	while x <= end_x:
-		draw_line(Vector2(x, draw_min_y), Vector2(x, draw_max_y),
-				  Color(0.3, 0.3, 0.3, 0.2), 1.0)
+		draw_line(Vector2(x, draw_min_y), Vector2(x, draw_max_y), grid_color, 1.0)
 		x += grid_size
 
 	var y = start_y
 	while y <= end_y:
-		draw_line(Vector2(draw_min_x, y), Vector2(draw_max_x, y),
-				  Color(0.3, 0.3, 0.3, 0.2), 1.0)
+		draw_line(Vector2(draw_min_x, y), Vector2(draw_max_x, y), grid_color, 1.0)
 		y += grid_size
