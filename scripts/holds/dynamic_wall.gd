@@ -1619,28 +1619,56 @@ func _point_to_segment_distance(point: Vector2, seg_start: Vector2, seg_end: Vec
 	return point.distance_to(seg_start+clamp((point-seg_start).dot(seg)/lsq,0.0,1.0)*seg)
 
 func _create_top_edge_holds():
+	# Use .free() (synchronous) instead of queue_free() so the node is
+	# gone immediately — no deferred call can fire on it afterwards.
 	for child in get_children():
-		if child.has_meta("is_top_edge_hold"): child.queue_free()
-	if not use_polygon_mode or top_edge_indices.is_empty(): return
+		if child.has_meta("is_top_edge_hold"):
+			child.set_script(null)   # detach script first so _notification isn't called on freed node
+			child.free()
+	if not use_polygon_mode or top_edge_indices.is_empty():
+		return
 	for edge_idx in top_edge_indices:
-		if edge_idx>=control_points.size(): continue
-		var p1=control_points[edge_idx]
-		var p2=control_points[(edge_idx+1)%control_points.size()]
-		_create_top_hold_at((p1+p2)/2.0,p1.distance_to(p2))
+		if edge_idx >= control_points.size():
+			continue
+		var p1 = control_points[edge_idx]
+		var p2 = control_points[(edge_idx + 1) % control_points.size()]
+		_create_top_hold_at((p1 + p2) / 2.0, p1.distance_to(p2))
 
 func _create_top_hold_at(position: Vector2, width: float):
-	var top_hold=Area2D.new(); top_hold.set_meta("is_top_edge_hold",true)
-	top_hold.collision_layer=2; top_hold.collision_mask=0
-	top_hold.monitoring=false; top_hold.monitorable=true; top_hold.name="TopEdgeHold"
-	var shape=RectangleShape2D.new(); shape.size=Vector2(width,50)
-	var collision=CollisionShape2D.new(); collision.shape=shape; top_hold.add_child(collision)
-	var hold_point=Marker2D.new(); hold_point.name="HoldPoint"; hold_point.position=Vector2.ZERO
+	var top_hold = Area2D.new()
+	top_hold.set_meta("is_top_edge_hold", true)
+	top_hold.collision_layer = 2
+	top_hold.collision_mask  = 0
+	top_hold.monitoring    = false
+	top_hold.monitorable   = true
+	top_hold.name          = "TopEdgeHold"
+
+	var shape     = RectangleShape2D.new()
+	shape.size    = Vector2(width, 50)
+	var collision = CollisionShape2D.new()
+	collision.shape = shape
+	top_hold.add_child(collision)
+
+	var hold_point          = Marker2D.new()
+	hold_point.name         = "HoldPoint"
+	hold_point.position     = Vector2.ZERO
 	top_hold.add_child(hold_point)
-	top_hold.global_position=position; add_child(top_hold); top_hold.add_to_group("holds")
-	call_deferred("_assign_top_hold_script",top_hold)
+
+	top_hold.global_position = position
+	add_child(top_hold)
+	top_hold.add_to_group("holds")
+
+	# Assign the script SYNCHRONOUSLY — using call_deferred here is the
+	# root cause of the crash: if _create_top_edge_holds() runs again
+	# before the deferred call fires, the node is already freed.
+	_assign_top_hold_script(top_hold)
 
 func _assign_top_hold_script(top_hold):
-	var script_code="""
+	# Guard: if the node was freed between creation and now, bail out.
+	if not is_instance_valid(top_hold):
+		return
+
+	var script_code = """
 extends Area2D
 var claimed_left_hand: Node2D = null
 var claimed_right_hand: Node2D = null
@@ -1673,8 +1701,10 @@ func get_state_pressure(delta: float, body_offset: float, static_time: float, fo
 func get_recovery_rate(delta: float, body_balance: float, foot_support: float) -> float:
 	return 3.0 * delta * body_balance
 """
-	var hold_script=GDScript.new(); hold_script.source_code=script_code
-	hold_script.reload(); top_hold.set_script(hold_script)
+	var hold_script = GDScript.new()
+	hold_script.source_code = script_code
+	hold_script.reload()
+	top_hold.set_script(hold_script)
 
 func get_bounds() -> Dictionary:
 	return {"min": wall_min, "max": wall_max, "valid": wall_valid}

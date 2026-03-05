@@ -51,8 +51,8 @@ var drawer_panel: ColorRect
 var drawer_container: MarginContainer
 var fold_button: Button
 
-const BAR_HEIGHT:     float = 42.0   # slightly taller for breathing room
-const DRAWER_HEIGHT:  float = 148.0
+const BAR_HEIGHT:    float = 42.0
+const DRAWER_HEIGHT: float = 148.0
 
 # State
 var selected_hold_type: String = ""
@@ -64,6 +64,10 @@ var drag_start_position: Vector2 = Vector2.ZERO
 # Test mode
 var is_testing: bool = false
 var preview_player_ref: Node2D = null
+
+# Speed fail state (test mode)
+var _speed_timer_node: Node = null   # SpeedTimer instance created during test
+var _speed_fail_pending: bool = false
 
 # Crashpad state
 var placing_crashpad: bool = false
@@ -100,18 +104,18 @@ const MIN_HOLD_DISTANCE: float = 40.0
 const MAX_REACH_DISTANCE: float = 250.0
 
 # Grades / hold types
-const V_GRADES    = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
-const YDS_GRADES  = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
-					 "5.11a","5.11b","5.11c","5.11d","5.12a","5.12b","5.12c","5.12d","5.13a","5.13b"]
+const V_GRADES   = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
+const YDS_GRADES = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
+					"5.11a","5.11b","5.11c","5.11d","5.12a","5.12b","5.12c","5.12d","5.13a","5.13b"]
 const HOLD_TYPES  = ["START","TOP","JUG","CRIMP","SLOPER","POCKET","FOOT"]
 const HOLD_SCENES = {
-	"START": "res://scenes/holds/start.tscn",
-	"TOP":   "res://scenes/holds/top_out.tscn",
-	"JUG":   "res://scenes/holds/jug.tscn",
-	"CRIMP": "res://scenes/holds/crimp.tscn",
-	"SLOPER":"res://scenes/holds/sloper.tscn",
-	"POCKET":"res://scenes/holds/pocket.tscn",
-	"FOOT":  "res://scenes/holds/foothold.tscn"
+	"START":  "res://scenes/holds/start.tscn",
+	"TOP":    "res://scenes/holds/top_out.tscn",
+	"JUG":    "res://scenes/holds/jug.tscn",
+	"CRIMP":  "res://scenes/holds/crimp.tscn",
+	"SLOPER": "res://scenes/holds/sloper.tscn",
+	"POCKET": "res://scenes/holds/pocket.tscn",
+	"FOOT":   "res://scenes/holds/foothold.tscn"
 }
 const CRASHPAD_SCENE = "res://scenes/props/crashpad.tscn"
 
@@ -142,19 +146,19 @@ const WALL_PADDING_BOTTOM = 150.0
 @export var master_volume_db: float = -6.0
 
 @export_subgroup("Action Pitches")
-@export var pitch_place_hold:    float = 1.2
-@export var pitch_delete_hold:   float = 0.7
-@export var pitch_place_crashpad:float = 1.15
-@export var pitch_copy_json:     float = 1.3
-@export var pitch_paste_json:    float = 1.25
-@export var pitch_clear:         float = 0.6
-@export var pitch_error:         float = 0.5
-@export var pitch_success:       float = 1.4
-@export var pitch_preview:       float = 1.2
+@export var pitch_place_hold:     float = 1.2
+@export var pitch_delete_hold:    float = 0.7
+@export var pitch_place_crashpad: float = 1.15
+@export var pitch_copy_json:      float = 1.3
+@export var pitch_paste_json:     float = 1.25
+@export var pitch_clear:          float = 0.6
+@export var pitch_error:          float = 0.5
+@export var pitch_success:        float = 1.4
+@export var pitch_preview:        float = 1.2
 
 @export_subgroup("Pitch Randomization")
-@export var randomize_pitch:    bool  = true
-@export var pitch_variation:    float = 0.05
+@export var randomize_pitch:  bool  = true
+@export var pitch_variation:  float = 0.05
 
 const CLICK_SOUND = preload("res://assets/audio/sfx/button-clicked.wav")
 var _audio_player: AudioStreamPlayer
@@ -178,12 +182,11 @@ func _ready():
 		camera = get_node("Camera2D")
 	else:
 		camera = Camera2D.new()
-		camera.name = "Camera2D"
-		camera.zoom = Vector2(0.5, 0.5)
+		camera.name     = "Camera2D"
+		camera.zoom     = Vector2(0.5, 0.5)
 		camera.position = Vector2(500, 0)
 		add_child(camera)
 
-	# Ensure the editor camera is always current and never auto-follows anything
 	camera.make_current()
 	if "position_smoothing_enabled" in camera:
 		camera.position_smoothing_enabled = false
@@ -192,9 +195,9 @@ func _ready():
 		camera.drag_vertical_enabled   = false
 
 	# Containers
-	holds_container = _get_or_create_node2d("Holds")
+	holds_container     = _get_or_create_node2d("Holds")
 	crashpads_container = _get_or_create_node2d("Crashpads")
-	preview_container = _get_or_create_node2d("PreviewContainer")
+	preview_container   = _get_or_create_node2d("PreviewContainer")
 	preview_container.z_index = 100
 
 	# Load scenes
@@ -210,8 +213,8 @@ func _ready():
 func _get_or_create_node2d(node_name: String) -> Node2D:
 	if has_node(node_name):
 		return get_node(node_name)
-	var n = Node2D.new()
-	n.name = node_name
+	var n      = Node2D.new()
+	n.name     = node_name
 	add_child(n)
 	return n
 
@@ -219,7 +222,6 @@ func _process(delta):
 	update_camera(delta)
 	update_preview()
 	update_info_label()
-	# Smoothly follow the preview player when in test mode
 	if is_testing and is_instance_valid(preview_player_ref):
 		camera.position = camera.position.lerp(preview_player_ref.global_position, 8.0 * delta)
 	queue_redraw()
@@ -231,8 +233,8 @@ func _process(delta):
 
 func _setup_audio():
 	_audio_player = AudioStreamPlayer.new()
-	_audio_player.name = "EditorAudioPlayer"
-	_audio_player.stream = CLICK_SOUND
+	_audio_player.name      = "EditorAudioPlayer"
+	_audio_player.stream    = CLICK_SOUND
 	_audio_player.volume_db = master_volume_db
 	add_child(_audio_player)
 
@@ -251,34 +253,32 @@ func play_sound(base_pitch: float):
 # =============================================================================
 
 func setup_ui():
-	ui_layer = CanvasLayer.new()
+	ui_layer      = CanvasLayer.new()
 	ui_layer.name = "UI"
 	add_child(ui_layer)
 
 	# ── Persistent top bar ────────────────────────────────────────────────────
-	top_bar = ColorRect.new()
+	top_bar       = ColorRect.new()
 	top_bar.color = Color(0.10, 0.10, 0.13, 0.96)
 	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	top_bar.size.y = BAR_HEIGHT
-	top_bar.mouse_filter = Control.MOUSE_FILTER_STOP
+	top_bar.size.y        = BAR_HEIGHT
+	top_bar.mouse_filter  = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(top_bar)
 
-	# Thin accent line at bottom of top bar
-	var accent = ColorRect.new()
-	accent.color = Color(0.35, 0.60, 1.0, 0.55)
+	var accent       = ColorRect.new()
+	accent.color     = Color(0.35, 0.60, 1.0, 0.55)
 	accent.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	accent.position.y = BAR_HEIGHT - 2
-	accent.size.y = 2
+	accent.size.y     = 2
 	ui_layer.add_child(accent)
 
-	# Bar content — explicit size match to top_bar, generous vertical padding
 	var bar_margin = MarginContainer.new()
 	bar_margin.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	bar_margin.size.y = BAR_HEIGHT
-	bar_margin.add_theme_constant_override("margin_left",  12)
-	bar_margin.add_theme_constant_override("margin_right", 12)
-	bar_margin.add_theme_constant_override("margin_top",    7)
-	bar_margin.add_theme_constant_override("margin_bottom", 7)
+	bar_margin.add_theme_constant_override("margin_left",   12)
+	bar_margin.add_theme_constant_override("margin_right",  12)
+	bar_margin.add_theme_constant_override("margin_top",     7)
+	bar_margin.add_theme_constant_override("margin_bottom",  7)
 	ui_layer.add_child(bar_margin)
 
 	var bar_hbox = HBoxContainer.new()
@@ -339,41 +339,39 @@ func setup_ui():
 	_add_bar_separator(bar_hbox)
 
 	# ── Quick action buttons ───────────────────────────────────────────────────
-	var copy_btn  = _make_bar_button("Copy",  func(): _on_copy_json())
-	var paste_btn = _make_bar_button("Paste", func(): _on_paste_json())
-	var test_btn  = _make_bar_button("▶ Test",func(): _on_preview())
+	var copy_btn  = _make_bar_button("Copy",   func(): _on_copy_json())
+	var paste_btn = _make_bar_button("Paste",  func(): _on_paste_json())
+	var test_btn  = _make_bar_button("▶ Test", func(): _on_preview())
 	test_btn.add_theme_color_override("font_color", Color(0.45, 1.0, 0.6))
 	bar_hbox.add_child(copy_btn)
 	bar_hbox.add_child(paste_btn)
 	bar_hbox.add_child(test_btn)
 
-	# ── Spacer ────────────────────────────────────────────────────────────────
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar_hbox.add_child(spacer)
 
-	# ── Fold toggle (right-most) ──────────────────────────────────────────────
 	fold_button = _make_bar_button("▼ More", func(): _on_fold_button_pressed())
 	fold_button.add_theme_color_override("font_color", Color(0.75, 0.75, 0.85))
 	bar_hbox.add_child(fold_button)
 
 	# ── Drawer ────────────────────────────────────────────────────────────────
-	drawer_panel = ColorRect.new()
+	drawer_panel       = ColorRect.new()
 	drawer_panel.color = Color(0.10, 0.11, 0.14, 0.93)
 	drawer_panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	drawer_panel.position.y = BAR_HEIGHT + 2
-	drawer_panel.size.y = DRAWER_HEIGHT
+	drawer_panel.position.y   = BAR_HEIGHT + 2
+	drawer_panel.size.y       = DRAWER_HEIGHT
 	drawer_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(drawer_panel)
 
 	drawer_container = MarginContainer.new()
 	drawer_container.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	drawer_container.position.y = BAR_HEIGHT + 2
-	drawer_container.size.y = DRAWER_HEIGHT
-	drawer_container.add_theme_constant_override("margin_left",  18)
-	drawer_container.add_theme_constant_override("margin_right", 18)
-	drawer_container.add_theme_constant_override("margin_top",   10)
-	drawer_container.add_theme_constant_override("margin_bottom",10)
+	drawer_container.size.y     = DRAWER_HEIGHT
+	drawer_container.add_theme_constant_override("margin_left",   18)
+	drawer_container.add_theme_constant_override("margin_right",  18)
+	drawer_container.add_theme_constant_override("margin_top",    10)
+	drawer_container.add_theme_constant_override("margin_bottom", 10)
 	ui_layer.add_child(drawer_container)
 
 	var drawer_hbox = HBoxContainer.new()
@@ -403,8 +401,8 @@ func setup_ui():
 	weather_intensity_slider = HSlider.new()
 	weather_intensity_slider.min_value = 0.1
 	weather_intensity_slider.max_value = 1.0
-	weather_intensity_slider.step = 0.05
-	weather_intensity_slider.value = 1.0
+	weather_intensity_slider.step      = 0.05
+	weather_intensity_slider.value     = 1.0
 	weather_intensity_slider.custom_minimum_size = Vector2(90, 20)
 	weather_intensity_slider.value_changed.connect(_on_weather_intensity_changed)
 	intensity_row.add_child(weather_intensity_slider)
@@ -443,9 +441,9 @@ func setup_ui():
 	speed_time_input = SpinBox.new()
 	speed_time_input.min_value = 10.0
 	speed_time_input.max_value = 300.0
-	speed_time_input.step = 5.0
-	speed_time_input.value = 60.0
-	speed_time_input.suffix = "s"
+	speed_time_input.step      = 5.0
+	speed_time_input.value     = 60.0
+	speed_time_input.suffix    = "s"
 	speed_time_input.custom_minimum_size = Vector2(90, 26)
 	speed_time_input.value_changed.connect(_on_speed_time_changed)
 	speed_hbox.add_child(speed_time_input)
@@ -492,7 +490,7 @@ func setup_ui():
 	back_btn.add_theme_color_override("font_color", Color(1.0, 0.55, 0.55))
 	act_row2.add_child(back_btn)
 
-	# ── Info label (always at bottom of screen) ───────────────────────────────
+	# ── Info label (bottom of screen) ─────────────────────────────────────────
 	info_label = Label.new()
 	info_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	info_label.position.y = -26
@@ -711,16 +709,16 @@ func _on_speed_time_changed(value: float):
 	speed_time_limit = value
 
 func _on_place_belayer_pressed():
-	placing_belayer = true
+	placing_belayer   = true
 	selected_hold_type = ""
-	placing_crashpad = false
+	placing_crashpad  = false
 	clear_preview()
 	show_notification("Click anywhere to place rope anchor point")
 
 func _clear_belayer_marker():
 	if belayer_marker and is_instance_valid(belayer_marker):
 		belayer_marker.queue_free()
-	belayer_marker = null
+	belayer_marker   = null
 	belayer_position = Vector2.ZERO
 
 func _clear_all_crashpads():
@@ -729,11 +727,11 @@ func _clear_all_crashpads():
 
 func _create_belayer_marker(pos: Vector2):
 	_clear_belayer_marker()
-	belayer_marker = Node2D.new()
-	belayer_marker.name = "BelayerMarker"
-	belayer_marker.z_index = 100
+	belayer_marker          = Node2D.new()
+	belayer_marker.name     = "BelayerMarker"
+	belayer_marker.z_index  = 100
 	belayer_marker.global_position = pos
-	belayer_position = pos
+	belayer_position        = pos
 
 	var marker_sprite = Sprite2D.new()
 	var image = Image.create(32, 48, false, Image.FORMAT_RGBA8)
@@ -758,8 +756,8 @@ func _on_hold_type_selected(index: int):
 		selected_hold_type = hold_type_dropdown.get_item_metadata(index)
 	else:
 		selected_hold_type = hold_type_dropdown.get_item_text(index)
-	placing_crashpad = false
-	placing_belayer = false
+	placing_crashpad  = false
+	placing_belayer   = false
 	clear_preview()
 
 func _on_place_crashpad_pressed():
@@ -767,9 +765,9 @@ func _on_place_crashpad_pressed():
 		show_notification("Crashpads are only for bouldering!", true)
 		play_sound(pitch_error)
 		return
-	placing_crashpad = true
+	placing_crashpad  = true
 	selected_hold_type = ""
-	placing_belayer = false
+	placing_belayer   = false
 	clear_preview()
 
 
@@ -786,20 +784,19 @@ func _input(event):
 		match event.keycode:
 			KEY_DELETE:
 				if not is_testing:
-					if dragging_hold:    delete_hold(dragging_hold)
+					if dragging_hold:     delete_hold(dragging_hold)
 					elif dragging_crashpad: delete_crashpad(dragging_crashpad)
 			KEY_ESCAPE:
 				if is_testing:
 					_stop_testing()
 					return
 				selected_hold_type = ""
-				placing_crashpad = false
-				placing_belayer = false
+				placing_crashpad   = false
+				placing_belayer    = false
 				clear_preview()
-				dragging_hold = null
-				dragging_crashpad = null
+				dragging_hold      = null
+				dragging_crashpad  = null
 
-	# Block all mouse/camera interaction while testing
 	if is_testing:
 		return
 
@@ -816,10 +813,10 @@ func _input(event):
 					update_wall_bounds()
 				elif dragging_crashpad and dragging_crashpad.global_position != crashpad_drag_start_position:
 					save_undo_state()
-				dragging_hold = null
+				dragging_hold     = null
 				dragging_crashpad = null
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-			var pos = get_global_mouse_position()
+			var pos  = get_global_mouse_position()
 			var hold = get_hold_at_position(pos)
 			if hold:
 				delete_hold(hold)
@@ -828,13 +825,16 @@ func _input(event):
 				if crashpad:
 					delete_crashpad(crashpad)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			camera.zoom = (camera.zoom * (1.0 + ZOOM_SPEED)).clamp(Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
+			camera.zoom = (camera.zoom * (1.0 + ZOOM_SPEED)).clamp(
+				Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			camera.zoom = (camera.zoom * (1.0 - ZOOM_SPEED)).clamp(Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
+			camera.zoom = (camera.zoom * (1.0 - ZOOM_SPEED)).clamp(
+				Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
 
 	elif event is InputEventMagnifyGesture:
 		var zoom_change = (event.factor - 1.0) * TRACKPAD_ZOOM_SPEED
-		camera.zoom = (camera.zoom * (1.0 + zoom_change)).clamp(Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
+		camera.zoom = (camera.zoom * (1.0 + zoom_change)).clamp(
+			Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
 
 	elif event is InputEventPanGesture:
 		camera.position += event.delta * 50.0 / camera.zoom.x
@@ -869,15 +869,15 @@ func handle_left_click():
 		var hold = get_hold_at_position(pos)
 		if hold:
 			save_undo_state()
-			dragging_hold = hold
-			drag_offset = hold.global_position - pos
+			dragging_hold      = hold
+			drag_offset        = hold.global_position - pos
 			drag_start_position = hold.global_position
 		else:
 			var crashpad = get_crashpad_at_position(pos)
 			if crashpad:
 				save_undo_state()
 				dragging_crashpad = crashpad
-				drag_offset = crashpad.global_position - pos
+				drag_offset       = crashpad.global_position - pos
 				crashpad_drag_start_position = crashpad.global_position
 
 
@@ -918,7 +918,7 @@ func get_crashpad_at_position(pos: Vector2, max_dist: float = 60.0) -> Node2D:
 		var dist = crashpad.global_position.distance_to(pos)
 		if dist < closest_dist:
 			closest_dist = dist
-			closest = crashpad
+			closest      = crashpad
 	return closest
 
 
@@ -939,13 +939,14 @@ func _on_copy_json():
 		"discipline":        current_discipline,
 		"weather":           current_weather,
 		"weather_intensity": current_weather_intensity,
+		# ── FIX: speed_time_limit is ALWAYS exported so the loader always has it.
+		# For non-speed disciplines this is simply ignored at load time.
+		"speed_time_limit":  speed_time_limit,
 		"holds":             [],
 		"crashpads":         []
 	}
 
-	if current_discipline == "speed":
-		level_data["speed_time_limit"] = speed_time_limit
-	elif current_discipline == "roped" and belayer_position != Vector2.ZERO:
+	if current_discipline == "roped" and belayer_position != Vector2.ZERO:
 		level_data["belayer_position"] = { "x": belayer_position.x, "y": belayer_position.y }
 
 	if wall and wall.has_method("get_polygon_data"):
@@ -962,7 +963,10 @@ func _on_copy_json():
 
 	if current_discipline == "bouldering":
 		for crashpad in crashpads_container.get_children():
-			level_data.crashpads.append({ "x": crashpad.global_position.x, "y": crashpad.global_position.y })
+			level_data.crashpads.append({
+				"x": crashpad.global_position.x,
+				"y": crashpad.global_position.y
+			})
 
 	DisplayServer.clipboard_set(JSON.stringify(level_data, "\t"))
 	play_sound(pitch_copy_json)
@@ -995,8 +999,9 @@ func _on_paste_json():
 	if climb_name_input:
 		climb_name_input.text = climb_name
 
-	current_discipline = data.get("discipline",    "bouldering")
-	speed_time_limit   = data.get("speed_time_limit", 60.0)
+	current_discipline = data.get("discipline",     "bouldering")
+	# ── FIX: always read speed_time_limit regardless of current discipline
+	speed_time_limit   = float(data.get("speed_time_limit", 60.0))
 
 	if discipline_dropdown:
 		match current_discipline:
@@ -1008,10 +1013,11 @@ func _on_paste_json():
 	populate_grade_dropdown()
 	if grade_dropdown:
 		var grades = V_GRADES if current_discipline == "bouldering" else YDS_GRADES
-		var idx = grades.find(climb_grade)
+		var idx    = grades.find(climb_grade)
 		if idx >= 0:
 			grade_dropdown.select(idx)
 
+	# ── FIX: update the SpinBox to reflect the imported value
 	if speed_time_input:
 		speed_time_input.value = speed_time_limit
 
@@ -1022,7 +1028,7 @@ func _on_paste_json():
 	var environment_name = data.get("environment", "gym")
 	var env_config = get_node_or_null("/root/EnvironmentConfig")
 	if env_config:
-		var matched  = false
+		var matched   = false
 		var env_types = env_config.get_all_environment_types()
 		for i in range(env_types.size()):
 			if env_config.get_environment_name(env_types[i]).to_lower() == environment_name.to_lower():
@@ -1037,7 +1043,7 @@ func _on_paste_json():
 
 	var loaded_weather   := int(data.get("weather",           0))
 	var loaded_intensity := float(data.get("weather_intensity", 1.0))
-	current_weather          = loaded_weather
+	current_weather           = loaded_weather
 	current_weather_intensity = loaded_intensity
 	if weather_dropdown:
 		weather_dropdown.select(clamp(loaded_weather, 0, weather_dropdown.get_item_count() - 1))
@@ -1171,18 +1177,19 @@ func delete_hold(hold: Node2D):
 
 func get_hold_at_position(pos: Vector2, max_dist: float = 40.0) -> Node2D:
 	var closest: Node2D = null
-	var closest_dist = max_dist
+	var closest_dist    = max_dist
 	for hold in holds_container.get_children():
 		var dist = hold.global_position.distance_to(pos)
 		if dist < closest_dist:
 			closest_dist = dist
-			closest = hold
+			closest      = hold
 	return closest
 
 func snap_to_grid(pos: Vector2) -> Vector2:
 	if not grid_enabled:
 		return pos
-	return Vector2(round(pos.x / grid_size) * grid_size, round(pos.y / grid_size) * grid_size)
+	return Vector2(round(pos.x / grid_size) * grid_size,
+				   round(pos.y / grid_size) * grid_size)
 
 
 # =============================================================================
@@ -1190,7 +1197,6 @@ func snap_to_grid(pos: Vector2) -> Vector2:
 # =============================================================================
 
 func update_camera(delta):
-	# Camera is locked to player during test mode — no manual movement allowed
 	if is_testing:
 		return
 	var move = Vector2.ZERO
@@ -1203,7 +1209,7 @@ func update_camera(delta):
 
 
 # =============================================================================
-# PREVIEW
+# PREVIEW (hover ghost)
 # =============================================================================
 
 func update_preview():
@@ -1212,7 +1218,7 @@ func update_preview():
 			clear_preview()
 			preview_crashpad = crashpad_scene.instantiate()
 			preview_crashpad.modulate = Color(1, 1, 1, 0.5)
-			preview_crashpad.z_index = 100
+			preview_crashpad.z_index  = 100
 			preview_container.add_child(preview_crashpad)
 		if is_mouse_over_ui():
 			preview_crashpad.visible = false
@@ -1235,16 +1241,17 @@ func update_preview():
 		clear_preview()
 		preview_hold = loaded_scenes[selected_hold_type].instantiate()
 		preview_hold.modulate = Color(1, 1, 1, 0.5)
-		preview_hold.z_index = 100
+		preview_hold.z_index  = 100
 		preview_container.add_child(preview_hold)
 
 	var snapped_pos = snap_to_grid(get_global_mouse_position())
 	snapped_pos.x = clamp(snapped_pos.x, CANVAS_MIN_X, CANVAS_MAX_X)
 	snapped_pos.y = clamp(snapped_pos.y, CANVAS_MIN_Y, CANVAS_MAX_Y)
 
-	var too_close  = is_position_too_close(snapped_pos, null)
+	var too_close   = is_position_too_close(snapped_pos, null)
 	var unreachable = not is_position_reachable(snapped_pos, null)
-	preview_hold.modulate = Color(1, 0.3, 0.3, 0.5) if (too_close or unreachable) else Color(1, 1, 1, 0.5)
+	preview_hold.modulate = Color(1, 0.3, 0.3, 0.5) if (too_close or unreachable) \
+							else Color(1, 1, 1, 0.5)
 	preview_hold.global_position = snapped_pos
 
 func clear_preview():
@@ -1286,6 +1293,11 @@ func on_environment_changed(index: int):
 		if crashpad.has_method("_update_sprite_for_environment"):
 			crashpad._update_sprite_for_environment()
 
+
+# =============================================================================
+# TEST / PREVIEW
+# =============================================================================
+
 func _on_preview():
 	if holds_container.get_child_count() == 0:
 		show_notification("No holds to test!", true)
@@ -1293,11 +1305,9 @@ func _on_preview():
 		return
 
 	var start_holds = []
-	var top_holds   = []
 	for hold in holds_container.get_children():
 		var t = get_hold_type(hold)
 		if t == "START": start_holds.append(hold)
-		if t == "TOP":   top_holds.append(hold)
 
 	if start_holds.size() == 0:
 		show_notification("Need at least one START hold!", true)
@@ -1317,13 +1327,13 @@ func _on_preview():
 	var player = load(player_scene_path).instantiate()
 	player.name = "PreviewPlayer"
 	add_child(player)
-
-	# Disable every Camera2D inside the player immediately after adding.
 	_disable_player_cameras.call_deferred(player)
 
 	preview_player_ref = player
-	is_testing = true
+	is_testing         = true
+	_speed_fail_pending = false
 
+	# Spawn position
 	var spawn_pos = Vector2.ZERO
 	if start_holds.size() == 1:
 		var hp = start_holds[0].get_node_or_null("HoldPoint")
@@ -1336,14 +1346,110 @@ func _on_preview():
 		spawn_pos = sum / start_holds.size() + Vector2(0, 80)
 
 	player.global_position = spawn_pos
-
-	# Snap camera to player immediately so there's no jarring pan
-	camera.position = spawn_pos
-	camera.zoom = Vector2(1.0, 1.0)
+	camera.position        = spawn_pos
+	camera.zoom            = Vector2(1.0, 1.0)
 	camera.make_current()
+
+	# ── Speed discipline: create and wire a live SpeedTimer ───────────────────
+	if current_discipline == "speed":
+		_setup_speed_timer_for_test()
 
 	play_sound(pitch_preview)
 	show_notification("Testing route — Press ESC to exit")
+
+func _setup_speed_timer_for_test() -> void:
+	# Remove any leftover timer from a previous test
+	var old_timer = get_node_or_null("TestSpeedTimer")
+	if old_timer:
+		old_timer.queue_free()
+
+	# SpeedTimer extends CanvasLayer so we add it as a child of this node
+	var SpeedTimerScript = load("res://scripts/ui/speed_timer.gd")
+	if not SpeedTimerScript:
+		push_error("LevelEditor: Could not load speed_timer.gd — path may differ")
+		return
+
+	_speed_timer_node = SpeedTimerScript.new()
+	_speed_timer_node.name = "TestSpeedTimer"
+	add_child(_speed_timer_node)
+
+	_speed_timer_node.set_time_limit(speed_time_limit)
+	_speed_timer_node.show_timer()
+	_speed_timer_node.start_timer()
+
+	# Wire the fail signal
+	_speed_timer_node.time_expired.connect(_on_test_speed_time_expired)
+	print("LevelEditor: Speed test timer started — ", speed_time_limit, "s")
+
+func _on_test_speed_time_expired() -> void:
+	## Called when the in-editor speed test timer runs out.
+	## We release all holds so the player physically falls, wait a moment, then reset.
+	if not is_testing or _speed_fail_pending:
+		return
+	_speed_fail_pending = true
+	show_notification("TIME'S UP — resetting…", true)
+	play_sound(pitch_error)
+
+	var player = get_node_or_null("PreviewPlayer")
+	if is_instance_valid(player):
+		# Try the cleanest API first, fall back gracefully
+		if player.has_method("release_all_holds"):
+			player.release_all_holds()
+		elif player.has_method("fall"):
+			player.fall()
+		else:
+			# Last resort: disable grab so gravity takes over
+			if "can_grab" in player:
+				player.can_grab = false
+
+	# Wait for the fall animation, then respawn
+	await get_tree().create_timer(1.2).timeout
+
+	if not is_testing:
+		return  # Player pressed ESC during the wait
+
+	_reset_speed_test()
+
+func _reset_speed_test() -> void:
+	## Respawn the player at the start holds and restart the timer.
+	_speed_fail_pending = false
+
+	# Collect start holds
+	var start_holds = []
+	for hold in holds_container.get_children():
+		if get_hold_type(hold) == "START":
+			start_holds.append(hold)
+
+	var spawn_pos = Vector2.ZERO
+	if start_holds.size() == 1:
+		var hp = start_holds[0].get_node_or_null("HoldPoint")
+		spawn_pos = (hp.global_position if hp else start_holds[0].global_position) + Vector2(0, 80)
+	elif start_holds.size() > 1:
+		var sum = Vector2.ZERO
+		for hold in start_holds:
+			var hp = hold.get_node_or_null("HoldPoint")
+			sum += hp.global_position if hp else hold.global_position
+		spawn_pos = sum / start_holds.size() + Vector2(0, 80)
+
+	var player = get_node_or_null("PreviewPlayer")
+	if is_instance_valid(player):
+		player.global_position = spawn_pos
+		# Re-enable grabbing if we disabled it
+		if "can_grab" in player:
+			player.can_grab = true
+		# Reset velocity so the player doesn't carry momentum from the fall
+		if "velocity" in player:
+			player.velocity = Vector2.ZERO
+
+	# Snap camera back
+	camera.position = spawn_pos
+
+	# Restart the timer
+	if is_instance_valid(_speed_timer_node):
+		_speed_timer_node.stop_timer()
+		_speed_timer_node.start_timer()
+
+	show_notification("Restarting speed attempt…")
 
 func _disable_player_cameras(player: Node) -> void:
 	for cam in player.find_children("*", "Camera2D", true, false):
@@ -1352,15 +1458,27 @@ func _disable_player_cameras(player: Node) -> void:
 	camera.make_current()
 
 func _stop_testing() -> void:
-	is_testing = false
-	preview_player_ref = null
+	is_testing          = false
+	_speed_fail_pending = false
+	preview_player_ref  = null
+
+	# Clean up speed timer if one was running
+	if is_instance_valid(_speed_timer_node):
+		_speed_timer_node.queue_free()
+	_speed_timer_node = null
+
 	var preview_player = get_node_or_null("PreviewPlayer")
 	if preview_player:
 		preview_player.queue_free()
 	camera.make_current()
 
+
+# =============================================================================
+# CLEAR
+# =============================================================================
+
 func _on_clear():
-	for hold    in holds_container.get_children():    hold.queue_free()
+	for hold     in holds_container.get_children():    hold.queue_free()
 	for crashpad in crashpads_container.get_children(): crashpad.queue_free()
 
 	if wall and wall.has_method("reset_polygon"):
@@ -1369,7 +1487,7 @@ func _on_clear():
 	current_discipline = "bouldering"
 	speed_time_limit   = 60.0
 	_clear_belayer_marker()
-	placing_belayer = false
+	placing_belayer    = false
 
 	if discipline_dropdown:
 		discipline_dropdown.select(0)
@@ -1405,7 +1523,7 @@ func _on_back_pressed():
 
 func toggle_grid(button: Button):
 	grid_enabled = not grid_enabled
-	button.text = "Grid: ON" if grid_enabled else "Grid: OFF"
+	button.text  = "Grid: ON" if grid_enabled else "Grid: OFF"
 	queue_redraw()
 
 func _on_toggle_wall_edit():
@@ -1442,9 +1560,16 @@ func save_undo_state():
 		"weather_intensity": current_weather_intensity,
 	}
 	for hold in holds_container.get_children():
-		state.holds.append({ "type": get_hold_type(hold), "x": hold.global_position.x, "y": hold.global_position.y })
+		state.holds.append({
+			"type": get_hold_type(hold),
+			"x":    hold.global_position.x,
+			"y":    hold.global_position.y
+		})
 	for crashpad in crashpads_container.get_children():
-		state.crashpads.append({ "x": crashpad.global_position.x, "y": crashpad.global_position.y })
+		state.crashpads.append({
+			"x": crashpad.global_position.x,
+			"y": crashpad.global_position.y
+		})
 	if wall and wall.has_method("get_polygon_data"):
 		state.wall_polygon = wall.get_polygon_data()
 	undo_stack.append(state)
@@ -1457,7 +1582,7 @@ func undo_last_action():
 		return
 	var state = undo_stack.pop_back()
 
-	for hold    in holds_container.get_children():    hold.queue_free()
+	for hold     in holds_container.get_children():    hold.queue_free()
 	for crashpad in crashpads_container.get_children(): crashpad.queue_free()
 
 	for hold_data in state.holds:
@@ -1491,7 +1616,8 @@ func undo_last_action():
 		current_weather           = state.weather
 		current_weather_intensity = state.get("weather_intensity", 1.0)
 		if weather_dropdown:
-			weather_dropdown.select(clamp(current_weather, 0, weather_dropdown.get_item_count() - 1))
+			weather_dropdown.select(clamp(current_weather, 0,
+										 weather_dropdown.get_item_count() - 1))
 			_on_weather_changed(current_weather)
 		if weather_intensity_slider:
 			weather_intensity_slider.value = current_weather_intensity
@@ -1513,10 +1639,11 @@ func show_notification(text: String, is_error: bool = false):
 	var ui_bottom = BAR_HEIGHT + 2 + (DRAWER_HEIGHT if not ui_panel_collapsed else 0.0) + 6.0
 
 	var notif_bar = ColorRect.new()
-	notif_bar.name  = "NotificationLabel"
-	notif_bar.size  = Vector2(380, 36)
+	notif_bar.name     = "NotificationLabel"
+	notif_bar.size     = Vector2(380, 36)
 	notif_bar.position = Vector2(get_viewport_rect().size.x / 2.0 - 190.0, ui_bottom)
-	notif_bar.color = Color(0.65, 0.18, 0.18, 0.93) if is_error else Color(0.15, 0.55, 0.28, 0.93)
+	notif_bar.color    = Color(0.65, 0.18, 0.18, 0.93) if is_error \
+						 else Color(0.15, 0.55, 0.28, 0.93)
 
 	var lbl = Label.new()
 	lbl.text = text
@@ -1534,11 +1661,12 @@ func show_notification(text: String, is_error: bool = false):
 
 func update_info_label():
 	var selected = "None"
-	if placing_belayer:    selected = "Rope Anchor"
-	elif placing_crashpad: selected = "Crashpad"
+	if placing_belayer:      selected = "Rope Anchor"
+	elif placing_crashpad:   selected = "Crashpad"
 	elif selected_hold_type: selected = selected_hold_type
 
-	var disc_name = {"bouldering":"Boulder","roped":"Roped","speed":"Speed"}.get(current_discipline, current_discipline)
+	var disc_name = {"bouldering":"Boulder","roped":"Roped","speed":"Speed"} \
+					.get(current_discipline, current_discipline)
 	var parts = [
 		"%s  %s" % [disc_name, climb_grade],
 		"Holds: %d" % holds_container.get_child_count(),
@@ -1552,7 +1680,8 @@ func update_info_label():
 	elif current_discipline == "roped" and belayer_position != Vector2.ZERO:
 		parts.append("Anchor ✓")
 	if current_weather > 0:
-		var wname = WEATHER_NAMES[current_weather] if current_weather < WEATHER_NAMES.size() else "?"
+		var wname = WEATHER_NAMES[current_weather] \
+					if current_weather < WEATHER_NAMES.size() else "?"
 		parts.append("%s %d%%" % [wname, int(current_weather_intensity * 100.0)])
 	parts.append("Placing: %s" % selected)
 	info_label.text = "  ·  ".join(parts)
@@ -1588,7 +1717,8 @@ func get_route_bounds() -> Dictionary:
 
 func _draw():
 	draw_rect(
-		Rect2(CANVAS_MIN_X, CANVAS_MIN_Y, CANVAS_MAX_X - CANVAS_MIN_X, CANVAS_MAX_Y - CANVAS_MIN_Y),
+		Rect2(CANVAS_MIN_X, CANVAS_MIN_Y,
+			  CANVAS_MAX_X - CANVAS_MIN_X, CANVAS_MAX_Y - CANVAS_MIN_Y),
 		Color(0.15, 0.15, 0.2, 0.3), false, 2.0)
 
 	var bounds = get_route_bounds()
@@ -1622,10 +1752,12 @@ func _draw():
 
 	var x = start_x
 	while x <= end_x:
-		draw_line(Vector2(x, draw_min_y), Vector2(x, draw_max_y), Color(0.3, 0.3, 0.3, 0.2), 1.0)
+		draw_line(Vector2(x, draw_min_y), Vector2(x, draw_max_y),
+				  Color(0.3, 0.3, 0.3, 0.2), 1.0)
 		x += grid_size
 
 	var y = start_y
 	while y <= end_y:
-		draw_line(Vector2(draw_min_x, y), Vector2(draw_max_x, y), Color(0.3, 0.3, 0.3, 0.2), 1.0)
+		draw_line(Vector2(draw_min_x, y), Vector2(draw_max_x, y),
+				  Color(0.3, 0.3, 0.3, 0.2), 1.0)
 		y += grid_size
