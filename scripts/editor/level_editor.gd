@@ -36,7 +36,7 @@ var belayer_placement_button: Button
 var placing_belayer: bool = false
 var belayer_marker: Node2D = null
 
-# Crashpad UI (bouldering only)
+# Crashpad UI
 var crashpad_button: Button
 
 # Weather UI
@@ -690,8 +690,7 @@ func _on_discipline_changed(index: int):
 			discipline_settings_panel.visible = true
 			speed_time_input.visible = false
 			belayer_placement_button.visible = true
-			crashpad_button.visible = false
-			_clear_all_crashpads()
+			crashpad_button.visible = true
 			show_notification("Click '⚓ Place Rope Anchor' to set belay point")
 		2:  # Speed
 			current_discipline = "speed"
@@ -699,8 +698,7 @@ func _on_discipline_changed(index: int):
 			discipline_settings_panel.visible = true
 			speed_time_input.visible = true
 			belayer_placement_button.visible = false
-			crashpad_button.visible = false
-			_clear_all_crashpads()
+			crashpad_button.visible = true
 			_clear_belayer_marker()
 
 	populate_grade_dropdown()
@@ -720,10 +718,6 @@ func _clear_belayer_marker():
 		belayer_marker.queue_free()
 	belayer_marker   = null
 	belayer_position = Vector2.ZERO
-
-func _clear_all_crashpads():
-	for crashpad in crashpads_container.get_children():
-		crashpad.queue_free()
 
 func _create_belayer_marker(pos: Vector2):
 	_clear_belayer_marker()
@@ -761,10 +755,6 @@ func _on_hold_type_selected(index: int):
 	clear_preview()
 
 func _on_place_crashpad_pressed():
-	if current_discipline != "bouldering":
-		show_notification("Crashpads are only for bouldering!", true)
-		play_sound(pitch_error)
-		return
 	placing_crashpad  = true
 	selected_hold_type = ""
 	placing_belayer   = false
@@ -886,10 +876,6 @@ func handle_left_click():
 # =============================================================================
 
 func place_crashpad(pos: Vector2) -> bool:
-	if current_discipline != "bouldering":
-		show_notification("Crashpads are only for bouldering!", true)
-		play_sound(pitch_error)
-		return false
 	if not crashpad_scene:
 		show_notification("Crashpad scene not found!", true)
 		play_sound(pitch_error)
@@ -939,8 +925,6 @@ func _on_copy_json():
 		"discipline":        current_discipline,
 		"weather":           current_weather,
 		"weather_intensity": current_weather_intensity,
-		# ── FIX: speed_time_limit is ALWAYS exported so the loader always has it.
-		# For non-speed disciplines this is simply ignored at load time.
 		"speed_time_limit":  speed_time_limit,
 		"holds":             [],
 		"crashpads":         []
@@ -961,12 +945,11 @@ func _on_copy_json():
 			"y":    hold.global_position.y
 		})
 
-	if current_discipline == "bouldering":
-		for crashpad in crashpads_container.get_children():
-			level_data.crashpads.append({
-				"x": crashpad.global_position.x,
-				"y": crashpad.global_position.y
-			})
+	for crashpad in crashpads_container.get_children():
+		level_data.crashpads.append({
+			"x": crashpad.global_position.x,
+			"y": crashpad.global_position.y
+		})
 
 	DisplayServer.clipboard_set(JSON.stringify(level_data, "\t"))
 	play_sound(pitch_copy_json)
@@ -1000,7 +983,6 @@ func _on_paste_json():
 		climb_name_input.text = climb_name
 
 	current_discipline = data.get("discipline",     "bouldering")
-	# ── FIX: always read speed_time_limit regardless of current discipline
 	speed_time_limit   = float(data.get("speed_time_limit", 60.0))
 
 	if discipline_dropdown:
@@ -1017,7 +999,6 @@ func _on_paste_json():
 		if idx >= 0:
 			grade_dropdown.select(idx)
 
-	# ── FIX: update the SpinBox to reflect the imported value
 	if speed_time_input:
 		speed_time_input.value = speed_time_limit
 
@@ -1063,7 +1044,7 @@ func _on_paste_json():
 		hold.add_to_group("holds")
 		hold.set_meta("editor_type", type_name)
 
-	if current_discipline == "bouldering" and "crashpads" in data and crashpad_scene:
+	if "crashpads" in data and crashpad_scene:
 		for cpd in data.crashpads:
 			var cp = crashpad_scene.instantiate()
 			cp.global_position = Vector2(cpd.get("x", 0), cpd.get("y", 0))
@@ -1358,12 +1339,10 @@ func _on_preview():
 	show_notification("Testing route — Press ESC to exit")
 
 func _setup_speed_timer_for_test() -> void:
-	# Remove any leftover timer from a previous test
 	var old_timer = get_node_or_null("TestSpeedTimer")
 	if old_timer:
 		old_timer.queue_free()
 
-	# SpeedTimer extends CanvasLayer so we add it as a child of this node
 	var SpeedTimerScript = load("res://scripts/ui/speed_timer.gd")
 	if not SpeedTimerScript:
 		push_error("LevelEditor: Could not load speed_timer.gd — path may differ")
@@ -1377,13 +1356,10 @@ func _setup_speed_timer_for_test() -> void:
 	_speed_timer_node.show_timer()
 	_speed_timer_node.start_timer()
 
-	# Wire the fail signal
 	_speed_timer_node.time_expired.connect(_on_test_speed_time_expired)
 	print("LevelEditor: Speed test timer started — ", speed_time_limit, "s")
 
 func _on_test_speed_time_expired() -> void:
-	## Called when the in-editor speed test timer runs out.
-	## We release all holds so the player physically falls, wait a moment, then reset.
 	if not is_testing or _speed_fail_pending:
 		return
 	_speed_fail_pending = true
@@ -1392,29 +1368,24 @@ func _on_test_speed_time_expired() -> void:
 
 	var player = get_node_or_null("PreviewPlayer")
 	if is_instance_valid(player):
-		# Try the cleanest API first, fall back gracefully
 		if player.has_method("release_all_holds"):
 			player.release_all_holds()
 		elif player.has_method("fall"):
 			player.fall()
 		else:
-			# Last resort: disable grab so gravity takes over
 			if "can_grab" in player:
 				player.can_grab = false
 
-	# Wait for the fall animation, then respawn
 	await get_tree().create_timer(1.2).timeout
 
 	if not is_testing:
-		return  # Player pressed ESC during the wait
+		return
 
 	_reset_speed_test()
 
 func _reset_speed_test() -> void:
-	## Respawn the player at the start holds and restart the timer.
 	_speed_fail_pending = false
 
-	# Collect start holds
 	var start_holds = []
 	for hold in holds_container.get_children():
 		if get_hold_type(hold) == "START":
@@ -1434,17 +1405,13 @@ func _reset_speed_test() -> void:
 	var player = get_node_or_null("PreviewPlayer")
 	if is_instance_valid(player):
 		player.global_position = spawn_pos
-		# Re-enable grabbing if we disabled it
 		if "can_grab" in player:
 			player.can_grab = true
-		# Reset velocity so the player doesn't carry momentum from the fall
 		if "velocity" in player:
 			player.velocity = Vector2.ZERO
 
-	# Snap camera back
 	camera.position = spawn_pos
 
-	# Restart the timer
 	if is_instance_valid(_speed_timer_node):
 		_speed_timer_node.stop_timer()
 		_speed_timer_node.start_timer()
@@ -1462,7 +1429,6 @@ func _stop_testing() -> void:
 	_speed_fail_pending = false
 	preview_player_ref  = null
 
-	# Clean up speed timer if one was running
 	if is_instance_valid(_speed_timer_node):
 		_speed_timer_node.queue_free()
 	_speed_timer_node = null
