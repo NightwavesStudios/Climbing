@@ -12,7 +12,7 @@ var _current_index: int = 0
 var _tween: Tween = null
 var _transitioning: bool = false
 
-const WEATHER_NAMES = { 0: "", 1: "Rain", 2: "Snow", 3: "Wind", 4: "Storm" }
+const WEATHER_NAMES = { 0: "", 1: "Rain", 2: "Dark", 3: "Snow"}
 
 const HOLD_SCENE_MAP = {
 	"JUG":    "res://scenes/holds/jug.tscn",
