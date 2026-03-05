@@ -4,8 +4,8 @@ extends Control
 @onready var music_player: AudioStreamPlayer = $MainMenuTheme
 
 # 🎵 Set these to your desired loop timestamps (in seconds)
-const MUSIC_LOOP_START := 48.0
-const MUSIC_LOOP_END   := 115.5
+const MUSIC_LOOP_START := 57.6
+const MUSIC_LOOP_END   := 115.2
 
 var _wall: Node2D = null
 var _wall_ready := false
