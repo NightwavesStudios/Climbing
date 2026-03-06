@@ -75,12 +75,9 @@ signal player_exited_water
 var _splashes: Array[Dictionary] = []
 const SPLASH_DURATION := 1.4
 const SPLASH_DROPLET_COUNT := 22
-# Each droplet: { x, y, vx, vy, life, max_life, size }
-# ─────────────────────────────────────────────────────────────────────────────
 
 # ─── Weather ──────────────────────────────────────────────────────────────────
 var weather_modifier: Node2D = null
-# ─────────────────────────────────────────────────────────────────────────────
 
 func _ready():
 	z_index = -10
@@ -99,12 +96,12 @@ func _process(delta: float):
 		return
 	_redraw_timer = 0.0
 
-	# Always animate when rain is blending (even if no other animation)
 	var rain_blend := _get_weather_blend()
 	var has_animation = _env.get("has_stars", false) \
 		or (_env.get("cloud_color", Color(1,1,1)).a > 0.02) \
 		or _env.get("has_gym_interior", false) \
 		or _env.get("has_water", false) \
+		or _env.get("has_city", false) \
 		or rain_blend > 0.01 \
 		or _splashes.size() > 0
 	if has_animation:
@@ -138,19 +135,16 @@ func get_weather() -> int:
 func get_weather_modifier() -> Node2D:
 	return weather_modifier
 
-## Returns 0–1 blend from WeatherModifier, or 0 if none loaded.
 func _get_weather_blend() -> float:
 	if weather_modifier and weather_modifier.has_method("get_blend"):
 		return weather_modifier.get_blend()
 	return 0.0
 
-## Returns the rain sky override dict, or empty dict if none / not raining.
 func _get_rain_override() -> Dictionary:
 	if weather_modifier and weather_modifier.has_method("get_rain_sky_override"):
 		return weather_modifier.get_rain_sky_override()
 	return {}
 
-# ─── Helper: blend a colour toward rain version ───────────────────────────────
 func _rain_lerp_color(base: Color, key: String, blend: float) -> Color:
 	var ov := _get_rain_override()
 	if ov.is_empty() or not key in ov or blend < 0.01:
@@ -215,18 +209,16 @@ func spawn_splash(world_pos: Vector2, entry_velocity: float):
 	var splash_speed = clamp(abs(entry_velocity) * 0.55, 120.0, 600.0)
 	var droplets: Array = []
 	for i in range(SPLASH_DROPLET_COUNT):
-		# Spread outward in a wide cone upward
 		var side := 1.0 if (i % 2 == 0) else -1.0
 		var spread_frac := float(i) / float(SPLASH_DROPLET_COUNT)
-		var angle_deg := 30.0 + spread_frac * 70.0   # 30° to 100° from vertical
+		var angle_deg := 30.0 + spread_frac * 70.0
 		var angle_rad := deg_to_rad(angle_deg) * side
 		var speed_frac := 0.5 + rng.randf() * 0.5
 		var vx = sin(angle_rad) * splash_speed * speed_frac
 		var vy = -cos(angle_rad) * splash_speed * speed_frac * (0.6 + rng.randf() * 0.4)
-		# Extra small "crown" droplets
 		var drop_size := 2.5 + rng.randf() * 4.5
 		if spread_frac < 0.15:
-			drop_size *= 1.6   # big central column drops
+			drop_size *= 1.6
 		var max_life := 0.4 + rng.randf() * 0.6
 		droplets.append({
 			"x": world_pos.x + rng.randf_range(-8.0, 8.0),
@@ -237,7 +229,6 @@ func spawn_splash(world_pos: Vector2, entry_velocity: float):
 			"max_life": max_life,
 			"size": drop_size,
 		})
-	# Also add a few ring ripple markers
 	_splashes.append({
 		"pos": world_pos,
 		"time": 0.0,
@@ -260,7 +251,6 @@ func _update_splashes(delta: float):
 				d["x"] += d["vx"] * delta
 				d["y"] += d["vy"] * delta
 				d["vy"] += gravity * delta
-				# Kill droplet if it goes back below water surface
 				if d["y"] > s["pos"].y + 10.0:
 					d["life"] = 0.0
 		if s["time"] > SPLASH_DURATION:
@@ -296,7 +286,7 @@ func _apply_environment_theme():
 		"granite", "sandstone", "night":
 			var time_of_day = (abs((_scenery_seed ^ 0x9E3779B9) * 1664525 + 1013904223) >> 7) % 3
 			match time_of_day:
-				1:  # Sunset / Sunrise
+				1:
 					_env = {
 						"sky_top": Color(0.12, 0.10, 0.32),
 						"sky_horizon": Color(0.98, 0.52, 0.18),
@@ -311,7 +301,7 @@ func _apply_environment_theme():
 						"ground_detail": "rocks",
 						"fog_color": Color(0.90, 0.45, 0.15, 0.10),
 					}
-				2:  # Night
+				2:
 					_env = {
 						"sky_top": Color(0.02, 0.02, 0.08),
 						"sky_horizon": Color(0.06, 0.08, 0.18),
@@ -326,7 +316,7 @@ func _apply_environment_theme():
 						"ground_detail": "rocks",
 						"fog_color": Color(0.05, 0.06, 0.15, 0.12),
 					}
-				_:  # Daytime (0)
+				_:
 					_env = {
 						"sky_top": Color(0.20, 0.45, 0.78),
 						"sky_horizon": Color(0.72, 0.85, 0.95),
@@ -344,7 +334,7 @@ func _apply_environment_theme():
 		"gym":
 			var gym_tod = (abs((_scenery_seed ^ 0x6B43FA1D) * 22695477 + 1) >> 9) % 3
 			match gym_tod:
-				1:  # Gym — Dusk / Sunset outside the windows
+				1:
 					_env = {
 						"sky_top": Color(0.96, 0.96, 0.97),
 						"sky_horizon": Color(0.92, 0.92, 0.93),
@@ -368,7 +358,7 @@ func _apply_environment_theme():
 						"ground_mid": Color(0.16, 0.16, 0.18),
 						"ground_deep": Color(0.11, 0.11, 0.12),
 					}
-				2:  # Gym — Night outside the windows
+				2:
 					_env = {
 						"sky_top": Color(0.96, 0.96, 0.97),
 						"sky_horizon": Color(0.92, 0.92, 0.93),
@@ -394,7 +384,7 @@ func _apply_environment_theme():
 						"ground_mid": Color(0.16, 0.16, 0.18),
 						"ground_deep": Color(0.11, 0.11, 0.12),
 					}
-				_:  # Gym — Daytime outside the windows (0)
+				_:
 					_env = {
 						"sky_top": Color(0.96, 0.96, 0.97),
 						"sky_horizon": Color(0.92, 0.92, 0.93),
@@ -434,6 +424,61 @@ func _apply_environment_theme():
 				"fog_color": Color(0.50, 0.75, 0.90, 0.06),
 				"has_sea_cliffs": true,
 			}
+		"building":
+			var bld_tod = (abs((_scenery_seed ^ 0x3F7A2B1C) * 1664525 + 1013904223) >> 7) % 3
+			match bld_tod:
+				1:  # Dusk
+					_env = {
+						"sky_top":      Color(0.06, 0.05, 0.14),
+						"sky_horizon":  Color(0.72, 0.28, 0.10),
+						"cloud_color":  Color(1.0,  0.55, 0.25, 0.70),
+						"cloud_shadow": Color(0.55, 0.20, 0.10),
+						"has_sun":      false,
+						"has_moon":     false,
+						"has_mountains":false,
+						"has_city":     true,
+						"city_time":    1,
+						"ground_type":  "city_street",
+						"ground_top":   Color(0.20, 0.20, 0.22),
+						"ground_mid":   Color(0.14, 0.14, 0.16),
+						"ground_deep":  Color(0.09, 0.09, 0.10),
+						"fog_color":    Color(0.60, 0.25, 0.08, 0.08),
+					}
+				2:  # Night
+					_env = {
+						"sky_top":      Color(0.02, 0.02, 0.07),
+						"sky_horizon":  Color(0.05, 0.06, 0.14),
+						"cloud_color":  Color(0.20, 0.22, 0.35, 0.60),
+						"cloud_shadow": Color(0.08, 0.10, 0.20),
+						"has_sun":      false,
+						"has_moon":     true,
+						"has_stars":    true,
+						"has_mountains":false,
+						"has_city":     true,
+						"city_time":    2,
+						"ground_type":  "city_street",
+						"ground_top":   Color(0.16, 0.16, 0.18),
+						"ground_mid":   Color(0.11, 0.11, 0.13),
+						"ground_deep":  Color(0.07, 0.07, 0.08),
+						"fog_color":    Color(0.04, 0.05, 0.12, 0.10),
+					}
+				_:  # Day
+					_env = {
+						"sky_top":      Color(0.16, 0.38, 0.70),
+						"sky_horizon":  Color(0.62, 0.78, 0.94),
+						"cloud_color":  Color(1.0,  1.0,  1.0,  0.90),
+						"cloud_shadow": Color(0.76, 0.84, 0.92),
+						"has_sun":      true,
+						"sun_color":    Color(1.0, 0.96, 0.78),
+						"has_mountains":false,
+						"has_city":     true,
+						"city_time":    0,
+						"ground_type":  "city_street",
+						"ground_top":   Color(0.28, 0.28, 0.30),
+						"ground_mid":   Color(0.20, 0.20, 0.22),
+						"ground_deep":  Color(0.13, 0.13, 0.14),
+						"fog_color":    Color(0.60, 0.76, 0.94, 0.04),
+					}
 		_:
 			_env = {
 				"sky_top": background_color.darkened(0.25),
@@ -535,6 +580,7 @@ func _draw():
 	if _env.get("has_sun", false) and _get_weather_blend() < 0.85: _draw_sun()
 	if _env.get("has_moon", false): _draw_moon()
 	if _env.get("has_mountains", false): _draw_mountains()
+	if _env.get("has_city", false): _draw_city_silhouette()
 	_draw_clouds()
 	_draw_fog()
 	if _env.get("has_gym_interior", false): _draw_gym_interior()
@@ -640,6 +686,159 @@ func _draw_hill_layer(left: float, right: float, base_y: float,
 	pts.append(Vector2(right, base_y + 500.0))
 	draw_colored_polygon(pts, color)
 
+# ─── City silhouette ──────────────────────────────────────────────────────────
+
+func _draw_city_silhouette() -> void:
+	var bl  := wall_min.x - BACKGROUND_EXPANSION
+	var br  := wall_max.x + BACKGROUND_EXPANSION
+	var sw  := br - bl
+	var rb  := _get_weather_blend()
+	var tod : int = _env.get("city_time", 0)
+
+	# Palette per time-of-day: [silhouette, window_lit, window_unlit]
+	var palettes: Array = []
+	match tod:
+		1:  # Dusk
+			palettes = [
+				[Color(0.06, 0.05, 0.12),   Color(0.95, 0.70, 0.25, 0.20), Color(0.14, 0.12, 0.22, 0.0)],
+				[Color(0.10, 0.08, 0.18),   Color(0.95, 0.65, 0.15, 0.40), Color(0.18, 0.14, 0.28, 0.0)],
+				[Color(0.18, 0.12, 0.22),   Color(1.00, 0.75, 0.30, 0.65), Color(0.25, 0.18, 0.32, 0.15)],
+				[Color(0.28, 0.18, 0.22),   Color(1.00, 0.80, 0.40, 0.85), Color(0.35, 0.25, 0.30, 0.30)],
+			]
+		2:  # Night
+			palettes = [
+				[Color(0.03, 0.03, 0.07),   Color(0.95, 0.88, 0.55, 0.30), Color(0.06, 0.06, 0.14, 0.0)],
+				[Color(0.05, 0.05, 0.11),   Color(0.90, 0.85, 0.50, 0.55), Color(0.08, 0.08, 0.18, 0.0)],
+				[Color(0.08, 0.08, 0.16),   Color(0.92, 0.88, 0.55, 0.80), Color(0.10, 0.10, 0.22, 0.10)],
+				[Color(0.12, 0.12, 0.20),   Color(0.95, 0.90, 0.60, 0.95), Color(0.14, 0.14, 0.26, 0.20)],
+			]
+		_:  # Day
+			palettes = [
+				[Color(0.44, 0.50, 0.58),   Color(0.70, 0.80, 0.90, 0.10), Color(0.50, 0.56, 0.64, 0.0)],
+				[Color(0.36, 0.42, 0.52),   Color(0.68, 0.78, 0.88, 0.20), Color(0.42, 0.48, 0.58, 0.05)],
+				[Color(0.26, 0.30, 0.40),   Color(0.65, 0.75, 0.86, 0.35), Color(0.32, 0.36, 0.46, 0.10)],
+				[Color(0.16, 0.18, 0.26),   Color(0.60, 0.72, 0.84, 0.55), Color(0.22, 0.26, 0.36, 0.18)],
+			]
+
+	var rain_sil := Color(0.14, 0.16, 0.20)
+	var rain_lit := Color(0.60, 0.65, 0.72, 0.50)
+
+	# Layer config: [base_y_frac, h_min, h_max, w_min, w_max, seed_xor]  back→front
+	var layer_configs: Array = [
+		[0.72,  140.0, 340.0,  60.0, 100.0, 0xA1B2C3],
+		[0.65,  190.0, 420.0,  70.0, 130.0, 0xD4E5F6],
+		[0.55,  240.0, 520.0,  90.0, 170.0, 0x3C4D5E],
+		[0.42,  290.0, 640.0, 110.0, 220.0, 0x7F8A9B],
+	]
+
+	var total_sky_h := ground_y - (wall_min.y - BACKGROUND_EXPANSION)
+
+	for li in range(layer_configs.size()):
+		var lc         = layer_configs[li]
+		var base_y     := ground_y - total_sky_h * float(lc[0])
+		var h_min      := float(lc[1])
+		var h_max      := float(lc[2])
+		var w_min      := float(lc[3])
+		var w_max      := float(lc[4])
+		var seed_base  := int(lc[5]) ^ _scenery_seed
+
+		var pal        = palettes[li]
+		var sil_col    : Color = (pal[0] as Color).lerp(rain_sil, rb * 0.55)
+		var lit_col    : Color = (pal[1] as Color).lerp(rain_lit, rb * 0.40)
+		var unlit_col  : Color = pal[2]
+
+		var x          := bl
+		var bldg_idx   := 0
+		while x < br + w_max:
+			var seed := seed_base + bldg_idx * 31
+			var bw   := w_min + _hf(seed)     * (w_max - w_min)
+			var bh   := h_min + _hf(seed + 1) * (h_max - h_min)
+			var bx   := x + (_hf(seed + 2) - 0.5) * 20.0
+
+			draw_rect(Rect2(bx, ground_y - bh, bw, bh), sil_col, true)
+			_draw_rooftop_details(bx, ground_y - bh, bw, sil_col, seed)
+			_draw_building_windows(bx, ground_y - bh, bw, bh, li, tod, rb, lit_col, unlit_col, seed + 100)
+
+			var gap := _hf(seed + 5) * 30.0
+			x = bx + bw + gap
+			bldg_idx += 1
+
+		# Horizon haze for near layers
+		if li >= 2:
+			var haze_a   := 0.06 + float(li) * 0.04 + rb * 0.08
+			var haze_col := Color(sil_col.r + 0.06, sil_col.g + 0.07, sil_col.b + 0.10, haze_a)
+			draw_rect(Rect2(bl, base_y - 20.0, sw, 40.0), haze_col, true)
+
+	# Street-level ambient glow (night / dusk)
+	if tod > 0:
+		var glow_col := Color(0.80, 0.55, 0.15, 0.06 + rb * 0.02) if tod == 1 \
+					else Color(0.55, 0.60, 0.90, 0.07 + rb * 0.02)
+		for gi in range(6):
+			draw_rect(Rect2(bl, ground_y - float(gi) * 18.0 - 10.0, sw, 20.0),
+					  Color(glow_col.r, glow_col.g, glow_col.b,
+							glow_col.a * (1.0 - float(gi) / 6.0)), true)
+
+func _draw_rooftop_details(bx: float, roof_y: float, bw: float, col: Color, seed: int) -> void:
+	var dark := col.darkened(0.18)
+	# Water tower
+	if _hf(seed + 10) > 0.62:
+		var tx := bx + bw * (0.25 + _hf(seed + 11) * 0.50)
+		var tr := 9.0 + _hf(seed + 12) * 6.0
+		var th := 22.0 + _hf(seed + 13) * 14.0
+		draw_circle(Vector2(tx, roof_y - th + tr), tr, dark)
+		draw_rect(Rect2(tx - tr * 0.7, roof_y - th + tr, tr * 1.4, th * 0.5), dark, true)
+		draw_line(Vector2(tx - tr * 0.6, roof_y - th * 0.5), Vector2(tx - tr * 0.2, roof_y), dark, 2.0)
+		draw_line(Vector2(tx + tr * 0.6, roof_y - th * 0.5), Vector2(tx + tr * 0.2, roof_y), dark, 2.0)
+	# HVAC boxes
+	var box_count := int(_hf(seed + 20) * 3.0)
+	for bi in range(box_count):
+		var bxo := bx + _hf(seed + 21 + bi * 3) * (bw - 24.0)
+		var bwo := 14.0 + _hf(seed + 22 + bi * 3) * 18.0
+		var bho := 8.0  + _hf(seed + 23 + bi * 3) * 10.0
+		draw_rect(Rect2(bxo, roof_y - bho, bwo, bho), dark, true)
+	# Antenna
+	if _hf(seed + 30) > 0.55:
+		var ax := bx + bw * (0.4 + _hf(seed + 31) * 0.20)
+		var ah := 18.0 + _hf(seed + 32) * 30.0
+		draw_line(Vector2(ax, roof_y), Vector2(ax, roof_y - ah), dark.lightened(0.1), 1.5)
+		draw_line(Vector2(ax - 6.0, roof_y - ah * 0.6),
+				  Vector2(ax + 6.0, roof_y - ah * 0.6), dark.lightened(0.1), 1.0)
+
+func _draw_building_windows(
+		bx: float, roof_y: float, bw: float, bh: float,
+		layer_idx: int, tod: int, rain_blend: float,
+		lit_col: Color, unlit_col: Color, seed: int) -> void:
+	var wx_gap = lerp(18.0, 10.0, float(layer_idx) / 3.0)
+	var wy_gap = lerp(20.0, 12.0, float(layer_idx) / 3.0)
+	var ww     = wx_gap * 0.55
+	var wh     = wy_gap * 0.55
+	var lit_prob = [0.12, 0.55, 0.85][clamp(tod, 0, 2)]
+	lit_prob = lerp(lit_prob, 0.40, rain_blend * 0.3)
+	var margin_x = wx_gap * 0.8
+	var margin_y = wy_gap * 0.8
+	var col_i := 0
+	var cx    = bx + margin_x
+	while cx + ww < bx + bw - margin_x:
+		var row_i := 0
+		var cy    = roof_y + margin_y
+		while cy + wh < roof_y + bh - margin_y:
+			var wseed := seed + col_i * 1000 + row_i * 7
+			var lit   = _hf(wseed) < lit_prob
+			if lit:
+				var flicker := 1.0
+				if tod == 2 and _hf(wseed + 1) > 0.80:
+					flicker = 0.75 + 0.25 * sin(_cloud_time * (2.0 + _hf(wseed + 2) * 4.0) + float(wseed))
+				draw_rect(Rect2(cx, cy, ww, wh),
+						  Color(lit_col.r, lit_col.g, lit_col.b, lit_col.a * flicker), true)
+			elif unlit_col.a > 0.01:
+				draw_rect(Rect2(cx, cy, ww, wh), unlit_col, true)
+			row_i += 1
+			cy    += wy_gap
+		col_i += 1
+		cx    += wx_gap
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 func _draw_clouds():
 	var rb := _get_weather_blend()
 	var base_cc: Color = _env.get("cloud_color", Color(1, 1, 1))
@@ -711,7 +910,6 @@ func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color):
 		pts.append(Vector2(cx + cos(angle) * rx, cy + sin(angle) * ry))
 	draw_colored_polygon(pts, color)
 
-# ─── Fog — gradient polygons, no flat opacity rect ────────────────────────────
 func _draw_fog():
 	var rb := _get_weather_blend()
 	var base_fc: Color = _env.get("fog_color", Color(0, 0, 0, 0))
@@ -722,7 +920,6 @@ func _draw_fog():
 	var bt := wall_min.y - BACKGROUND_EXPANSION
 	var total_h := (ground_y + 99999.0) - bt
 
-	# Gradient via triangle pairs: full alpha at sky, 35% less near ground.
 	var steps := 8
 	for i in range(steps):
 		var t0 := float(i)     / float(steps)
@@ -794,7 +991,6 @@ func _draw_gym_interior():
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		var wx2 = wx + win_w
 
-		# ── Sky gradient inside window ────────────────────────────────────────
 		for gi in range(10):
 			var gt = float(gi) / 10.0
 			var sc: Color
@@ -804,7 +1000,6 @@ func _draw_gym_interior():
 				sc = sky_mid_c.lerp(sky_haze_c, (gt - 0.5) * 2.0)
 			draw_rect(Rect2(Vector2(wx, win_top + gt*win_h), Vector2(win_w, win_h/10.0+1.0)), sc, true)
 
-		# ── Stars (night only) ────────────────────────────────────────────────
 		if _env.get("has_gym_stars", false):
 			for si in range(30):
 				var sseed = (_scenery_seed ^ 0xCAFE) + wi * 97 + si * 13
@@ -815,7 +1010,6 @@ func _draw_gym_interior():
 				var twinkle = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(sseed + 4) * 3.0) + float(si))
 				draw_circle(Vector2(sx2, sy2), ssize, Color(1.0, 1.0, 1.0, salp * twinkle * (1.0 - rb)))
 
-		# ── Moon (night only) — exactly ONE window chosen by seed ─────────────
 		var moon_win_idx = (_scenery_seed ^ 0xF00F) % max(win_count, 1)
 		if _env.get("has_gym_moon", false) and wi == moon_win_idx:
 			var mseed = _scenery_seed ^ 0xF00F
@@ -826,7 +1020,7 @@ func _draw_gym_interior():
 				draw_circle(Vector2(mx2, my2), mr + float(gi) * 14.0, Color(0.7, 0.75, 0.9, 0.05))
 			draw_circle(Vector2(mx2, my2), mr, Color(0.88, 0.90, 0.95, 0.92 * (1.0 - rb)))
 			draw_circle(Vector2(mx2 + mr * 0.35, my2 - mr * 0.1), mr * 0.82, sky_top_c)
-		# ── Sun disc (day or dusk, not night) ────────────────────────────────
+
 		var show_sun = gym_tod != 2 and gym_sun_color.r + gym_sun_color.g + gym_sun_color.b > 0.05
 		if show_sun and rb < 0.85 and sun_wx >= wx + 20.0 and sun_wx <= wx2 - 20.0:
 			var sun_y = win_top + win_h * sun_y_frac
@@ -850,7 +1044,6 @@ func _draw_gym_interior():
 		if rb > 0.05:
 			_draw_window_rain_streaks(wx, wx2, win_top, win_bot, rb)
 
-		# ── Mountain silhouettes ──────────────────────────────────────────────
 		var mtn_span = win_w * 8.0
 		var msegs    = 80
 		for mi in range(4):
@@ -881,7 +1074,6 @@ func _draw_gym_interior():
 			mpts.append(Vector2(wx2, mbase))
 			if mpts.size() >= 4: draw_colored_polygon(mpts, mcol)
 
-		# ── Ground strip at base of window ────────────────────────────────────
 		var gnd_h   = win_h * 0.09
 		var gsegs   = 40
 		var gstep   = win_w / float(gsegs)
@@ -898,19 +1090,16 @@ func _draw_gym_interior():
 		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
 				  gym_grass_color.darkened(0.18), true)
 
-		# ── Window glass glare / reflection ───────────────────────────────────
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w, win_h)), Color(1.0, 1.0, 1.0, 0.10), true)
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.10, win_h)), Color(1.0, 1.0, 1.0, 0.07), true)
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.04, win_h)), Color(1.0, 1.0, 1.0, 0.05), true)
 
-	# ── Interior wall panels between windows ──────────────────────────────────
 	for wi in range(win_count + 1):
 		var gx = bl + float(wi) * win_stride + win_gap * 0.5 - win_gap
 		draw_rect(Rect2(Vector2(gx, vis_top), Vector2(win_gap + 4.0, vis_h)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, vis_top), Vector2(width, win_top - vis_top + 1.0)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, win_bot - 1.0), Vector2(width, vis_bot - win_bot + 2.0)), wall_col, true)
 
-	# ── Window frames ─────────────────────────────────────────────────────────
 	for wi in range(win_count):
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		var fc  = Color(0.15, 0.16, 0.19)
@@ -929,12 +1118,10 @@ func _draw_gym_interior():
 		draw_line(Vector2(bl+mi*900.0, vis_bot-28.0), Vector2(bl+mi*900.0, vis_bot),
 				  Color(0.17, 0.17, 0.19), 2.0, true)
 
-# ─── Window rain — gradient fog + improved streaks, no flat rects ─────────────
 func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: float, blend: float):
 	var win_h := win_bot - win_top
 	var win_w := wx2 - wx
 
-	# ── Gradient atmosphere tint — triangle pairs for correct interpolation ───
 	var haze_steps := 8
 	var haze_max_a := blend * 0.28
 	for i in range(haze_steps):
@@ -951,7 +1138,6 @@ func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: f
 		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
 		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
-	# ── Ground mist rising from sill ─────────────────────────────────────────
 	var mist_col   := Color(0.55, 0.64, 0.78)
 	var mist_h     := win_h * 0.16 * blend
 	var mist_steps := 6
@@ -969,7 +1155,6 @@ func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: f
 		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
 		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
-	# ── Rain streaks on glass ─────────────────────────────────────────────────
 	var streak_count := int(14.0 * blend)
 	for si in range(streak_count):
 		var sseed := (_scenery_seed ^ 0xF00D) + si * 41
@@ -1117,6 +1302,7 @@ func _draw_ground():
 		"grass", "grass_dusk", "grass_night": _draw_ground_grass()
 		"gym_floor": _draw_ground_gym()
 		"water": _draw_ground_water()
+		"city_street": _draw_ground_city()
 		_: _draw_ground_grass()
 
 func _draw_ground_grass():
@@ -1200,6 +1386,56 @@ func _draw_ground_gym():
 		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y+42.0),
 				  Color(cd.r, cd.g, cd.b, 0.8), 2.0, true)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), Color(0.50, 0.50, 0.52, 0.9), 2.0, true)
+
+func _draw_ground_city() -> void:
+	var left  := wall_min.x - BACKGROUND_EXPANSION
+	var right := wall_max.x + BACKGROUND_EXPANSION
+	var width := right - left
+	var rb    := _get_weather_blend()
+	var tod   : int = _env.get("city_time", 0)
+
+	var ct : Color = _env.get("ground_top",  Color(0.28, 0.28, 0.30))
+	var cm : Color = _env.get("ground_mid",  Color(0.20, 0.20, 0.22))
+	var cd : Color = _env.get("ground_deep", Color(0.13, 0.13, 0.14))
+	ct = ct.lerp(Color(0.18, 0.20, 0.22), rb * 0.5)
+	cm = cm.lerp(Color(0.14, 0.16, 0.18), rb * 0.4)
+
+	# Base asphalt
+	draw_rect(Rect2(Vector2(left, ground_y),        Vector2(width, 99999.0)), cd, true)
+	draw_rect(Rect2(Vector2(left, ground_y),        Vector2(width, 32.0)),    cm, true)
+	draw_rect(Rect2(Vector2(left, ground_y),        Vector2(width, 6.0)),     ct, true)
+
+	# Kerb strip
+	draw_rect(Rect2(Vector2(left, ground_y + 6.0),  Vector2(width, 4.0)),
+			  Color(0.55, 0.55, 0.58), true)
+
+	# Lane dashes
+	var stripe_w := 36.0; var stripe_gap := 120.0; var stride := stripe_w + stripe_gap
+	var sx       = floor(left / stride) * stride
+	while sx < right:
+		draw_rect(Rect2(sx, ground_y + 18.0, stripe_w, 4.0), Color(0.85, 0.80, 0.30, 0.50), true)
+		sx += stride
+
+	# Street-lamp bases
+	var lamp_stride := 280.0
+	var lx          = floor(left / lamp_stride) * lamp_stride
+	while lx < right:
+		draw_rect(Rect2(lx - 3.0, ground_y, 6.0, 20.0), Color(0.18, 0.18, 0.20), true)
+		draw_rect(Rect2(lx - 8.0, ground_y + 18.0, 16.0, 4.0), Color(0.20, 0.20, 0.22), true)
+		# Lamp glow pools at night / dusk
+		if tod > 0:
+			var glow_col := Color(1.0, 0.85, 0.45, 0.08 + rb * 0.02) if tod == 1 \
+						else Color(1.0, 0.90, 0.55, 0.10 + rb * 0.02)
+			for gi in range(5):
+				draw_circle(Vector2(lx, ground_y + 2.0),
+							20.0 + float(gi) * 14.0,
+							Color(glow_col.r, glow_col.g, glow_col.b,
+								  glow_col.a * (1.0 - float(gi) / 5.0)))
+		lx += lamp_stride
+
+	# Rain puddles
+	if rb > 0.1:
+		_draw_ground_puddles(left, right, rb)
 
 func _draw_water_surface():
 	if not wall_valid: return
@@ -1619,11 +1855,9 @@ func _point_to_segment_distance(point: Vector2, seg_start: Vector2, seg_end: Vec
 	return point.distance_to(seg_start+clamp((point-seg_start).dot(seg)/lsq,0.0,1.0)*seg)
 
 func _create_top_edge_holds():
-	# Use .free() (synchronous) instead of queue_free() so the node is
-	# gone immediately — no deferred call can fire on it afterwards.
 	for child in get_children():
 		if child.has_meta("is_top_edge_hold"):
-			child.set_script(null)   # detach script first so _notification isn't called on freed node
+			child.set_script(null)
 			child.free()
 	if not use_polygon_mode or top_edge_indices.is_empty():
 		return
@@ -1658,13 +1892,9 @@ func _create_top_hold_at(position: Vector2, width: float):
 	add_child(top_hold)
 	top_hold.add_to_group("holds")
 
-	# Assign the script SYNCHRONOUSLY — using call_deferred here is the
-	# root cause of the crash: if _create_top_edge_holds() runs again
-	# before the deferred call fires, the node is already freed.
 	_assign_top_hold_script(top_hold)
 
 func _assign_top_hold_script(top_hold):
-	# Guard: if the node was freed between creation and now, bail out.
 	if not is_instance_valid(top_hold):
 		return
 

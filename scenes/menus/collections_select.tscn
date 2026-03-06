@@ -49,6 +49,7 @@ text = "Granite"
 script = ExtResource("2_rcboh")
 
 [node name="Sandstone" type="Button" parent="HBoxContainer"]
+visible = false
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
@@ -63,6 +64,7 @@ text = "Building"
 script = ExtResource("2_rcboh")
 
 [node name="DeepWaterSolo" type="Button" parent="HBoxContainer"]
+visible = false
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
@@ -70,6 +72,7 @@ text = "Deep Water Solo"
 script = ExtResource("2_rcboh")
 
 [node name="Ice" type="Button" parent="HBoxContainer"]
+visible = false
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
@@ -77,6 +80,7 @@ text = "Ice"
 script = ExtResource("2_rcboh")
 
 [node name="Wooden Gym" type="Button" parent="HBoxContainer"]
+visible = false
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4

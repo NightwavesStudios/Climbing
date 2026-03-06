@@ -1,14 +1,13 @@
 extends Node
-## Autoload singleton for managing climbing environments
-## To add a new environment: add it to EnvironmentType enum AND add its config to ENVIRONMENTS dict.
-## Everything else (wall rendering, editor dropdown, hold sprites) picks it up automatically.
+## Autoload singleton for managing climbing environments.
+## To add a new environment: add it to EnvironmentType enum AND add its config
+## to ENVIRONMENTS dict. Everything else (wall rendering, editor dropdown,
+## hold sprites) picks it up automatically.
 
 enum EnvironmentType { GYM, GRANITE, SANDSTONE, BUILDING }
 
-# Current environment
 var current_environment: EnvironmentType = EnvironmentType.GYM
 
-# Environment definitions - add all new environments here
 const ENVIRONMENTS = {
 	EnvironmentType.GYM: {
 		"name": "Gym",
@@ -36,25 +35,25 @@ const ENVIRONMENTS = {
 	},
 	EnvironmentType.BUILDING: {
 		"name": "Building",
-		"wall_color": Color(0.525, 0.525, 0.525, 1.0),
-		"background_color": Color(0.85, 0.75, 0.55, 1.0),
+		# Concrete / precast wall colour
+		"wall_color": Color(0.52, 0.52, 0.54, 1.0),
+		# Sky colour used as fallback if the theme system isn't running
+		"background_color": Color(0.16, 0.38, 0.70, 1.0),
 		"show_bolt_holes": false,
 		"show_granite_texture": false,
+		# Reuse Sandstone sprites until Building-specific art is added.
+		# Swap to "Building" once res://assets/holds/Building/ exists.
 		"sprite_suffix": "Sandstone"
 	}
 }
 
-func _ready():
+func _ready() -> void:
 	print("EnvironmentConfig initialized with environment: " + get_current_environment_name())
 
-func set_environment(env_type: EnvironmentType):
+func set_environment(env_type: EnvironmentType) -> void:
 	current_environment = env_type
 	print("Environment set to: " + get_current_environment_name())
-
-	# Notify all holds to update their sprites
-	get_tree().call_group("holds", "_update_sprite_for_environment")
-
-	# Notify walls to update their appearance
+	get_tree().call_group("holds",             "_update_sprite_for_environment")
 	get_tree().call_group("environment_walls", "update_environment_settings")
 
 func get_current_environment() -> EnvironmentType:

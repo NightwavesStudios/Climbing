@@ -77,7 +77,8 @@ const MAX_REACH_DISTANCE: float = 250.0
 const V_GRADES   = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
 const YDS_GRADES = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
 					"5.11a","5.11b","5.11c","5.11d","5.12a","5.12b","5.12c","5.12d","5.13a","5.13b"]
-const HOLD_TYPES  = ["START","TOP","JUG","CRIMP","SLOPER","POCKET","FOOT"]
+
+const HOLD_TYPES  = ["START","TOP","JUG","CRIMP","SLOPER","POCKET","FOOT","WINDOW","LEDGE"]
 const HOLD_SCENES = {
 	"START":  "res://scenes/holds/start.tscn",
 	"TOP":    "res://scenes/holds/top_out.tscn",
@@ -85,7 +86,9 @@ const HOLD_SCENES = {
 	"CRIMP":  "res://scenes/holds/crimp.tscn",
 	"SLOPER": "res://scenes/holds/sloper.tscn",
 	"POCKET": "res://scenes/holds/pocket.tscn",
-	"FOOT":   "res://scenes/holds/foothold.tscn"
+	"FOOT":   "res://scenes/holds/foothold.tscn",
+	"WINDOW": "res://scenes/holds/window.tscn",
+	"LEDGE":  "res://scenes/holds/ledge.tscn",
 }
 const CRASHPAD_SCENE = "res://scenes/props/crashpad.tscn"
 
@@ -890,28 +893,34 @@ func _on_paste_json():
 
 	_on_clear()
 
-	climb_name  = data.get("name",  "")
-	climb_grade = data.get("grade", "VB")
+	climb_name = data.get("name", "")
 	if climb_name_input:
 		climb_name_input.text = climb_name
 
-	current_discipline = data.get("discipline",     "bouldering")
+	current_discipline = data.get("discipline", "bouldering")
 	speed_time_limit   = float(data.get("speed_time_limit", 60.0))
+	var saved_grade    = data.get("grade", "VB")
 
 	if discipline_dropdown:
 		match current_discipline:
 			"bouldering": discipline_dropdown.select(0)
 			"roped":      discipline_dropdown.select(1)
 			"speed":      discipline_dropdown.select(2)
-		_on_discipline_changed(discipline_dropdown.selected)  # this repopulates grade_dropdown
+		_on_discipline_changed(discipline_dropdown.selected)
 
-	# Grade selection must come AFTER _on_discipline_changed, which resets the dropdown
+	if grade_dropdown:
+		var grades = V_GRADES if current_discipline == "bouldering" else YDS_GRADES
+		var idx    = grades.find(saved_grade)
+		if idx >= 0:
+			grade_dropdown.select(idx)
+			_on_grade_changed(idx)
+
 	if grade_dropdown:
 		var grades = V_GRADES if current_discipline == "bouldering" else YDS_GRADES
 		var idx    = grades.find(climb_grade)
 		if idx >= 0:
 			grade_dropdown.select(idx)
-			_on_grade_changed(idx)  # sync the internal climb_grade variable too
+			_on_grade_changed(idx)
 
 	if speed_time_input:
 		speed_time_input.value = speed_time_limit
@@ -985,6 +994,8 @@ func get_hold_type(hold: Node2D) -> String:
 			4: return "SLOPER"
 			5: return "FOOT"
 			6: return "POCKET"
+			7: return "WINDOW"
+			8: return "LEDGE"
 	return "JUG"
 
 func update_wall_bounds():
@@ -1045,6 +1056,9 @@ func is_position_too_close(pos: Vector2, exclude_hold: Node2D) -> bool:
 func is_position_reachable(pos: Vector2, exclude_hold: Node2D) -> bool:
 	if selected_hold_type == "START" or selected_hold_type == "FOOT":
 		return true
+	# WINDOW and LEDGE are wide holds — treat them like jugs for placement rules
+	if selected_hold_type == "WINDOW" or selected_hold_type == "LEDGE":
+		pass  # fall through to normal reachability check
 	var non_start_count = 0
 	for hold in holds_container.get_children():
 		if hold != exclude_hold and get_hold_type(hold) != "START":

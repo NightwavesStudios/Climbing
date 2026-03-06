@@ -24,6 +24,10 @@ func _find_and_map_buttons() -> void:
 		if not child is Button:
 			continue
 
+		# Never show buttons hidden in the editor
+		if not child.visible:
+			continue
+
 		var btn_lower := child.name.to_lower()
 		var matched_id := _match_collection_id(btn_lower, active_ids)
 
@@ -51,27 +55,26 @@ func _match_collection_id(btn_lower: String, all_ids: Array) -> String:
 
 func _button_matches(btn_lower: String, collection_id: String) -> bool:
 	var id_lower := collection_id.to_lower()
-
-	if id_lower in btn_lower:
-		return true
-
 	var id_nosep  := id_lower.replace("-", "").replace("_", "")
 	var btn_nosep := btn_lower.replace("-", "").replace("_", "")
-	if id_nosep in btn_nosep:
+
+	# Exact match (with or without separators)
+	if id_nosep == btn_nosep:
 		return true
 
-	for token in id_lower.replace("_", "-").split("-", false):
-		if token.length() >= 3 and token in btn_lower:
-			return true
+	# Button name is contained in ID or vice versa (no separators)
+	if id_nosep in btn_nosep or btn_nosep in id_nosep:
+		return true
 
 	return false
+
 
 func _update_collection_states() -> void:
 	for button in button_to_collection.keys():
 		var id = button_to_collection[button]
 		var unlocked  := GameState.is_collection_unlocked(id)
 		var completed := GameState.is_collection_completed(id)
-
+		
 		button.disabled = false
 
 		if completed:
