@@ -191,11 +191,17 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 
 	var local_grab: Vector2
 	if snap_to_point:
-		# With snapping: multi_area picks the nearest sub-point, otherwise use hold_point
-		var snap_point = hold_point
 		if multi_area_enabled:
-			snap_point = _find_nearest_area_point(grab_position)
-		local_grab = to_local(snap_point.global_position)
+			# Multi-area: snap to the nearest sub-point marker
+			var snap_point = _find_nearest_area_point(grab_position)
+			local_grab = to_local(snap_point.global_position)
+		else:
+			# Single snap: use grab_position as-is (may include shared-hold offset
+			# from calculate_grab_position), falling back to hold_point if zero.
+			if grab_position != Vector2.ZERO:
+				local_grab = to_local(grab_position)
+			else:
+				local_grab = to_local(hold_point.global_position)
 	else:
 		# Without snapping: anchor exactly where the limb is, clamped inside the shape.
 		# CollisionShape2D has its own .position offset within the Area2D node,
