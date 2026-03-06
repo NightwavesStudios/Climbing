@@ -55,24 +55,16 @@ const COLLECTIONS = {
 			"res://scenes/levels/granite_crag/granite_crag_10.json",
 		]
 	},
-	"sandstone": {
-		"name": "Sandstone",
+	"building": {
+		"name": "Building",
 		"description": "",
 		"unlock_requirement": {
 			"type": "collection_complete",
 			"collection": "granite-crag"
 		},
 		"levels": [
-			"res://scenes/levels/sandstone/sandstone_01.json",
-			"res://scenes/levels/sandstone/sandstone_02.json",
-			"res://scenes/levels/sandstone/sandstone_03.json",
-			"res://scenes/levels/sandstone/sandstone_04.json",
-			"res://scenes/levels/sandstone/sandstone_05.json",
-			"res://scenes/levels/sandstone/sandstone_06.json",
-			"res://scenes/levels/sandstone/sandstone_07.json",
-			"res://scenes/levels/sandstone/sandstone_08.json",
-			"res://scenes/levels/sandstone/sandstone_09.json",
-			"res://scenes/levels/sandstone/sandstone_10.json",
+			"res://scenes/levels/building/building_01.json"
+			
 		]
 	}
 	#"flow": {

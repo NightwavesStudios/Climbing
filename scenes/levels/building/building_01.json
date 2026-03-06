@@ -1,7 +1,7 @@
 {
 	"crashpads": [],
 	"discipline": "bouldering",
-	"environment": "granite",
+	"environment": "building",
 	"grade": "VB",
 	"holds": [
 		{
@@ -102,11 +102,11 @@
 			},
 			{
 				"x": 609.3544921875,
-				"y": 153.515869140625
+				"y": 150.0
 			},
 			{
 				"x": -68.0,
-				"y": 153.515869140625
+				"y": 150.0
 			}
 		],
 		"top_edge_indices": [

@@ -22,11 +22,13 @@ var _type_was_set_manually: bool = false
 @onready var hold_point: Marker2D = $HoldPoint
 
 func _ready():
+	print("climbing_hold _ready fired on: ", name, " | has _process: ", has_method("_process"))
 	if not is_grabbable:
 		collision_layer = 0
 		collision_mask = 0
 		monitoring = false
 		monitorable = false
+		set_process(false)
 		add_to_group("decorations")
 		_cache_sprite_nodes()
 		_update_sprite_for_environment()
@@ -35,6 +37,8 @@ func _ready():
 	collision_layer = 2
 	collision_mask = 0
 	monitoring = true
+	# Explicitly enable _process so modifiers receive on_process() every frame.
+	set_process(true)
 
 	if not _type_was_set_manually:
 		_auto_detect_type_from_name()
@@ -52,6 +56,12 @@ func _ready():
 	add_child(_audio_player)
 	_audio_player.stream = GRAB_SFX
 	_audio_player.volume_db = 12.0
+
+# ── Modifier hook: drive on_process every frame ───────────────────────────────
+func _process(delta: float) -> void:
+	for child in get_children():
+		if child.has_method("on_process"):
+			child.on_process(delta)
 
 func _setup_multi_areas():
 	grab_areas.clear()
@@ -189,23 +199,23 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 		if occupied_by != null and occupied_by != limb:
 			return false
 
+	# ── Modifier: allow_grab gate ─────────────────────────────────────────────
+	for child in get_children():
+		if child.has_method("allow_grab"):
+			if not child.allow_grab(limb, is_foot):
+				return false
+
 	var local_grab: Vector2
 	if snap_to_point:
 		if multi_area_enabled:
-			# Multi-area: snap to the nearest sub-point marker
 			var snap_point = _find_nearest_area_point(grab_position)
 			local_grab = to_local(snap_point.global_position)
 		else:
-			# Single snap: use grab_position as-is (may include shared-hold offset
-			# from calculate_grab_position), falling back to hold_point if zero.
 			if grab_position != Vector2.ZERO:
 				local_grab = to_local(grab_position)
 			else:
 				local_grab = to_local(hold_point.global_position)
 	else:
-		# Without snapping: anchor exactly where the limb is, clamped inside the shape.
-		# CollisionShape2D has its own .position offset within the Area2D node,
-		# so we must clamp relative to the shape centre, not the Area2D origin.
 		local_grab = to_local(grab_position)
 		var shape_node = get_node_or_null("CollisionShape2D")
 		if shape_node and shape_node.shape:
@@ -229,6 +239,11 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 	_audio_player.pitch_scale = randf_range(0.8, 1.3)
 	_audio_player.play()
 
+	# ── Modifier: notify grab ─────────────────────────────────────────────────
+	for child in get_children():
+		if child.has_method("on_grab"):
+			child.on_grab(limb)
+
 	return true
 
 func _find_nearest_area_point(global_pos: Vector2) -> Marker2D:
@@ -249,6 +264,11 @@ func release(limb: Node2D):
 		occupied_by = null
 	limb_placements.erase(limb)
 
+	# ── Modifier: notify release ──────────────────────────────────────────────
+	for child in get_children():
+		if child.has_method("on_release"):
+			child.on_release(limb)
+
 func can_grab(limb: Node2D, is_foot: bool) -> bool:
 	if not is_grabbable:
 		return false
@@ -256,6 +276,13 @@ func can_grab(limb: Node2D, is_foot: bool) -> bool:
 		return false
 	if is_pocket() and occupied_by != null and occupied_by != limb:
 		return false
+
+	# ── Modifier: allow_grab gate ─────────────────────────────────────────────
+	for child in get_children():
+		if child.has_method("allow_grab"):
+			if not child.allow_grab(limb, is_foot):
+				return false
+
 	return true
 
 func get_limb_anchor(limb: Node2D) -> Vector2:
@@ -317,4 +344,7 @@ func get_recovery_rate(delta: float, body_balance: float, foot_support_ratio: fl
 	return recovery
 
 func notify_climb_start():
-	pass
+	# Reset all modifiers so falling holds restore on climb reload.
+	for child in get_children():
+		if child.has_method("on_climb_reset"):
+			child.on_climb_reset()

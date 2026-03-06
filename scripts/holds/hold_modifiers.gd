@@ -4,25 +4,17 @@
 # Contains:
 #   1. HoldModifierBase      — base class, extend this for every modifier
 #   2. FallingHoldModifier   — hold that shakes then falls when grabbed
-#
-# To add a new modifier, extend HoldModifierBase here (or in a new file),
-# then register the type key in hold_modifier_registry.gd.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SECTION 1 — BASE CLASS
-#  All modifiers extend this. Override only the hooks you need.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class_name HoldModifierBase
 extends Node
 
-# Unique string key written to / read from JSON. Set in every subclass _ready().
 var modifier_type: String = "base"
-
-# The hold Area2D/Node2D this modifier is a child of.
-# Assigned automatically in _ready() and by the registry before add_child().
 var hold: Node2D = null
 
 func _ready() -> void:
@@ -30,45 +22,33 @@ func _ready() -> void:
 	if hold == null:
 		push_error("HoldModifierBase (%s): parent must be a Node2D hold." % modifier_type)
 
-# ── Override these in subclasses ──────────────────────────────────────────────
-
-## Called once after hold + modifier are both in the scene tree.
 func on_hold_ready() -> void:
 	pass
 
-## Called every frame via the hold's _process().
 func on_process(_delta: float) -> void:
 	pass
 
-## Return false to block a grab before it is registered.
 func allow_grab(_limb_node: Node2D, _is_foot: bool) -> bool:
 	return true
 
-## Called after a limb successfully claims this hold.
 func on_grab(_limb_node: Node2D) -> void:
 	pass
 
-## Called whenever a limb releases (player choice or force-release).
 func on_release(_limb_node: Node2D) -> void:
 	pass
 
-## Return the (possibly modified) pressure value for this frame.
 func modify_pressure(raw: float, _delta: float) -> float:
 	return raw
 
-## Return the (possibly modified) recovery value for this frame.
 func modify_recovery(raw: float, _delta: float) -> float:
 	return raw
 
-## Return a Dictionary that fully describes this modifier's config (for JSON).
 func serialize() -> Dictionary:
 	return {"type": modifier_type}
 
-## Restore config from a Dictionary produced by serialize().
 func deserialize(_data: Dictionary) -> void:
 	pass
 
-## Human-readable label shown in the editor modifier dropdown.
 func get_display_name() -> String:
 	return modifier_type.capitalize()
 
@@ -76,7 +56,6 @@ func get_display_name() -> String:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SECTION 2 — FALLING HOLD MODIFIER
 #  Type key: "falling"
-#  Registered in hold_modifier_registry.gd under "falling".
 #
 #  State machine:
 #    IDLE      → waiting for any limb to grab
@@ -84,27 +63,23 @@ func get_display_name() -> String:
 #    FALLING   → limbs force-released, hold drops, collision disabled
 #    FALLEN    → resting off-screen, waiting for reset_delay
 #    RESETTING → snaps back to origin, collision re-enabled
-#
-#  Early-release behaviour:
-#    If the climber releases ALL limbs before 50 % of fall_delay has elapsed,
-#    the hold calms back to IDLE (configurable via calm_if_released).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class FallingHoldModifier extends HoldModifierBase:
 
-	# ── Tunable parameters (all round-trip through JSON) ─────────────────────
-	var fall_delay:       float = 2.2     # seconds from first grab to fall
-	var reset_delay:      float = 4.0     # seconds fallen before auto-reset
-	var fall_gravity:     float = 1800.0  # px/s² while falling
-	var auto_reset:       bool  = true    # if false, stays fallen forever
-	var calm_if_released: bool  = true    # calm when all limbs let go early
+	# ── Tunable parameters ────────────────────────────────────────────────────
+	var fall_delay:       float = 2.2
+	var reset_delay:      float = 4.0
+	var fall_gravity:     float = 1800.0
+	var auto_reset:       bool  = false  # reset only on climb reload
+	var calm_if_released: bool  = true
 
-	var shake_max_amp:    float = 6.0     # peak shake radius in pixels
-	var shake_frequency:  float = 22.0    # oscillations per second
-	var shake_ramp_speed: float = 1.8     # lerp speed 0 → full amplitude
+	var shake_max_amp:    float = 1.8
+	var shake_frequency:  float = 22.0
+	var shake_ramp_speed: float = 1.8
 
-	var warning_color: Color = Color(1.0,  0.55, 0.20, 1.0)   # orange
-	var fallen_color:  Color = Color(0.35, 0.35, 0.35, 0.50)  # grey
+	var warning_color: Color = Color(1.0,  0.55, 0.20, 1.0)
+	var fallen_color:  Color = Color(0.35, 0.35, 0.35, 0.50)
 
 	# ── Internal state ────────────────────────────────────────────────────────
 	enum _State { IDLE, SHAKING, FALLING, FALLEN, RESETTING }
@@ -116,6 +91,7 @@ class FallingHoldModifier extends HoldModifierBase:
 	var _fall_velocity: float   = 0.0
 	var _time:          float   = 0.0
 	var _origin:        Vector2 = Vector2.ZERO
+	var _origin_set:    bool    = false
 	var _claimed_limbs: Array[Node2D] = []
 
 	# ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -124,14 +100,39 @@ class FallingHoldModifier extends HoldModifierBase:
 		modifier_type = "falling"
 		super._ready()
 
+	# The visual root is the Node2D wrapper that owns the sprites.
+	# Moving it moves everything; moving only the Area2D (hold) moves nothing visible.
+	func _get_visual_root() -> Node2D:
+		if hold == null:
+			return null
+		var parent = hold.get_parent()
+		# If parent is a plain Node2D wrapper (no script), that's the visual root.
+		if parent is Node2D and parent.get_script() == null:
+			return parent as Node2D
+		# Otherwise the Area2D itself is the root (editor-placed holds).
+		return hold
+
+	# Called by LevelLoader after add_child(). Captures _origin synchronously.
 	func on_hold_ready() -> void:
-		# Wait one frame so the hold has its final world-space position
+		if hold != null and hold.is_inside_tree():
+			_origin     = _get_visual_root().global_position
+			_origin_set = true
+		else:
+			_capture_origin_deferred()
+
+	func _capture_origin_deferred() -> void:
 		await hold.get_tree().process_frame
-		_origin = hold.global_position
+		if hold != null and is_instance_valid(hold):
+			_origin     = _get_visual_root().global_position
+			_origin_set = true
 
 	# ── Per-frame ─────────────────────────────────────────────────────────────
 
 	func on_process(delta: float) -> void:
+		if not _origin_set and hold != null and is_instance_valid(hold):
+			_origin     = _get_visual_root().global_position
+			_origin_set = true
+
 		_time += delta
 		match _state:
 			_State.IDLE:      _tick_idle()
@@ -146,6 +147,10 @@ class FallingHoldModifier extends HoldModifierBase:
 		return _state != _State.FALLING and _state != _State.FALLEN
 
 	func on_grab(limb_node: Node2D) -> void:
+		if not _origin_set and hold != null and is_instance_valid(hold):
+			_origin     = _get_visual_root().global_position
+			_origin_set = true
+
 		if limb_node not in _claimed_limbs:
 			_claimed_limbs.append(limb_node)
 		if _state == _State.IDLE:
@@ -172,15 +177,15 @@ class FallingHoldModifier extends HoldModifierBase:
 		var amp := _shake_lerp * shake_max_amp
 		var ox  := sin(_time * shake_frequency * TAU)              * amp
 		var oy  := sin(_time * shake_frequency * TAU * 1.3 + 1.1) * amp * 0.55
-		hold.global_position = _origin + Vector2(ox, oy)
-		hold.modulate        = Color.WHITE.lerp(warning_color, progress)
+		_get_visual_root().global_position = _origin + Vector2(ox, oy)
+		_get_visual_root().modulate        = Color.WHITE.lerp(warning_color, progress)
 
 		if _shake_timer >= fall_delay:
 			_enter_falling()
 
 	func _tick_falling(delta: float) -> void:
 		_fall_velocity       += fall_gravity * delta
-		hold.global_position += Vector2(0.0, _fall_velocity * delta)
+		_get_visual_root().global_position += Vector2(0.0, _fall_velocity * delta)
 		_fall_timer          += delta
 		if _fall_timer >= reset_delay and auto_reset:
 			_enter_resetting()
@@ -206,19 +211,22 @@ class FallingHoldModifier extends HoldModifierBase:
 		_fall_velocity = 0.0
 		_force_release_all()
 		_set_collision_enabled(false)
-		hold.global_position = _origin
-		hold.modulate        = fallen_color
+		_get_visual_root().global_position = _origin
+		_get_visual_root().modulate        = fallen_color
 
 	func _enter_idle_calm() -> void:
 		_state               = _State.IDLE
 		_shake_timer         = 0.0
 		_shake_lerp          = 0.0
-		hold.global_position = _origin
-		hold.modulate        = Color.WHITE
+		_get_visual_root().global_position = _origin
+		_get_visual_root().modulate        = Color.WHITE
 
 	func _enter_resetting() -> void:
 		_state       = _State.RESETTING
 		_reset_timer = 0.0
+
+	func on_climb_reset() -> void:
+		_do_reset()
 
 	func _do_reset() -> void:
 		_state               = _State.IDLE
@@ -228,8 +236,8 @@ class FallingHoldModifier extends HoldModifierBase:
 		_fall_velocity       = 0.0
 		_reset_timer         = 0.0
 		_claimed_limbs.clear()
-		hold.global_position = _origin
-		hold.modulate        = Color.WHITE
+		_get_visual_root().global_position = _origin
+		_get_visual_root().modulate        = Color.WHITE
 		_set_collision_enabled(true)
 
 	# ── Helpers ───────────────────────────────────────────────────────────────

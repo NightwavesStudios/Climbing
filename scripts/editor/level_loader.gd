@@ -1,20 +1,8 @@
 extends Node2D
 class_name LevelLoader
 
-# Hold scenes mapping
-const HOLD_SCENES = {
-	"START":  "res://scenes/holds/start.tscn",
-	"TOP":    "res://scenes/holds/top_out.tscn",
-	"JUG":    "res://scenes/holds/jug.tscn",
-	"CRIMP":  "res://scenes/holds/crimp.tscn",
-	"SLOPER": "res://scenes/holds/sloper.tscn",
-	"POCKET": "res://scenes/holds/pocket.tscn",
-	"FOOT":   "res://scenes/holds/foothold.tscn"
-}
-
 const CRASHPAD_SCENE = "res://scenes/props/crashpad.tscn"
 
-var loaded_scenes: Dictionary = {}
 var holds_container: Node2D
 var crashpads_container: Node2D
 var dynamic_wall = null
@@ -33,12 +21,6 @@ var rope_belayer_position: Vector2    = Vector2.ZERO
 # READY
 # =============================================================================
 func _ready():
-	for type_name in HOLD_SCENES:
-		if ResourceLoader.exists(HOLD_SCENES[type_name]):
-			loaded_scenes[type_name] = load(HOLD_SCENES[type_name])
-		else:
-			print("WARNING: Hold scene not found: " + HOLD_SCENES[type_name])
-
 	if not has_node("Holds"):
 		holds_container = Node2D.new()
 		holds_container.name = "Holds"
@@ -54,6 +36,24 @@ func _ready():
 		crashpads_container = get_node("Crashpads")
 
 	call_deferred("_create_dynamic_wall")
+
+# =============================================================================
+# HOLD REGISTRY HELPERS
+# =============================================================================
+func _get_registry() -> Node:
+	var registry = get_node_or_null("/root/HoldRegistry")
+	if registry == null:
+		push_error("LevelLoader: HoldRegistry autoload not found!")
+	return registry
+
+func _get_hold_scene(type_name: String) -> PackedScene:
+	var registry = _get_registry()
+	if registry == null:
+		return null
+	var scene = registry.get_hold_scene(type_name)
+	if scene == null:
+		push_warning("LevelLoader: HoldRegistry has no scene for type '%s'" % type_name)
+	return scene
 
 # =============================================================================
 # DYNAMIC WALL
@@ -139,6 +139,19 @@ func load_level(path: String) -> bool:
 		game_state.set_climb_metadata(path, current_level_name, current_level_grade)
 
 	print("\n=== SPAWNING HOLDS ===")
+
+	# ── Diagnostic: dump raw hold data before spawning ────────────────────────
+	print("  Raw holds in JSON: ", level_data.holds.size())
+	for i in range(level_data.holds.size()):
+		var hd = level_data.holds[i]
+		var has_mods = "modifiers" in hd and (hd["modifiers"] as Array).size() > 0
+		print("  [%d] type=%s  has_modifiers=%s  modifier_count=%d" % [
+			i,
+			hd.get("type", "?"),
+			has_mods,
+			(hd["modifiers"] as Array).size() if has_mods else 0
+		])
+
 	for hold_data in level_data.holds:
 		spawn_hold(hold_data)
 		await get_tree().process_frame
@@ -251,12 +264,14 @@ func set_environment_from_string(env_name: String):
 # HOLDS
 # =============================================================================
 func spawn_hold(hold_data: Dictionary) -> Node2D:
-	var type_name = hold_data.get("type", "JUG")
-	if type_name not in loaded_scenes:
-		print("WARNING: Unknown hold type: " + type_name)
+	var type_name = hold_data.get("type", "JUG").to_upper()
+
+	var scene = _get_hold_scene(type_name)
+	if scene == null:
+		print("WARNING: Skipping hold — no scene registered for type: " + type_name)
 		return null
 
-	var hold = loaded_scenes[type_name].instantiate()
+	var hold = scene.instantiate()
 	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
 
 	if "hold_type" in hold:
@@ -266,6 +281,10 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 	else:
 		print("  WARNING: Hold at (%.1f, %.1f) missing 'hold_type' property!" % [
 			hold.global_position.x, hold.global_position.y])
+		print("  Hold class: %s | script: %s" % [
+			hold.get_class(),
+			hold.get_script().resource_path if hold.get_script() else "NO SCRIPT"
+		])
 
 	if hold.has_method("set_hold_type_from_string"):
 		hold.set_hold_type_from_string(type_name)
@@ -275,39 +294,76 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 
 	# ── Attach modifiers ──────────────────────────────────────────────────────
 	var modifiers_data: Array = hold_data.get("modifiers", [])
+	print("  [spawn_hold] type=%s modifier_count=%d" % [type_name, modifiers_data.size()])
 	if not modifiers_data.is_empty():
 		_attach_modifiers_to_hold(hold, modifiers_data)
+	else:
+		print("  [spawn_hold] No modifiers for this hold.")
 
 	return hold
 
 func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
-	var registry := get_node_or_null("/root/HoldModifierRegistry")
-	if registry == null:
-		push_warning("LevelLoader: HoldModifierRegistry autoload not found — modifiers skipped.")
+	print("  [_attach_modifiers] Attaching %d modifier(s) to hold..." % modifiers_data.size())
+
+	# The hold scene root may be a plain Node2D wrapper with the actual
+	# ClimbingHold (Area2D + climbing_hold.gd) as a child. Attach modifiers
+	# to the Area2D so ClimbingHold._process() calls on_process() each frame.
+	var target: Node2D = hold
+	if hold.get_script() == null:
+		for child in hold.get_children():
+			if child is Area2D and child.get_script() != null:
+				target = child
+				print("  [_attach_modifiers] Wrapper root — targeting child Area2D: %s" % child.name)
+				break
+
+	const MODIFIERS_PATH := "res://scripts/holds/hold_modifiers.gd"
+	var modifiers_script = load(MODIFIERS_PATH) if ResourceLoader.exists(MODIFIERS_PATH) else null
+
+	if modifiers_script == null:
+		push_error("LevelLoader: hold_modifiers.gd not found at: %s" % MODIFIERS_PATH)
 		return
 
 	for mod_data in modifiers_data:
 		if not mod_data is Dictionary:
+			print("  [_attach_modifiers] Skipping non-Dictionary entry: ", mod_data)
 			continue
 
-		var modifier = registry.create_modifier_from_data(mod_data)
+		var type_key: String = mod_data.get("type", "")
+		print("  [_attach_modifiers] Creating modifier type='%s'" % type_key)
+
+		var modifier: Node = null
+
+		match type_key:
+			"falling":
+				modifier = modifiers_script.FallingHoldModifier.new()
+			_:
+				var registry := get_node_or_null("/root/HoldModifierRegistry")
+				if registry:
+					modifier = registry.create_modifier(type_key)
+				if modifier == null:
+					push_warning("LevelLoader: unknown modifier type '%s'" % type_key)
+					continue
+
 		if modifier == null:
-			push_warning("LevelLoader: could not create modifier '%s'" % mod_data.get("type", "?"))
+			push_warning("LevelLoader: failed to instantiate modifier '%s'" % type_key)
 			continue
 
-		# Set the hold reference before adding to tree so on_hold_ready() fires correctly
-		if "hold" in modifier:
-			modifier.hold = hold
+		if modifier.has_method("deserialize"):
+			modifier.deserialize(mod_data)
 
-		hold.add_child(modifier)
+		# Add to the ClimbingHold Area2D, not the wrapper root.
+		target.add_child(modifier)
 
-		# Fire on_hold_ready() now that the modifier is fully in the scene tree
+		if not target.is_processing():
+			push_warning("LevelLoader: target '%s' _process DISABLED — forcing on." % target.name)
+			target.set_process(true)
+
 		if modifier.has_method("on_hold_ready"):
 			modifier.on_hold_ready()
 
-		print("  ✓ Attached '%s' modifier to %s hold" % [
-			mod_data.get("type", "?"),
-			hold.get("hold_type") if "hold_type" in hold else "?"])
+		print("  ✓ Attached '%s' to '%s' | is_processing=%s" % [
+			type_key, target.name, target.is_processing()
+		])
 
 func clear_holds():
 	if holds_container:
