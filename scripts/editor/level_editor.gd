@@ -52,6 +52,8 @@ var preview_crashpad: Node2D = null
 var dragging_crashpad: Node2D = null
 var crashpad_drag_start_position: Vector2 = Vector2.ZERO
 
+var custom_spawn_hold: Node2D = null
+
 var climb_name: String = ""
 var climb_grade: String = "VB"
 
@@ -729,7 +731,9 @@ func _input(event):
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			var pos  = get_global_mouse_position()
 			var hold = get_hold_at_position(pos)
-			if hold:
+			if hold and event.shift_pressed:
+				_set_custom_spawn_hold(hold)
+			elif hold:
 				delete_hold(hold)
 			else:
 				var crashpad = get_crashpad_at_position(pos)
@@ -826,6 +830,48 @@ func get_crashpad_at_position(pos: Vector2, max_dist: float = 60.0) -> Node2D:
 			closest_dist = dist
 			closest      = crashpad
 	return closest
+
+
+func _set_custom_spawn_hold(hold: Node2D) -> void:
+	# Clear green tint on the previous custom spawn hold
+	if is_instance_valid(custom_spawn_hold) and custom_spawn_hold != hold:
+		custom_spawn_hold.modulate = Color(1, 1, 1)
+	# Toggle off if clicking the same hold again
+	if custom_spawn_hold == hold:
+		hold.modulate = Color(1, 1, 1)
+		custom_spawn_hold = null
+		show_notification("Custom spawn cleared")
+		play_sound(pitch_delete_hold)
+		return
+	custom_spawn_hold = hold
+	hold.modulate = Color(0.4, 1.0, 0.5)  # green tint marks the custom spawn
+	show_notification("Custom spawn set on %s hold  (Shift+Right-click again to clear)" % get_hold_type(hold))
+	play_sound(pitch_success)
+
+
+func _get_spawn_pos() -> Vector2:
+	# Prefer the user-designated custom spawn hold
+	if is_instance_valid(custom_spawn_hold):
+		var hp = custom_spawn_hold.get_node_or_null("HoldPoint")
+		return (hp.global_position if hp else custom_spawn_hold.global_position) + Vector2(0, 80)
+
+	# Fall back to START holds
+	var start_holds: Array = []
+	for hold in holds_container.get_children():
+		if get_hold_type(hold) == "START":
+			start_holds.append(hold)
+
+	if start_holds.size() == 1:
+		var hp = start_holds[0].get_node_or_null("HoldPoint")
+		return (hp.global_position if hp else start_holds[0].global_position) + Vector2(0, 80)
+	elif start_holds.size() > 1:
+		var sum = Vector2.ZERO
+		for hold in start_holds:
+			var hp = hold.get_node_or_null("HoldPoint")
+			sum += hp.global_position if hp else hold.global_position
+		return sum / start_holds.size() + Vector2(0, 80)
+
+	return Vector2.ZERO
 
 
 func _on_copy_json():
@@ -1076,6 +1122,9 @@ func delete_hold(hold: Node2D):
 	save_undo_state()
 	if hold == dragging_hold:
 		dragging_hold = null
+	# Clear custom spawn reference if this hold is deleted
+	if hold == custom_spawn_hold:
+		custom_spawn_hold = null
 	hold.queue_free()
 	play_sound(pitch_delete_hold)
 	update_wall_bounds()
@@ -1193,13 +1242,14 @@ func _on_preview():
 		play_sound(pitch_error)
 		return
 
+	# Require at least one START hold OR a custom spawn hold
 	var start_holds = []
 	for hold in holds_container.get_children():
-		var t = get_hold_type(hold)
-		if t == "START": start_holds.append(hold)
+		if get_hold_type(hold) == "START":
+			start_holds.append(hold)
 
-	if start_holds.size() == 0:
-		show_notification("Need at least one START hold!", true)
+	if start_holds.size() == 0 and not is_instance_valid(custom_spawn_hold):
+		show_notification("Need at least one START hold (or Shift+Right-click a hold to set spawn)!", true)
 		play_sound(pitch_error)
 		return
 
@@ -1222,16 +1272,7 @@ func _on_preview():
 	is_testing         = true
 	_speed_fail_pending = false
 
-	var spawn_pos = Vector2.ZERO
-	if start_holds.size() == 1:
-		var hp = start_holds[0].get_node_or_null("HoldPoint")
-		spawn_pos = (hp.global_position if hp else start_holds[0].global_position) + Vector2(0, 80)
-	else:
-		var sum = Vector2.ZERO
-		for hold in start_holds:
-			var hp = hold.get_node_or_null("HoldPoint")
-			sum += hp.global_position if hp else hold.global_position
-		spawn_pos = sum / start_holds.size() + Vector2(0, 80)
+	var spawn_pos = _get_spawn_pos()
 
 	player.global_position = spawn_pos
 	camera.position        = spawn_pos
@@ -1291,21 +1332,7 @@ func _on_test_speed_time_expired() -> void:
 func _reset_speed_test() -> void:
 	_speed_fail_pending = false
 
-	var start_holds = []
-	for hold in holds_container.get_children():
-		if get_hold_type(hold) == "START":
-			start_holds.append(hold)
-
-	var spawn_pos = Vector2.ZERO
-	if start_holds.size() == 1:
-		var hp = start_holds[0].get_node_or_null("HoldPoint")
-		spawn_pos = (hp.global_position if hp else start_holds[0].global_position) + Vector2(0, 80)
-	elif start_holds.size() > 1:
-		var sum = Vector2.ZERO
-		for hold in start_holds:
-			var hp = hold.get_node_or_null("HoldPoint")
-			sum += hp.global_position if hp else hold.global_position
-		spawn_pos = sum / start_holds.size() + Vector2(0, 80)
+	var spawn_pos = _get_spawn_pos()
 
 	var player = get_node_or_null("PreviewPlayer")
 	if is_instance_valid(player):
@@ -1350,6 +1377,9 @@ func _on_clear():
 
 	if wall and wall.has_method("reset_polygon"):
 		wall.reset_polygon()
+
+	# Clear custom spawn hold
+	custom_spawn_hold = null
 
 	current_discipline = "bouldering"
 	speed_time_limit   = 60.0
@@ -1452,6 +1482,9 @@ func undo_last_action():
 	for hold     in holds_container.get_children():    hold.queue_free()
 	for crashpad in crashpads_container.get_children(): crashpad.queue_free()
 
+	# Custom spawn hold references are now stale after clearing
+	custom_spawn_hold = null
+
 	for hold_data in state.holds:
 		var type_name = hold_data.type
 		if type_name not in loaded_scenes:
@@ -1546,6 +1579,8 @@ func update_info_label():
 		var wname = WEATHER_NAMES[current_weather] \
 					if current_weather < WEATHER_NAMES.size() else "?"
 		parts.append("%s %d%%" % [wname, int(current_weather_intensity * 100.0)])
+	if is_instance_valid(custom_spawn_hold):
+		parts.append("Spawn ✦")
 	parts.append("Placing: %s" % selected)
 	info_label.text = "  ·  ".join(parts)
 
@@ -1589,6 +1624,12 @@ func _draw():
 	if belayer_position != Vector2.ZERO:
 		draw_circle(belayer_position, 15, Color(1, 0.5, 0, 0.3))
 		draw_arc(belayer_position, 20, 0, TAU, 32, Color.ORANGE, 2.0)
+
+	# Draw a subtle ring around the custom spawn hold position
+	if is_instance_valid(custom_spawn_hold):
+		var sp = custom_spawn_hold.global_position
+		draw_circle(sp, 18, Color(0.3, 1.0, 0.4, 0.18))
+		draw_arc(sp, 22, 0, TAU, 36, Color(0.3, 1.0, 0.4, 0.85), 2.0)
 
 	if not grid_enabled:
 		return

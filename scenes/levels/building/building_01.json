@@ -1,0 +1,118 @@
+{
+	"crashpads": [],
+	"discipline": "bouldering",
+	"environment": "granite",
+	"grade": "VB",
+	"holds": [
+		{
+			"type": "WINDOW",
+			"x": 32.0,
+			"y": 0.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 32.0,
+			"y": -128.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 32.0,
+			"y": -256.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 32.0,
+			"y": -384.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 192.0,
+			"y": -384.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 192.0,
+			"y": -256.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 192.0,
+			"y": -128.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 192.0,
+			"y": 0.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 352.0,
+			"y": 0.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 352.0,
+			"y": -128.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 352.0,
+			"y": -256.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 352.0,
+			"y": -384.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 512.0,
+			"y": -384.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 512.0,
+			"y": -256.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 512.0,
+			"y": -128.0
+		},
+		{
+			"type": "WINDOW",
+			"x": 512.0,
+			"y": 0.0
+		}
+	],
+	"name": "Unnamed Route",
+	"speed_time_limit": 60.0,
+	"wall_polygon": {
+		"enabled": true,
+		"ground_left_index": 3,
+		"ground_right_index": 2,
+		"points": [
+			{
+				"x": -70.2621459960938,
+				"y": -485.633483886719
+			},
+			{
+				"x": 615.634887695312,
+				"y": -479.982727050781
+			},
+			{
+				"x": 609.3544921875,
+				"y": 153.515869140625
+			},
+			{
+				"x": -68.0,
+				"y": 153.515869140625
+			}
+		],
+		"top_edge_indices": [
+			0
+		]
+	},
+	"weather": 0,
+	"weather_intensity": 1.0
+}

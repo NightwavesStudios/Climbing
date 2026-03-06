@@ -2373,7 +2373,7 @@ func attempt_grab(limb: Limb):
 		if hold_point_node == null: continue
 
 		var dist_metric: float
-		if hold.snap_to_point:
+		if hold.get("snap_to_point"):
 			# Snapping holds: pick nearest HoldPoint marker
 			dist_metric = limb_node.global_position.distance_to(hold_point_node.global_position)
 		else:

@@ -439,9 +439,9 @@ func _apply_environment_theme():
 						"has_city":     true,
 						"city_time":    1,
 						"ground_type":  "city_street",
-						"ground_top":   Color(0.20, 0.20, 0.22),
-						"ground_mid":   Color(0.14, 0.14, 0.16),
-						"ground_deep":  Color(0.09, 0.09, 0.10),
+						"ground_top":   Color(0.22, 0.18, 0.14),
+						"ground_mid":   Color(0.16, 0.13, 0.10),
+						"ground_deep":  Color(0.11, 0.09, 0.07),
 						"fog_color":    Color(0.60, 0.25, 0.08, 0.08),
 					}
 				2:  # Night
@@ -457,9 +457,9 @@ func _apply_environment_theme():
 						"has_city":     true,
 						"city_time":    2,
 						"ground_type":  "city_street",
-						"ground_top":   Color(0.16, 0.16, 0.18),
-						"ground_mid":   Color(0.11, 0.11, 0.13),
-						"ground_deep":  Color(0.07, 0.07, 0.08),
+						"ground_top":   Color(0.14, 0.14, 0.16),
+						"ground_mid":   Color(0.10, 0.10, 0.12),
+						"ground_deep":  Color(0.06, 0.06, 0.08),
 						"fog_color":    Color(0.04, 0.05, 0.12, 0.10),
 					}
 				_:  # Day
@@ -1198,7 +1198,12 @@ func _draw_scaffold():
 		draw_rect(Rect2(Vector2(px - 22.0, ground_y - 8.0), Vector2(44.0, 22.0)), Color(0.50, 0.50, 0.52), true)
 		draw_line(Vector2(px - 22.0, ground_y - 8.0), Vector2(px + 22.0, ground_y - 8.0), Color(0.65, 0.65, 0.67), 2.0, true)
 
+# ─── Wall rendering ───────────────────────────────────────────────────────────
+
 func _draw_rectangle_wall():
+	if current_environment == "building":
+		_draw_building_facade_wall()
+		return
 	var ws = wall_max - wall_min
 	if wall_texture_enabled: draw_textured_wall(wall_min, ws)
 	else: draw_rect(Rect2(wall_min, ws), current_wall_color, true)
@@ -1214,6 +1219,245 @@ func _draw_polygon_wall():
 			var t = clamp((pp[i].y - wall_min.y) / max(wall_max.y - wall_min.y, 1.0), 0.0, 1.0)
 			cols.append(Color(0.0, 0.0, 0.0, t * 0.09))
 		draw_polygon(p2, cols)
+
+# ─── Building facade wall ─────────────────────────────────────────────────────
+# Renders the climbing wall as a section of a concrete high-rise facade.
+# Reads time-of-day from _env["city_time"] (0 = day, 1 = dusk, 2 = night).
+
+func _draw_building_facade_wall() -> void:
+	var tod : int   = _env.get("city_time", 0)
+	var rb  : float = _get_weather_blend()
+
+	# ── Base concrete colours per time of day ──────────────────────────────
+	var concrete_base  : Color
+	var concrete_dark  : Color
+	var concrete_light : Color
+	var panel_groove   : Color
+	var ledge_top      : Color
+	var ledge_shadow   : Color
+
+	match tod:
+		1:  # Dusk — warm amber wash
+			concrete_base  = Color(0.46, 0.40, 0.34)
+			concrete_dark  = Color(0.32, 0.27, 0.22)
+			concrete_light = Color(0.58, 0.50, 0.40)
+			panel_groove   = Color(0.24, 0.20, 0.16, 0.85)
+			ledge_top      = Color(0.64, 0.54, 0.40)
+			ledge_shadow   = Color(0.20, 0.16, 0.12, 0.70)
+		2:  # Night — cold, desaturated
+			concrete_base  = Color(0.24, 0.24, 0.28)
+			concrete_dark  = Color(0.14, 0.14, 0.18)
+			concrete_light = Color(0.30, 0.30, 0.36)
+			panel_groove   = Color(0.08, 0.08, 0.12, 0.90)
+			ledge_top      = Color(0.34, 0.34, 0.40)
+			ledge_shadow   = Color(0.06, 0.06, 0.08, 0.80)
+		_:  # Day — neutral precast grey
+			concrete_base  = Color(0.54, 0.54, 0.56)
+			concrete_dark  = Color(0.40, 0.40, 0.42)
+			concrete_light = Color(0.66, 0.66, 0.68)
+			panel_groove   = Color(0.30, 0.30, 0.32, 0.80)
+			ledge_top      = Color(0.72, 0.72, 0.74)
+			ledge_shadow   = Color(0.22, 0.22, 0.24, 0.65)
+
+	# Rain blend toward wet grey
+	concrete_base  = concrete_base.lerp (Color(0.36, 0.38, 0.42), rb * 0.45)
+	concrete_light = concrete_light.lerp(Color(0.42, 0.44, 0.48), rb * 0.35)
+
+	var w := wall_max.x - wall_min.x
+	var h := wall_max.y - wall_min.y
+
+	# ── 1. Base fill with vertical gradient ───────────────────────────────
+	var v_bands := 12
+	for vi in range(v_bands):
+		var t0 := float(vi)     / float(v_bands)
+		var t1 := float(vi + 1) / float(v_bands)
+		var y0 := wall_min.y + t0 * h
+		var y1 := wall_min.y + t1 * h
+		var c0 := concrete_light.lerp(concrete_dark, t0 * 0.55)
+		var c1 := concrete_light.lerp(concrete_dark, t1 * 0.55)
+		var tl := Vector2(wall_min.x, y0);  var tr2 := Vector2(wall_max.x, y0)
+		var br2 := Vector2(wall_max.x, y1); var bl2 := Vector2(wall_min.x, y1)
+		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+
+	# ── 2. Concrete texture variation (hash-based patches) ─────────────────
+	var tile := 96.0
+	var cols  := int(ceil(w / tile)) + 1
+	var rows  := int(ceil(h / tile)) + 1
+	var gx    = floor(wall_min.x / tile) * tile
+	var gy    = floor(wall_min.y / tile) * tile
+	for xi in range(cols):
+		for yi in range(rows):
+			var px   = gx + xi * tile
+			var py   = gy + yi * tile
+			var seed := int(px / tile) + int(py / tile) * 1000
+			var v    := (_hf(seed) - 0.5) * 0.035
+			var tr2  := Rect2(Vector2(px, py), Vector2(tile, tile))
+			var wr   := Rect2(wall_min, wall_max - wall_min)
+			var cl   := tr2.intersection(wr)
+			if cl.has_area():
+				draw_rect(cl, Color(
+					concrete_base.r + v,
+					concrete_base.g + v,
+					concrete_base.b + v,
+					0.55), true)
+
+	# ── 3. Pre-cast panel grid ─────────────────────────────────────────────
+	var panel_w := 220.0
+	var panel_h := 160.0
+
+	# Vertical grooves
+	var vg_x = floor(wall_min.x / panel_w) * panel_w
+	while vg_x <= wall_max.x:
+		if vg_x >= wall_min.x:
+			draw_line(Vector2(vg_x, wall_min.y), Vector2(vg_x, wall_max.y),
+					  panel_groove, 3.0, true)
+			draw_line(Vector2(vg_x + 3.0, wall_min.y), Vector2(vg_x + 3.0, wall_max.y),
+					  Color(concrete_light.r, concrete_light.g, concrete_light.b, 0.30), 1.0, true)
+		vg_x += panel_w
+
+	# Horizontal grooves + ledges
+	var hg_y = floor(wall_min.y / panel_h) * panel_h
+	while hg_y <= wall_max.y:
+		if hg_y >= wall_min.y:
+			draw_line(Vector2(wall_min.x, hg_y + 1.0), Vector2(wall_max.x, hg_y + 1.0),
+					  Color(concrete_dark.r, concrete_dark.g, concrete_dark.b, 0.50), 4.0, true)
+			draw_line(Vector2(wall_min.x, hg_y), Vector2(wall_max.x, hg_y),
+					  panel_groove, 2.5, true)
+			draw_line(Vector2(wall_min.x, hg_y - 1.0), Vector2(wall_max.x, hg_y - 1.0),
+					  Color(ledge_top.r, ledge_top.g, ledge_top.b, 0.55), 1.5, true)
+		hg_y += panel_h
+
+	# ── 4. Windows ─────────────────────────────────────────────────────────
+	var win_w      := panel_w * 0.42
+	var win_h2     := panel_h * 0.52
+	var win_margin_x := (panel_w - win_w) * 0.5
+	var win_margin_y := (panel_h - win_h2) * 0.5
+
+	var lit_prob   : float
+	var win_lit_col   : Color
+	var win_unlit_col : Color
+	var win_frame_col : Color
+
+	match tod:
+		1:  # Dusk
+			lit_prob      = 0.50
+			win_lit_col   = Color(1.00, 0.78, 0.32, 0.80)
+			win_unlit_col = Color(0.28, 0.22, 0.18, 0.60)
+			win_frame_col = Color(0.20, 0.17, 0.13)
+		2:  # Night
+			lit_prob      = 0.82
+			win_lit_col   = Color(0.95, 0.90, 0.60, 0.92)
+			win_unlit_col = Color(0.08, 0.08, 0.12, 0.75)
+			win_frame_col = Color(0.10, 0.10, 0.14)
+		_:  # Day
+			lit_prob      = 0.10
+			win_lit_col   = Color(0.55, 0.72, 0.88, 0.55)
+			win_unlit_col = Color(0.38, 0.46, 0.54, 0.45)
+			win_frame_col = Color(0.28, 0.28, 0.30)
+
+	win_lit_col   = win_lit_col.lerp  (Color(0.45, 0.50, 0.58, win_lit_col.a),   rb * 0.45)
+	win_unlit_col = win_unlit_col.lerp(Color(0.25, 0.28, 0.32, win_unlit_col.a), rb * 0.35)
+
+	var col_i  := 0
+	var cpx    = floor(wall_min.x / panel_w) * panel_w
+	while cpx < wall_max.x:
+		var row_i := 0
+		var cpy   = floor(wall_min.y / panel_h) * panel_h
+		while cpy < wall_max.y:
+			var wx0     = cpx + win_margin_x
+			var wy0     = cpy + win_margin_y
+			var win_rect := Rect2(wx0, wy0, win_w, win_h2)
+			var wall_clip := Rect2(wall_min, wall_max - wall_min)
+			var clipped   := win_rect.intersection(wall_clip)
+			if clipped.has_area():
+				var wseed := (col_i * 1117 + row_i * 337) ^ _scenery_seed
+				var lit   := _hf(wseed) < lit_prob
+
+				# Frame
+				draw_rect(Rect2(clipped.position - Vector2(2, 2),
+								clipped.size + Vector2(4, 4)),
+						  win_frame_col, true)
+
+				# Glass
+				var glass_col := win_lit_col if lit else win_unlit_col
+				if lit and tod == 2 and _hf(wseed + 1) > 0.75:
+					var flicker := 0.75 + 0.25 * sin(_cloud_time * (2.0 + _hf(wseed + 2) * 4.0) + float(wseed))
+					glass_col = Color(glass_col.r, glass_col.g, glass_col.b, glass_col.a * flicker)
+				draw_rect(clipped, glass_col, true)
+
+				# Day: sky reflection glint on upper-left
+				if tod == 0 and rb < 0.5:
+					draw_rect(Rect2(clipped.position, Vector2(clipped.size.x * 0.35, clipped.size.y * 0.28)),
+							  Color(0.75, 0.86, 0.96, 0.28 * (1.0 - rb * 2.0)), true)
+
+				# Night/Dusk: interior glow spill
+				if lit and tod > 0:
+					var glow_a := 0.08 * win_lit_col.a
+					draw_rect(Rect2(clipped.position - Vector2(3, 3),
+									clipped.size + Vector2(6, 6)),
+							  Color(win_lit_col.r, win_lit_col.g, win_lit_col.b, glow_a), true)
+
+				# Window dividers
+				draw_line(
+					Vector2(clipped.position.x, clipped.position.y + clipped.size.y * 0.5),
+					Vector2(clipped.position.x + clipped.size.x, clipped.position.y + clipped.size.y * 0.5),
+					Color(win_frame_col.r, win_frame_col.g, win_frame_col.b, 0.70), 1.5, true)
+				draw_line(
+					Vector2(clipped.position.x + clipped.size.x * 0.5, clipped.position.y),
+					Vector2(clipped.position.x + clipped.size.x * 0.5, clipped.position.y + clipped.size.y),
+					Color(win_frame_col.r, win_frame_col.g, win_frame_col.b, 0.55), 1.0, true)
+
+			row_i += 1
+			cpy   += panel_h
+		col_i += 1
+		cpx   += panel_w
+
+	# ── 5. Corner pilasters ────────────────────────────────────────────────
+	var rib_w := 18.0
+	draw_rect(Rect2(wall_min.x, wall_min.y, rib_w, h), concrete_dark, true)
+	draw_line(Vector2(wall_min.x + rib_w, wall_min.y),
+			  Vector2(wall_min.x + rib_w, wall_max.y),
+			  Color(concrete_light.r, concrete_light.g, concrete_light.b, 0.50), 2.0, true)
+	draw_rect(Rect2(wall_max.x - rib_w, wall_min.y, rib_w, h), concrete_dark, true)
+	draw_line(Vector2(wall_max.x - rib_w, wall_min.y),
+			  Vector2(wall_max.x - rib_w, wall_max.y),
+			  Color(ledge_shadow.r, ledge_shadow.g, ledge_shadow.b, 0.50), 2.0, true)
+
+	# ── 6. Parapet cap ─────────────────────────────────────────────────────
+	var cap_h := 12.0
+	draw_rect(Rect2(wall_min.x - 4.0, wall_min.y - cap_h, w + 8.0, cap_h),
+			  concrete_dark, true)
+	draw_line(Vector2(wall_min.x - 4.0, wall_min.y - cap_h),
+			  Vector2(wall_max.x + 4.0,  wall_min.y - cap_h),
+			  Color(ledge_top.r, ledge_top.g, ledge_top.b, 0.70), 2.0, true)
+
+	# ── 7. Night: flood-light spill from top ──────────────────────────────
+	if tod == 2 and rb < 0.7:
+		var spill_steps := 8
+		for si in range(spill_steps):
+			var t := float(si) / float(spill_steps)
+			var a = lerp(0.12, 0.0, t) * (1.0 - rb)
+			draw_rect(Rect2(Vector2(wall_min.x, wall_min.y + t * min(h * 0.30, 180.0)),
+							Vector2(w, min(h * 0.30, 180.0) / float(spill_steps) + 1.0)),
+					  Color(0.85, 0.88, 0.65, a), true)
+
+	# ── 8. Rain streaks on facade ─────────────────────────────────────────
+	if rb > 0.15:
+		var streak_count := int(18.0 * rb)
+		for si in range(streak_count):
+			var sseed := (_scenery_seed ^ 0xC0DE) + si * 43
+			var sx    := wall_min.x + _hf(sseed) * w
+			var slen  := 20.0 + _hf(sseed + 1) * 40.0
+			var salp  := (0.05 + _hf(sseed + 2) * 0.10) * rb
+			var period   := h / (35.0 + _hf(sseed + 3) * 25.0)
+			var anim_y   := fmod(_cloud_time / period + _hf(sseed + 4), 1.0) * h
+			var draw_y   := wall_min.y + anim_y
+			if draw_y + slen > wall_max.y: continue
+			draw_line(Vector2(sx, draw_y), Vector2(sx + 1.0, draw_y + slen),
+					  Color(0.60, 0.70, 0.88, salp), 1.0, true)
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 func _draw_wall_base_shadow():
 	if not wall_valid: return
@@ -1387,6 +1631,8 @@ func _draw_ground_gym():
 				  Color(cd.r, cd.g, cd.b, 0.8), 2.0, true)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), Color(0.50, 0.50, 0.52, 0.9), 2.0, true)
 
+# ─── City ground — full day / dusk / night ────────────────────────────────────
+
 func _draw_ground_city() -> void:
 	var left  := wall_min.x - BACKGROUND_EXPANSION
 	var right := wall_max.x + BACKGROUND_EXPANSION
@@ -1394,48 +1640,120 @@ func _draw_ground_city() -> void:
 	var rb    := _get_weather_blend()
 	var tod   : int = _env.get("city_time", 0)
 
-	var ct : Color = _env.get("ground_top",  Color(0.28, 0.28, 0.30))
-	var cm : Color = _env.get("ground_mid",  Color(0.20, 0.20, 0.22))
-	var cd : Color = _env.get("ground_deep", Color(0.13, 0.13, 0.14))
+	# ── Base asphalt colours per time of day ──────────────────────────────
+	var ct          : Color
+	var cm          : Color
+	var cd          : Color
+	var kerb_col    : Color
+	var stripe_col  : Color
+	var sidewalk_col: Color
+
+	match tod:
+		1:  # Dusk — warm, dark tones
+			ct           = Color(0.22, 0.18, 0.14)
+			cm           = Color(0.16, 0.13, 0.10)
+			cd           = Color(0.11, 0.09, 0.07)
+			kerb_col     = Color(0.38, 0.32, 0.26)
+			stripe_col   = Color(0.85, 0.55, 0.20, 0.55)
+			sidewalk_col = Color(0.32, 0.26, 0.20)
+		2:  # Night — very dark, almost black
+			ct           = Color(0.14, 0.14, 0.16)
+			cm           = Color(0.10, 0.10, 0.12)
+			cd           = Color(0.06, 0.06, 0.08)
+			kerb_col     = Color(0.24, 0.24, 0.28)
+			stripe_col   = Color(0.72, 0.68, 0.32, 0.60)
+			sidewalk_col = Color(0.18, 0.18, 0.22)
+		_:  # Day — standard grey asphalt
+			ct           = Color(0.28, 0.28, 0.30)
+			cm           = Color(0.20, 0.20, 0.22)
+			cd           = Color(0.13, 0.13, 0.14)
+			kerb_col     = Color(0.55, 0.55, 0.58)
+			stripe_col   = Color(0.85, 0.80, 0.30, 0.50)
+			sidewalk_col = Color(0.40, 0.38, 0.34)
+
 	ct = ct.lerp(Color(0.18, 0.20, 0.22), rb * 0.5)
 	cm = cm.lerp(Color(0.14, 0.16, 0.18), rb * 0.4)
 
-	# Base asphalt
-	draw_rect(Rect2(Vector2(left, ground_y),        Vector2(width, 99999.0)), cd, true)
-	draw_rect(Rect2(Vector2(left, ground_y),        Vector2(width, 32.0)),    cm, true)
-	draw_rect(Rect2(Vector2(left, ground_y),        Vector2(width, 6.0)),     ct, true)
+	# ── Road base layers ──────────────────────────────────────────────────
+	draw_rect(Rect2(Vector2(left, ground_y),       Vector2(width, 99999.0)), cd,   true)
+	draw_rect(Rect2(Vector2(left, ground_y),       Vector2(width, 32.0)),    cm,   true)
+	draw_rect(Rect2(Vector2(left, ground_y),       Vector2(width, 6.0)),     ct,   true)
 
-	# Kerb strip
-	draw_rect(Rect2(Vector2(left, ground_y + 6.0),  Vector2(width, 4.0)),
-			  Color(0.55, 0.55, 0.58), true)
+	# ── Sidewalk strip behind the building ────────────────────────────────
+	draw_rect(Rect2(Vector2(left, ground_y - 16.0), Vector2(width, 16.0)), sidewalk_col, true)
+	draw_line(Vector2(left, ground_y - 16.0), Vector2(right, ground_y - 16.0),
+			  kerb_col.lightened(0.15), 2.0, true)
 
-	# Lane dashes
-	var stripe_w := 36.0; var stripe_gap := 120.0; var stride := stripe_w + stripe_gap
-	var sx       = floor(left / stride) * stride
+	# ── Kerb ──────────────────────────────────────────────────────────────
+	draw_rect(Rect2(Vector2(left, ground_y + 6.0), Vector2(width, 4.0)), kerb_col, true)
+
+	# ── Lane dashes ───────────────────────────────────────────────────────
+	var stripe_w   := 36.0
+	var stripe_gap := 120.0
+	var stride     := stripe_w + stripe_gap
+	var sx         = floor(left / stride) * stride
 	while sx < right:
-		draw_rect(Rect2(sx, ground_y + 18.0, stripe_w, 4.0), Color(0.85, 0.80, 0.30, 0.50), true)
+		draw_rect(Rect2(sx, ground_y + 18.0, stripe_w, 4.0), stripe_col, true)
 		sx += stride
 
-	# Street-lamp bases
+	# ── Street-lamp bases + light halos ───────────────────────────────────
 	var lamp_stride := 280.0
 	var lx          = floor(left / lamp_stride) * lamp_stride
 	while lx < right:
-		draw_rect(Rect2(lx - 3.0, ground_y, 6.0, 20.0), Color(0.18, 0.18, 0.20), true)
-		draw_rect(Rect2(lx - 8.0, ground_y + 18.0, 16.0, 4.0), Color(0.20, 0.20, 0.22), true)
-		# Lamp glow pools at night / dusk
-		if tod > 0:
-			var glow_col := Color(1.0, 0.85, 0.45, 0.08 + rb * 0.02) if tod == 1 \
-						else Color(1.0, 0.90, 0.55, 0.10 + rb * 0.02)
-			for gi in range(5):
-				draw_circle(Vector2(lx, ground_y + 2.0),
-							20.0 + float(gi) * 14.0,
-							Color(glow_col.r, glow_col.g, glow_col.b,
-								  glow_col.a * (1.0 - float(gi) / 5.0)))
+		var pole_col := Color(0.18, 0.18, 0.20)
+		match tod:
+			1: pole_col = Color(0.20, 0.15, 0.10)
+			2: pole_col = Color(0.12, 0.12, 0.14)
+
+		# Pole and base plate
+		draw_rect(Rect2(lx - 3.0, ground_y, 6.0, 20.0), pole_col, true)
+		draw_rect(Rect2(lx - 8.0, ground_y + 18.0, 16.0, 4.0), pole_col.lightened(0.1), true)
+
+		if tod == 1:    # Dusk — warm orange halo
+			var gc := Color(1.0, 0.62, 0.12, 0.12 + rb * 0.02)
+			for gi in range(6):
+				draw_circle(Vector2(lx, ground_y + 2.0), 18.0 + float(gi) * 16.0,
+						Color(gc.r, gc.g, gc.b, gc.a * (1.0 - float(gi) / 6.0)))
+			# Warm stripe on road surface
+			draw_rect(Rect2(lx - 55.0, ground_y + 2.0, 110.0, 28.0),
+					  Color(1.0, 0.55, 0.10, 0.06), true)
+
+		elif tod == 2:  # Night — sodium-yellow halo
+			var gc := Color(1.0, 0.88, 0.52, 0.14 + rb * 0.02)
+			for gi in range(7):
+				draw_circle(Vector2(lx, ground_y + 2.0), 20.0 + float(gi) * 18.0,
+						Color(gc.r, gc.g, gc.b, gc.a * (1.0 - float(gi) / 7.0)))
+			# Wet-road reflection column below lamp
+			if rb > 0.05:
+				draw_rect(Rect2(lx - 4.0, ground_y, 8.0, 30.0),
+						  Color(1.0, 0.90, 0.60, rb * 0.18), true)
+
 		lx += lamp_stride
 
-	# Rain puddles
+	# ── Rain puddles ──────────────────────────────────────────────────────
 	if rb > 0.1:
 		_draw_ground_puddles(left, right, rb)
+
+	# ── Night: neon / window reflections on wet road ──────────────────────
+	if tod == 2 and rb > 0.05:
+		var refl_count := int(8.0 * rb) + 3
+		for ri in range(refl_count):
+			var rseed := (_scenery_seed ^ 0xF1F2) + ri * 59
+			var rx    := left + _hf(rseed) * width
+			var rw    := 12.0 + _hf(rseed + 1) * 40.0
+			var ralp  := rb * (0.04 + _hf(rseed + 2) * 0.08)
+			draw_rect(Rect2(rx, ground_y + 2.0, rw, 12.0),
+					  Color(_hf(rseed + 3), _hf(rseed + 4) * 0.5, _hf(rseed + 5), ralp), true)
+
+	# ── Dusk: horizon warm glow wash on road surface ──────────────────────
+	if tod == 1 and rb < 0.7:
+		for gi in range(6):
+			var t  := float(gi) / 6.0
+			var ga = lerp(0.10, 0.0, t) * (1.0 - rb * 0.8)
+			draw_rect(Rect2(Vector2(left, ground_y + float(gi) * 5.0), Vector2(width, 6.0)),
+					  Color(0.90, 0.42, 0.08, ga), true)
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 func _draw_water_surface():
 	if not wall_valid: return
