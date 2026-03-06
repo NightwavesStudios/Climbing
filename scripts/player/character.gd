@@ -427,7 +427,8 @@ func _process(delta):
 	check_climb_completion()
 	update_camera()
 	_update_spotlight()
-
+	_update_weather_modifier()
+	
 	queue_redraw()
 
 
@@ -2556,3 +2557,14 @@ func set_speed_timer(timer: Node):
 
 func get_climbing_discipline() -> int:
 	return current_discipline
+	
+func _update_weather_modifier() -> void:
+	if not _weather_modifier:
+		return
+	if not _weather_modifier.has_method("update_player_data"):
+		return
+	# Head position: slightly above body centre
+	var head_world := global_position + Vector2(0, HEAD_OFFSET)
+	# Lamp target: use mouse position so the beam follows your aim
+	var lamp_target := get_global_mouse_position()
+	_weather_modifier.update_player_data(head_world, lamp_target)

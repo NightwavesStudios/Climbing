@@ -47,7 +47,7 @@ var night_cloud_shadow := Color(0.02, 0.02, 0.05)
 var night_fog_color    := Color(0.04, 0.04, 0.08, 0.12)
 
 # ── Snow parameters ────────────────────────────────────────────────────────────
-var snow_density        := 800        # was 400
+var snow_density        := 800
 var snow_speed          := 160.0
 var snow_drift_speed    := 40.0
 var snow_sway_frequency := 0.6
@@ -105,6 +105,7 @@ var _drop_rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	z_index = 20
+	add_to_group("weather_modifier")  # allows character.gd to find this node
 	_wall_ref = get_parent() if get_parent().has_method("get_bounds") else null
 	_drop_rng.randomize()
 	_setup_audio()
@@ -191,6 +192,9 @@ func set_weather(new_weather: int) -> void:
 				_audio_fade_elapsed = 0.0
 		WeatherType.NIGHT:
 			_set_lights_enabled(true)
+			_blend = max(_blend, 0.001)  # kick-start blend so energy guard passes
+			_update_night_lamp(0.0)
+			_update_night_lights()       # apply energy immediately, don't wait for _process
 			if _audio and _audio.playing:
 				_audio.stop()
 			_audio_fading_in = false
@@ -209,8 +213,14 @@ func set_weather(new_weather: int) -> void:
 	queue_redraw()
 
 func _set_lights_enabled(on: bool) -> void:
-	if _headlamp:      _headlamp.enabled      = on
-	if _ambient_light: _ambient_light.enabled = on
+	if _headlamp:
+		_headlamp.enabled = on
+		if not on:
+			_headlamp.energy = 0.0
+	if _ambient_light:
+		_ambient_light.enabled = on
+		if not on:
+			_ambient_light.energy = 0.0
 
 
 # =============================================================================
@@ -362,19 +372,20 @@ func _update_night_lamp(_delta: float) -> void:
 		desired_dir, LAMP_DIR_LERP * get_process_delta_time()).normalized()
 
 func _update_night_lights() -> void:
-	if not _has_player:
-		return
-
 	var target_energy := night_lamp_energy * _blend * intensity
 
 	if _headlamp:
-		_headlamp.global_position = _player_head_world
-		_headlamp.energy          = target_energy
-		_headlamp.rotation        = _lamp_dir_smooth.angle() + PI * 0.5
+		if _has_player:
+			# Convert world position → local space of this Node2D,
+			# so the light sits correctly regardless of WeatherModifier's own position/parent.
+			_headlamp.position = to_local(_player_head_world)
+		_headlamp.energy   = target_energy
+		_headlamp.rotation = _lamp_dir_smooth.angle() + PI * 0.5
 
 	if _ambient_light:
-		_ambient_light.global_position = _player_head_world
-		_ambient_light.energy          = night_ambient_energy * _blend * intensity
+		if _has_player:
+			_ambient_light.position = to_local(_player_head_world)
+		_ambient_light.energy = night_ambient_energy * _blend * intensity
 
 func _update_snow(delta: float) -> void:
 	var b        := _get_draw_bounds()
@@ -529,14 +540,14 @@ func _draw_snow_fog() -> void:
 	var b      := _get_draw_bounds()
 	var w      := b.z
 	var h      := b.w
-	var haze_a = lerp(0.0, 0.08, intensity * _blend)  # was 0.22
+	var haze_a = lerp(0.0, 0.08, intensity * _blend)
 	_draw_grad_quad(b.x, b.y,           w, b.y + h * 0.5,
 		Color(snow_fog_color_top.r, snow_fog_color_top.g, snow_fog_color_top.b, 0.0),
 		Color(snow_fog_color_mid.r, snow_fog_color_mid.g, snow_fog_color_mid.b, haze_a))
 	_draw_grad_quad(b.x, b.y + h * 0.5, w, b.y + h,
 		Color(snow_fog_color_mid.r, snow_fog_color_mid.g, snow_fog_color_mid.b, haze_a),
 		Color(snow_fog_color_mid.r, snow_fog_color_mid.g, snow_fog_color_mid.b, haze_a * 1.4))
-	
+
 func _draw_snowflakes() -> void:
 	for layer in range(LAYERS):
 		for f in _snowflakes:
