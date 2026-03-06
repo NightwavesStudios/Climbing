@@ -26,7 +26,7 @@ var current_level_environment: String = "gym"
 
 # Discipline metadata
 var current_level_discipline: String  = "bouldering"
-var speed_time_limit: float           = 60.0   # ← always populated from JSON
+var speed_time_limit: float           = 60.0
 var rope_belayer_position: Vector2    = Vector2.ZERO
 
 # =============================================================================
@@ -114,13 +114,9 @@ func load_level(path: String) -> bool:
 	current_level_environment = level_data.get("environment", "gym")
 	current_level_discipline  = level_data.get("discipline",  "bouldering")
 
-	# ── Speed time limit ──────────────────────────────────────────────────────
-	# Always read it; default to 60 s so there is always a sensible value even
-	# if the JSON was saved without it.
 	speed_time_limit = float(level_data.get("speed_time_limit", 60.0))
 	print("LevelLoader: speed_time_limit = ", speed_time_limit, " s  (discipline: ", current_level_discipline, ")")
 
-	# ── Belayer / rope ────────────────────────────────────────────────────────
 	if "belayer_position" in level_data:
 		var bd = level_data.belayer_position
 		rope_belayer_position = Vector2(bd.get("x", 0), bd.get("y", 0))
@@ -276,7 +272,42 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 
 	holds_container.add_child(hold)
 	hold.add_to_group("holds")
+
+	# ── Attach modifiers ──────────────────────────────────────────────────────
+	var modifiers_data: Array = hold_data.get("modifiers", [])
+	if not modifiers_data.is_empty():
+		_attach_modifiers_to_hold(hold, modifiers_data)
+
 	return hold
+
+func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
+	var registry := get_node_or_null("/root/HoldModifierRegistry")
+	if registry == null:
+		push_warning("LevelLoader: HoldModifierRegistry autoload not found — modifiers skipped.")
+		return
+
+	for mod_data in modifiers_data:
+		if not mod_data is Dictionary:
+			continue
+
+		var modifier = registry.create_modifier_from_data(mod_data)
+		if modifier == null:
+			push_warning("LevelLoader: could not create modifier '%s'" % mod_data.get("type", "?"))
+			continue
+
+		# Set the hold reference before adding to tree so on_hold_ready() fires correctly
+		if "hold" in modifier:
+			modifier.hold = hold
+
+		hold.add_child(modifier)
+
+		# Fire on_hold_ready() now that the modifier is fully in the scene tree
+		if modifier.has_method("on_hold_ready"):
+			modifier.on_hold_ready()
+
+		print("  ✓ Attached '%s' modifier to %s hold" % [
+			mod_data.get("type", "?"),
+			hold.get("hold_type") if "hold_type" in hold else "?"])
 
 func clear_holds():
 	if holds_container:

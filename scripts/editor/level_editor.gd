@@ -134,6 +134,15 @@ const WALL_PADDING_BOTTOM = 150.0
 const CLICK_SOUND = preload("res://assets/audio/sfx/button-clicked.wav")
 var _audio_player: AudioStreamPlayer
 
+# ── Modifier system ───────────────────────────────────────────────────────────
+# _hold_modifiers stores modifier config data in the editor (not live nodes).
+# key   = hold Node2D instance
+# value = Array of modifier data Dictionaries, e.g.:
+#         [ {"type":"falling","fall_delay":2.2, ...} ]
+var _hold_modifiers: Dictionary    = {}
+var modifier_panel: PanelContainer = null   # the floating modifier editor UI
+var modifier_panel_hold: Node2D    = null   # which hold the panel is currently for
+
 
 func _ready():
 	_setup_audio()
@@ -513,6 +522,10 @@ func is_mouse_over_ui() -> bool:
 		return true
 	if not ui_panel_collapsed and mouse_pos.y < BAR_HEIGHT + 2 + DRAWER_HEIGHT:
 		return true
+	if modifier_panel and is_instance_valid(modifier_panel):
+		var panel_rect := Rect2(modifier_panel.position, modifier_panel.size)
+		if panel_rect.has_point(mouse_pos):
+			return true
 	return false
 
 
@@ -531,6 +544,9 @@ func _on_weather_changed(index: int) -> void:
 	var is_night = (index < WEATHER_NAMES.size() and WEATHER_NAMES[index] == "Night")
 	for hold in holds_container.get_children():
 		hold.modulate = Color(1.4, 1.4, 1.6) if is_night else Color(1, 1, 1)
+	# Re-apply modifier tints after night-mode resets them
+	for hold in holds_container.get_children():
+		_refresh_hold_modifier_tint(hold)
 
 	show_notification("Weather: " + (WEATHER_NAMES[index] if index < WEATHER_NAMES.size() else "?"))
 
@@ -680,6 +696,7 @@ func _on_hold_type_selected(index: int):
 	placing_crashpad  = false
 	placing_belayer   = false
 	clear_preview()
+	_close_modifier_panel()
 
 func _on_place_crashpad_pressed():
 	placing_crashpad  = true
@@ -697,11 +714,14 @@ func _input(event):
 		match event.keycode:
 			KEY_DELETE:
 				if not is_testing:
-					if dragging_hold:     delete_hold(dragging_hold)
+					if dragging_hold:       delete_hold(dragging_hold)
 					elif dragging_crashpad: delete_crashpad(dragging_crashpad)
 			KEY_ESCAPE:
 				if is_testing:
 					_stop_testing()
+					return
+				if modifier_panel and is_instance_valid(modifier_panel):
+					_close_modifier_panel()
 					return
 				selected_hold_type = ""
 				placing_crashpad   = false
@@ -719,6 +739,9 @@ func _input(event):
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				# Close modifier panel if clicking outside it
+				if modifier_panel and is_instance_valid(modifier_panel):
+					_close_modifier_panel()
 				handle_left_click()
 			else:
 				if dragging_hold and dragging_hold.global_position != drag_start_position:
@@ -728,17 +751,22 @@ func _input(event):
 					save_undo_state()
 				dragging_hold     = null
 				dragging_crashpad = null
+
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			var pos  = get_global_mouse_position()
 			var hold = get_hold_at_position(pos)
 			if hold and event.shift_pressed:
 				_set_custom_spawn_hold(hold)
+			elif hold and event.ctrl_pressed:
+				# Ctrl + Right-click → open modifier panel for this hold
+				_open_modifier_panel(hold)
 			elif hold:
 				delete_hold(hold)
 			else:
 				var crashpad = get_crashpad_at_position(pos)
 				if crashpad:
 					delete_crashpad(crashpad)
+
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			camera.zoom = (camera.zoom * (1.0 + ZOOM_SPEED)).clamp(
 				Vector2(MIN_ZOOM, MIN_ZOOM), Vector2(MAX_ZOOM, MAX_ZOOM))
@@ -833,29 +861,27 @@ func get_crashpad_at_position(pos: Vector2, max_dist: float = 60.0) -> Node2D:
 
 
 func _set_custom_spawn_hold(hold: Node2D) -> void:
-	# Clear green tint on the previous custom spawn hold
 	if is_instance_valid(custom_spawn_hold) and custom_spawn_hold != hold:
 		custom_spawn_hold.modulate = Color(1, 1, 1)
-	# Toggle off if clicking the same hold again
+		_refresh_hold_modifier_tint(custom_spawn_hold)
 	if custom_spawn_hold == hold:
 		hold.modulate = Color(1, 1, 1)
+		_refresh_hold_modifier_tint(hold)
 		custom_spawn_hold = null
 		show_notification("Custom spawn cleared")
 		play_sound(pitch_delete_hold)
 		return
 	custom_spawn_hold = hold
-	hold.modulate = Color(0.4, 1.0, 0.5)  # green tint marks the custom spawn
+	hold.modulate = Color(0.4, 1.0, 0.5)
 	show_notification("Custom spawn set on %s hold  (Shift+Right-click again to clear)" % get_hold_type(hold))
 	play_sound(pitch_success)
 
 
 func _get_spawn_pos() -> Vector2:
-	# Prefer the user-designated custom spawn hold
 	if is_instance_valid(custom_spawn_hold):
 		var hp = custom_spawn_hold.get_node_or_null("HoldPoint")
 		return (hp.global_position if hp else custom_spawn_hold.global_position) + Vector2(0, 80)
 
-	# Fall back to START holds
 	var start_holds: Array = []
 	for hold in holds_container.get_children():
 		if get_hold_type(hold) == "START":
@@ -873,6 +899,225 @@ func _get_spawn_pos() -> Vector2:
 
 	return Vector2.ZERO
 
+
+# =============================================================================
+# MODIFIER PANEL
+# =============================================================================
+
+func _open_modifier_panel(hold: Node2D) -> void:
+	_close_modifier_panel()
+	modifier_panel_hold = hold
+
+	modifier_panel = PanelContainer.new()
+	modifier_panel.name = "ModifierPanel"
+	modifier_panel.custom_minimum_size = Vector2(260, 0)
+
+	# Float near the hold in screen-space, clamped inside the viewport
+	var screen_pos := _world_to_screen(hold.global_position) + Vector2(24, -44)
+	screen_pos.x = clamp(screen_pos.x, 4.0, get_viewport_rect().size.x - 270.0)
+	screen_pos.y = clamp(screen_pos.y, 4.0, get_viewport_rect().size.y - 20.0)
+	modifier_panel.position = screen_pos
+
+	# Style the panel
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.10, 0.11, 0.15, 0.97)
+	panel_style.set_corner_radius_all(5)
+	panel_style.set_border_width_all(1)
+	panel_style.border_color = Color(0.55, 0.45, 0.85, 0.70)
+	modifier_panel.add_theme_stylebox_override("panel", panel_style)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left",   10)
+	margin.add_theme_constant_override("margin_right",  10)
+	margin.add_theme_constant_override("margin_top",     8)
+	margin.add_theme_constant_override("margin_bottom",  8)
+	modifier_panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	margin.add_child(vbox)
+
+	# ── Header ────────────────────────────────────────────────────────────────
+	var header_hbox := HBoxContainer.new()
+	vbox.add_child(header_hbox)
+
+	var title := create_simple_label("◈  HOLD MODIFIERS")
+	title.add_theme_font_size_override("font_size", 11)
+	title.add_theme_color_override("font_color", Color(0.75, 0.55, 1.0))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_hbox.add_child(title)
+
+	var close_btn := create_flat_button("✕", Vector2(22, 22))
+	close_btn.pressed.connect(_close_modifier_panel)
+	header_hbox.add_child(close_btn)
+
+	# Hold type sub-label
+	var hold_lbl := create_simple_label(get_hold_type(hold) + " hold")
+	hold_lbl.add_theme_font_size_override("font_size", 9)
+	hold_lbl.add_theme_color_override("font_color", Color(0.5, 0.5, 0.6))
+	vbox.add_child(hold_lbl)
+
+	vbox.add_child(HSeparator.new())
+
+	# ── Active modifier list ──────────────────────────────────────────────────
+	var modifier_list := VBoxContainer.new()
+	modifier_list.name = "ModifierList"
+	modifier_list.add_theme_constant_override("separation", 4)
+	vbox.add_child(modifier_list)
+	_rebuild_modifier_list(modifier_list, hold)
+
+	vbox.add_child(HSeparator.new())
+
+	# ── Add row ───────────────────────────────────────────────────────────────
+	var add_hbox := HBoxContainer.new()
+	add_hbox.add_theme_constant_override("separation", 6)
+	vbox.add_child(add_hbox)
+
+	var add_label := create_simple_label("Add:")
+	add_label.add_theme_font_size_override("font_size", 10)
+	add_label.custom_minimum_size = Vector2(30, 0)
+	add_hbox.add_child(add_label)
+
+	var add_dropdown := OptionButton.new()
+	add_dropdown.custom_minimum_size = Vector2(130, 26)
+	add_dropdown.name = "AddModifierDropdown"
+	add_dropdown.add_theme_font_size_override("font_size", 11)
+
+	var registry := get_node_or_null("/root/HoldModifierRegistry")
+	if registry:
+		for type_key in registry.get_all_modifier_types():
+			add_dropdown.add_item(registry.get_display_name(type_key))
+			add_dropdown.set_item_metadata(add_dropdown.get_item_count() - 1, type_key)
+	else:
+		add_dropdown.add_item("Falling")
+		add_dropdown.set_item_metadata(0, "falling")
+
+	add_hbox.add_child(add_dropdown)
+
+	var add_btn := create_flat_button("＋", Vector2(28, 26))
+	add_btn.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6))
+	add_btn.pressed.connect(func():
+		var idx := add_dropdown.selected
+		if idx < 0:
+			return
+		var type_key: String = add_dropdown.get_item_metadata(idx)
+		_add_modifier_to_hold(hold, type_key, modifier_list)
+	)
+	add_hbox.add_child(add_btn)
+
+	# Hint text
+	var hint := create_simple_label("Ctrl+Right-click to reopen")
+	hint.add_theme_font_size_override("font_size", 9)
+	hint.add_theme_color_override("font_color", Color(0.35, 0.35, 0.42))
+	vbox.add_child(hint)
+
+	ui_layer.add_child(modifier_panel)
+	play_sound(pitch_success)
+
+
+func _rebuild_modifier_list(list_container: VBoxContainer, hold: Node2D) -> void:
+	for child in list_container.get_children():
+		child.queue_free()
+
+	var mods: Array = _hold_modifiers.get(hold, [])
+	if mods.is_empty():
+		var none_lbl := create_simple_label("  (none)")
+		none_lbl.add_theme_font_size_override("font_size", 10)
+		none_lbl.add_theme_color_override("font_color", Color(0.4, 0.4, 0.48))
+		list_container.add_child(none_lbl)
+		return
+
+	var registry := get_node_or_null("/root/HoldModifierRegistry")
+
+	for i in range(mods.size()):
+		var mod_data: Dictionary = mods[i]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		list_container.add_child(row)
+
+		var display_name: String = registry.get_display_name(mod_data.get("type", "?")) \
+			if registry else mod_data.get("type", "?").capitalize()
+
+		var lbl := create_simple_label("◆  " + display_name)
+		lbl.add_theme_font_size_override("font_size", 10)
+		lbl.add_theme_color_override("font_color", Color(0.85, 0.70, 1.0))
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(lbl)
+
+		var rm_btn := create_flat_button("✕", Vector2(22, 22))
+		var captured_i := i
+		rm_btn.pressed.connect(func():
+			save_undo_state()
+			var current_mods: Array = _hold_modifiers.get(hold, [])
+			if captured_i < current_mods.size():
+				current_mods.remove_at(captured_i)
+			if current_mods.is_empty():
+				_hold_modifiers.erase(hold)
+			else:
+				_hold_modifiers[hold] = current_mods
+			_rebuild_modifier_list(list_container, hold)
+			_refresh_hold_modifier_tint(hold)
+			play_sound(pitch_delete_hold)
+		)
+		row.add_child(rm_btn)
+
+
+func _add_modifier_to_hold(hold: Node2D, type_key: String,
+							list_container: VBoxContainer) -> void:
+	# Prevent duplicates of the same modifier type on one hold
+	var existing: Array = _hold_modifiers.get(hold, [])
+	for mod in existing:
+		if (mod as Dictionary).get("type", "") == type_key:
+			show_notification("This hold already has a '%s' modifier." % type_key, true)
+			play_sound(pitch_error)
+			return
+
+	save_undo_state()
+
+	# Get default data by instantiating and immediately serializing
+	var registry := get_node_or_null("/root/HoldModifierRegistry")
+	var default_data: Dictionary = { "type": type_key }
+	if registry:
+		var temp = registry.create_modifier(type_key)
+		if temp and temp.has_method("serialize"):
+			default_data = temp.serialize()
+			temp.queue_free()
+
+	if not _hold_modifiers.has(hold):
+		_hold_modifiers[hold] = []
+	(_hold_modifiers[hold] as Array).append(default_data)
+
+	_rebuild_modifier_list(list_container, hold)
+	_refresh_hold_modifier_tint(hold)
+	play_sound(pitch_place_hold)
+	show_notification("Added '%s' modifier" % type_key)
+
+
+func _refresh_hold_modifier_tint(hold: Node2D) -> void:
+	# Custom-spawn hold overrides modifier tint
+	if hold == custom_spawn_hold:
+		hold.modulate = Color(0.4, 1.0, 0.5)
+		return
+	var has_mods: bool = _hold_modifiers.has(hold) \
+		and not (_hold_modifiers[hold] as Array).is_empty()
+	hold.modulate = Color(0.85, 0.70, 1.0) if has_mods else Color(1, 1, 1)
+
+
+func _close_modifier_panel() -> void:
+	if modifier_panel and is_instance_valid(modifier_panel):
+		modifier_panel.queue_free()
+	modifier_panel      = null
+	modifier_panel_hold = null
+
+
+func _world_to_screen(world_pos: Vector2) -> Vector2:
+	return (world_pos - camera.global_position) * camera.zoom + \
+		   get_viewport_rect().size * 0.5
+
+
+# =============================================================================
+# JSON  COPY / PASTE
+# =============================================================================
 
 func _on_copy_json():
 	var env_config = get_node_or_null("/root/EnvironmentConfig")
@@ -901,11 +1146,15 @@ func _on_copy_json():
 			level_data["wall_polygon"] = polygon_data
 
 	for hold in holds_container.get_children():
-		level_data.holds.append({
+		var hold_entry := {
 			"type": get_hold_type(hold),
 			"x":    hold.global_position.x,
-			"y":    hold.global_position.y
-		})
+			"y":    hold.global_position.y,
+		}
+		var mods: Array = _hold_modifiers.get(hold, [])
+		if not mods.is_empty():
+			hold_entry["modifiers"] = mods.duplicate(true)
+		level_data.holds.append(hold_entry)
 
 	for crashpad in crashpads_container.get_children():
 		level_data.crashpads.append({
@@ -961,13 +1210,6 @@ func _on_paste_json():
 			grade_dropdown.select(idx)
 			_on_grade_changed(idx)
 
-	if grade_dropdown:
-		var grades = V_GRADES if current_discipline == "bouldering" else YDS_GRADES
-		var idx    = grades.find(climb_grade)
-		if idx >= 0:
-			grade_dropdown.select(idx)
-			_on_grade_changed(idx)
-
 	if speed_time_input:
 		speed_time_input.value = speed_time_limit
 
@@ -1013,6 +1255,11 @@ func _on_paste_json():
 		hold.add_to_group("holds")
 		hold.set_meta("editor_type", type_name)
 
+		# Restore modifier data
+		if "modifiers" in hold_data and not (hold_data["modifiers"] as Array).is_empty():
+			_hold_modifiers[hold] = (hold_data["modifiers"] as Array).duplicate(true)
+			_refresh_hold_modifier_tint(hold)
+
 	if "crashpads" in data and crashpad_scene:
 		for cpd in data.crashpads:
 			var cp = crashpad_scene.instantiate()
@@ -1027,6 +1274,10 @@ func _on_paste_json():
 	play_sound(pitch_paste_json)
 	show_notification("Route loaded: " + climb_name)
 
+
+# =============================================================================
+# HOLD UTILS
+# =============================================================================
 
 func get_hold_type(hold: Node2D) -> String:
 	if hold.has_meta("editor_type"):
@@ -1102,9 +1353,8 @@ func is_position_too_close(pos: Vector2, exclude_hold: Node2D) -> bool:
 func is_position_reachable(pos: Vector2, exclude_hold: Node2D) -> bool:
 	if selected_hold_type == "START" or selected_hold_type == "FOOT":
 		return true
-	# WINDOW and LEDGE are wide holds — treat them like jugs for placement rules
 	if selected_hold_type == "WINDOW" or selected_hold_type == "LEDGE":
-		pass  # fall through to normal reachability check
+		pass
 	var non_start_count = 0
 	for hold in holds_container.get_children():
 		if hold != exclude_hold and get_hold_type(hold) != "START":
@@ -1119,10 +1369,14 @@ func is_position_reachable(pos: Vector2, exclude_hold: Node2D) -> bool:
 	return nearest_dist <= MAX_REACH_DISTANCE
 
 func delete_hold(hold: Node2D):
+	# Clean up modifier data before the node is freed
+	_hold_modifiers.erase(hold)
+	if modifier_panel_hold == hold:
+		_close_modifier_panel()
+
 	save_undo_state()
 	if hold == dragging_hold:
 		dragging_hold = null
-	# Clear custom spawn reference if this hold is deleted
 	if hold == custom_spawn_hold:
 		custom_spawn_hold = null
 	hold.queue_free()
@@ -1146,6 +1400,10 @@ func snap_to_grid(pos: Vector2) -> Vector2:
 				   round(pos.y / grid_size) * grid_size)
 
 
+# =============================================================================
+# CAMERA
+# =============================================================================
+
 func update_camera(delta):
 	if is_testing:
 		return
@@ -1157,6 +1415,10 @@ func update_camera(delta):
 	if move.length() > 0:
 		camera.position += move.normalized() * PAN_SPEED * delta / camera.zoom.x
 
+
+# =============================================================================
+# PREVIEW (place-hold ghost)
+# =============================================================================
 
 func update_preview():
 	if placing_crashpad and crashpad_scene:
@@ -1209,6 +1471,10 @@ func clear_preview():
 	preview_crashpad = null
 
 
+# =============================================================================
+# CALLBACKS
+# =============================================================================
+
 func _on_climb_name_changed(new_text: String):
 	climb_name = new_text
 
@@ -1234,7 +1500,14 @@ func on_environment_changed(index: int):
 	for crashpad in crashpads_container.get_children():
 		if crashpad.has_method("_update_sprite_for_environment"):
 			crashpad._update_sprite_for_environment()
+	# Re-apply modifier tints after environment resets them
+	for hold in holds_container.get_children():
+		_refresh_hold_modifier_tint(hold)
 
+
+# =============================================================================
+# TEST / PREVIEW MODE
+# =============================================================================
 
 func _on_preview():
 	if holds_container.get_child_count() == 0:
@@ -1242,7 +1515,6 @@ func _on_preview():
 		play_sound(pitch_error)
 		return
 
-	# Require at least one START hold OR a custom spawn hold
 	var start_holds = []
 	for hold in holds_container.get_children():
 		if get_hold_type(hold) == "START":
@@ -1268,12 +1540,12 @@ func _on_preview():
 	add_child(player)
 	_disable_player_cameras.call_deferred(player)
 
-	preview_player_ref = player
-	is_testing         = true
+	preview_player_ref  = player
+	is_testing          = true
 	_speed_fail_pending = false
+	_close_modifier_panel()
 
 	var spawn_pos = _get_spawn_pos()
-
 	player.global_position = spawn_pos
 	camera.position        = spawn_pos
 	camera.zoom            = Vector2(1.0, 1.0)
@@ -1292,17 +1564,15 @@ func _setup_speed_timer_for_test() -> void:
 
 	var SpeedTimerScript = load("res://scripts/ui/speed_timer.gd")
 	if not SpeedTimerScript:
-		push_error("LevelEditor: Could not load speed_timer.gd — path may differ")
+		push_error("LevelEditor: Could not load speed_timer.gd")
 		return
 
 	_speed_timer_node = SpeedTimerScript.new()
 	_speed_timer_node.name = "TestSpeedTimer"
 	add_child(_speed_timer_node)
-
 	_speed_timer_node.set_time_limit(speed_time_limit)
 	_speed_timer_node.show_timer()
 	_speed_timer_node.start_timer()
-
 	_speed_timer_node.time_expired.connect(_on_test_speed_time_expired)
 
 func _on_test_speed_time_expired() -> void:
@@ -1323,17 +1593,13 @@ func _on_test_speed_time_expired() -> void:
 				player.can_grab = false
 
 	await get_tree().create_timer(1.2).timeout
-
 	if not is_testing:
 		return
-
 	_reset_speed_test()
 
 func _reset_speed_test() -> void:
 	_speed_fail_pending = false
-
 	var spawn_pos = _get_spawn_pos()
-
 	var player = get_node_or_null("PreviewPlayer")
 	if is_instance_valid(player):
 		player.global_position = spawn_pos
@@ -1341,13 +1607,10 @@ func _reset_speed_test() -> void:
 			player.can_grab = true
 		if "velocity" in player:
 			player.velocity = Vector2.ZERO
-
 	camera.position = spawn_pos
-
 	if is_instance_valid(_speed_timer_node):
 		_speed_timer_node.stop_timer()
 		_speed_timer_node.start_timer()
-
 	show_notification("Restarting speed attempt…")
 
 func _disable_player_cameras(player: Node) -> void:
@@ -1360,16 +1623,18 @@ func _stop_testing() -> void:
 	is_testing          = false
 	_speed_fail_pending = false
 	preview_player_ref  = null
-
 	if is_instance_valid(_speed_timer_node):
 		_speed_timer_node.queue_free()
 	_speed_timer_node = null
-
 	var preview_player = get_node_or_null("PreviewPlayer")
 	if preview_player:
 		preview_player.queue_free()
 	camera.make_current()
 
+
+# =============================================================================
+# CLEAR
+# =============================================================================
 
 func _on_clear():
 	for hold     in holds_container.get_children():    hold.queue_free()
@@ -1378,7 +1643,9 @@ func _on_clear():
 	if wall and wall.has_method("reset_polygon"):
 		wall.reset_polygon()
 
-	# Clear custom spawn hold
+	# Clear modifier data and panel
+	_hold_modifiers.clear()
+	_close_modifier_panel()
 	custom_spawn_hold = null
 
 	current_discipline = "bouldering"
@@ -1412,6 +1679,7 @@ func _on_clear():
 
 func _on_back_pressed():
 	_stop_testing()
+	_close_modifier_panel()
 	selected_hold_type = ""
 	placing_crashpad   = false
 	placing_belayer    = false
@@ -1439,6 +1707,7 @@ func _on_toggle_wall_edit():
 		placing_crashpad   = false
 		placing_belayer    = false
 		clear_preview()
+		_close_modifier_panel()
 	wall.enable_edit_mode(not is_editing)
 	if not is_editing:
 		show_notification("Wall edit ON — hold dragging suspended. Click line to add point, drag to move, right-click to delete")
@@ -1446,6 +1715,10 @@ func _on_toggle_wall_edit():
 		save_undo_state()
 		show_notification("Wall edit mode OFF — hold placement/dragging re-enabled")
 
+
+# =============================================================================
+# UNDO
+# =============================================================================
 
 func save_undo_state():
 	var state = {
@@ -1457,11 +1730,13 @@ func save_undo_state():
 		"weather_intensity": current_weather_intensity,
 	}
 	for hold in holds_container.get_children():
-		state.holds.append({
-			"type": get_hold_type(hold),
-			"x":    hold.global_position.x,
-			"y":    hold.global_position.y
-		})
+		var entry := {
+			"type":      get_hold_type(hold),
+			"x":         hold.global_position.x,
+			"y":         hold.global_position.y,
+			"modifiers": (_hold_modifiers.get(hold, []) as Array).duplicate(true)
+		}
+		state.holds.append(entry)
 	for crashpad in crashpads_container.get_children():
 		state.crashpads.append({
 			"x": crashpad.global_position.x,
@@ -1482,7 +1757,8 @@ func undo_last_action():
 	for hold     in holds_container.get_children():    hold.queue_free()
 	for crashpad in crashpads_container.get_children(): crashpad.queue_free()
 
-	# Custom spawn hold references are now stale after clearing
+	_hold_modifiers.clear()
+	_close_modifier_panel()
 	custom_spawn_hold = null
 
 	for hold_data in state.holds:
@@ -1496,6 +1772,10 @@ func undo_last_action():
 		holds_container.add_child(hold)
 		hold.add_to_group("holds")
 		hold.set_meta("editor_type", type_name)
+		# Restore modifiers
+		if "modifiers" in hold_data and not (hold_data["modifiers"] as Array).is_empty():
+			_hold_modifiers[hold] = (hold_data["modifiers"] as Array).duplicate(true)
+			_refresh_hold_modifier_tint(hold)
 
 	if crashpad_scene:
 		for cpd in state.crashpads:
@@ -1526,6 +1806,10 @@ func undo_last_action():
 	play_sound(pitch_success)
 	show_notification("Undo successful")
 
+
+# =============================================================================
+# STATUS BAR
+# =============================================================================
 
 func show_notification(text: String, is_error: bool = false):
 	var old_notif = ui_layer.get_node_or_null("NotificationLabel")
@@ -1579,11 +1863,24 @@ func update_info_label():
 		var wname = WEATHER_NAMES[current_weather] \
 					if current_weather < WEATHER_NAMES.size() else "?"
 		parts.append("%s %d%%" % [wname, int(current_weather_intensity * 100.0)])
+
+	# Show count of holds that have modifiers attached
+	var mod_hold_count := 0
+	for hold in holds_container.get_children():
+		if _hold_modifiers.has(hold) and not (_hold_modifiers[hold] as Array).is_empty():
+			mod_hold_count += 1
+	if mod_hold_count > 0:
+		parts.append("Mod: %d ◈" % mod_hold_count)
+
 	if is_instance_valid(custom_spawn_hold):
 		parts.append("Spawn ✦")
 	parts.append("Placing: %s" % selected)
 	info_label.text = "  ·  ".join(parts)
 
+
+# =============================================================================
+# DRAW
+# =============================================================================
 
 func get_route_bounds() -> Dictionary:
 	if holds_container.get_child_count() == 0:
@@ -1625,11 +1922,24 @@ func _draw():
 		draw_circle(belayer_position, 15, Color(1, 0.5, 0, 0.3))
 		draw_arc(belayer_position, 20, 0, TAU, 32, Color.ORANGE, 2.0)
 
-	# Draw a subtle ring around the custom spawn hold position
 	if is_instance_valid(custom_spawn_hold):
 		var sp = custom_spawn_hold.global_position
 		draw_circle(sp, 18, Color(0.3, 1.0, 0.4, 0.18))
 		draw_arc(sp, 22, 0, TAU, 36, Color(0.3, 1.0, 0.4, 0.85), 2.0)
+
+	# Draw a small purple diamond on every hold that has modifiers
+	for hold in holds_container.get_children():
+		if _hold_modifiers.has(hold) and \
+				not (_hold_modifiers[hold] as Array).is_empty():
+			var hp = hold.global_position
+			var d  := 8.0
+			draw_polygon(
+				PackedVector2Array([
+					hp + Vector2(0, -d), hp + Vector2(d, 0),
+					hp + Vector2(0,  d), hp + Vector2(-d, 0)
+				]),
+				PackedColorArray([Color(0.75, 0.45, 1.0, 0.90), Color(0.75, 0.45, 1.0, 0.90),
+							  Color(0.75, 0.45, 1.0, 0.90), Color(0.75, 0.45, 1.0, 0.90)]))
 
 	if not grid_enabled:
 		return

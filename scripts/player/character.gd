@@ -2397,7 +2397,7 @@ func attempt_grab(limb: Limb):
 
 	# For snap holds use the shared-hold offset logic; for free holds use limb position directly
 	var grab_pos: Vector2
-	if closest_hold.snap_to_point:
+	if closest_hold.get("snap_to_point"):
 		grab_pos = calculate_grab_position(limb, closest_hold, closest_hold_point, limb_node.global_position)
 	else:
 		grab_pos = limb_node.global_position
