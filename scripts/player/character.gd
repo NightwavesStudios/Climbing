@@ -434,12 +434,10 @@ func _process(delta):
 func _update_spotlight() -> void:
 	if not _spotlight:
 		return
-	# Search all nodes that have a weather property
 	for node in get_tree().get_nodes_in_group("weather_modifier"):
 		if "weather" in node:
 			_spotlight.visible = node.weather == 2
 			return
-	# Also check dynamic_wall group
 	for node in get_tree().get_nodes_in_group("dynamic_wall"):
 		if "weather" in node:
 			_spotlight.visible = node.weather == 2
@@ -1306,7 +1304,6 @@ func reset_climb():
 		if speed_timer.has_method("stop_timer"):
 			speed_timer.stop_timer()
 
-	# Re-cache weather modifier in case scene changed
 	_weather_modifier = get_tree().get_first_node_in_group("weather_modifier")
 	_spotlight = get_node_or_null("SpotLight2D")
 
@@ -2337,56 +2334,93 @@ func find_nearest_hold(from_position: Vector2) -> Area2D:
 			nearest_hold = hold
 	return nearest_hold
 
+# ─── GRAB & RELEASE ──────────────────────────────────────────────────────────
+
 func attempt_grab(limb: Limb):
-	var limb_area: Area2D
 	var limb_node: Node2D
 	var is_foot := false
 	match limb:
-		Limb.LEFT_HAND:  limb_area = left_hand_area;  limb_node = left_hand;  is_foot = false
-		Limb.RIGHT_HAND: limb_area = right_hand_area; limb_node = right_hand; is_foot = false
-		Limb.LEFT_FOOT:  limb_area = left_foot_area;  limb_node = left_foot;  is_foot = true
-		Limb.RIGHT_FOOT: limb_area = right_foot_area; limb_node = right_foot; is_foot = true
+		Limb.LEFT_HAND:  limb_node = left_hand;  is_foot = false
+		Limb.RIGHT_HAND: limb_node = right_hand; is_foot = false
+		Limb.LEFT_FOOT:  limb_node = left_foot;  is_foot = true
+		Limb.RIGHT_FOOT: limb_node = right_foot; is_foot = true
 		_: return
 
-	var overlaps := limb_area.get_overlapping_areas()
-	if overlaps.size() == 0:
+	# Query using GRAB_RADIUS so detection is independent of scene Area2D shape sizes
+	var space_state := get_world_2d().direct_space_state
+	var query := PhysicsShapeQueryParameters2D.new()
+	var circle := CircleShape2D.new()
+	circle.radius = GRAB_RADIUS
+	query.shape = circle
+	query.transform = Transform2D(0, limb_node.global_position)
+	query.collision_mask = 2
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	var results := space_state.intersect_shape(query, 16)
+
+	if results.size() == 0:
 		return
 
 	var closest_hold: Area2D = null
 	var closest_dist := INF
 	var closest_hold_point: Vector2 = Vector2.ZERO
 
-	for hold in overlaps:
-		var hold_point := hold.get_node_or_null("HoldPoint")
-		if hold_point == null: continue
+	for result in results:
+		var hold: Area2D = result.collider
 		if not hold.can_grab(limb_node, is_foot): continue
-		var d := limb_node.global_position.distance_to(hold_point.global_position)
-		if d < closest_dist:
-			closest_dist = d
+		var hold_point_node := hold.get_node_or_null("HoldPoint")
+		if hold_point_node == null: continue
+
+		var dist_metric: float
+		if hold.snap_to_point:
+			# Snapping holds: pick nearest HoldPoint marker
+			dist_metric = limb_node.global_position.distance_to(hold_point_node.global_position)
+		else:
+			# Free-grab holds: distance to the CollisionShape2D centre (not Area2D origin),
+			# accounting for any position offset the shape node has within the Area2D.
+			var shape_node = hold.get_node_or_null("CollisionShape2D")
+			var shape_centre: Vector2
+			if shape_node:
+				shape_centre = hold.to_global(shape_node.position)
+			else:
+				shape_centre = hold.global_position
+			dist_metric = limb_node.global_position.distance_to(shape_centre)
+
+		if dist_metric < closest_dist:
+			closest_dist = dist_metric
 			closest_hold = hold
-			closest_hold_point = hold_point.global_position
+			closest_hold_point = hold_point_node.global_position
 
 	if closest_hold == null:
 		return
 
-	var grab_pos: Vector2 = calculate_grab_position(limb, closest_hold, closest_hold_point, limb_node.global_position)
+	# For snap holds use the shared-hold offset logic; for free holds use limb position directly
+	var grab_pos: Vector2
+	if closest_hold.snap_to_point:
+		grab_pos = calculate_grab_position(limb, closest_hold, closest_hold_point, limb_node.global_position)
+	else:
+		grab_pos = limb_node.global_position
+
 	if not closest_hold.try_claim(limb_node, is_foot, grab_pos):
 		return
 
+	# get_limb_anchor returns the clamped-within-shape position stored by try_claim
+	var resolved_pos = closest_hold.get_limb_anchor(limb_node)
+
 	match limb:
 		Limb.LEFT_HAND:
-			left_hand_hold = closest_hold; left_hand_grab_target = grab_pos; left_hand_pin = grab_pos
+			left_hand_hold = closest_hold; left_hand_grab_target = resolved_pos; left_hand_pin = resolved_pos
 			left_hand_grabbing = true; left_hand_velocity = Vector2.ZERO; left_hand_joint_velocity = Vector2.ZERO
 			_apply_catch_penalty(Limb.LEFT_HAND)
 		Limb.RIGHT_HAND:
-			right_hand_hold = closest_hold; right_hand_grab_target = grab_pos; right_hand_pin = grab_pos
+			right_hand_hold = closest_hold; right_hand_grab_target = resolved_pos; right_hand_pin = resolved_pos
 			right_hand_grabbing = true; right_hand_velocity = Vector2.ZERO; right_hand_joint_velocity = Vector2.ZERO
 			_apply_catch_penalty(Limb.RIGHT_HAND)
 		Limb.LEFT_FOOT:
-			left_foot_hold = closest_hold; left_foot_grab_target = grab_pos; left_foot_pin = grab_pos
+			left_foot_hold = closest_hold; left_foot_grab_target = resolved_pos; left_foot_pin = resolved_pos
 			left_foot_grabbing = true; left_foot_velocity = Vector2.ZERO; left_foot_joint_velocity = Vector2.ZERO
 		Limb.RIGHT_FOOT:
-			right_foot_hold = closest_hold; right_foot_grab_target = grab_pos; right_foot_pin = grab_pos
+			right_foot_hold = closest_hold; right_foot_grab_target = resolved_pos; right_foot_pin = resolved_pos
 			right_foot_grabbing = true; right_foot_velocity = Vector2.ZERO; right_foot_joint_velocity = Vector2.ZERO
 
 	if not climb_started:

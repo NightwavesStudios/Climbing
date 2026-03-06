@@ -189,24 +189,33 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 		if occupied_by != null and occupied_by != limb:
 			return false
 
-	var snap_point = hold_point
-	if multi_area_enabled:
-		snap_point = _find_nearest_area_point(grab_position)
-
 	var local_grab: Vector2
 	if snap_to_point:
+		# With snapping: multi_area picks the nearest sub-point, otherwise use hold_point
+		var snap_point = hold_point
+		if multi_area_enabled:
+			snap_point = _find_nearest_area_point(grab_position)
 		local_grab = to_local(snap_point.global_position)
 	else:
+		# Without snapping: anchor exactly where the limb is, clamped inside the shape.
+		# CollisionShape2D has its own .position offset within the Area2D node,
+		# so we must clamp relative to the shape centre, not the Area2D origin.
 		local_grab = to_local(grab_position)
-		var shape = get_node_or_null("CollisionShape2D")
-		if shape and shape.shape:
-			var max_grab_distance = 0.0
-			if shape.shape is RectangleShape2D:
-				max_grab_distance = (shape.shape.size / 2.0).length() + 10.0
-			elif shape.shape is CircleShape2D:
-				max_grab_distance = shape.shape.radius + 10.0
-			if local_grab.length() > max_grab_distance:
-				return false
+		var shape_node = get_node_or_null("CollisionShape2D")
+		if shape_node and shape_node.shape:
+			var shape_offset: Vector2 = shape_node.position
+			var local_relative = local_grab - shape_offset
+			if shape_node.shape is RectangleShape2D:
+				var half = shape_node.shape.size / 2.0
+				local_relative = Vector2(
+					clamp(local_relative.x, -half.x, half.x),
+					clamp(local_relative.y, -half.y, half.y)
+				)
+			elif shape_node.shape is CircleShape2D:
+				var radius = shape_node.shape.radius
+				if local_relative.length() > radius:
+					local_relative = local_relative.normalized() * radius
+			local_grab = local_relative + shape_offset
 
 	occupied_by = limb
 	limb_placements[limb] = local_grab

@@ -13,6 +13,7 @@ scale = Vector2(0.7599971, 0.7599971)
 gravity_space_override = 1
 script = ExtResource("1_gcrx1")
 hold_type = 7
+snap_to_point = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
 position = Vector2(-9.999991, 62.499973)
@@ -20,7 +21,7 @@ scale = Vector2(0.99999976, 0.99999976)
 shape = SubResource("RectangleShape2D_uua57")
 
 [node name="HoldPoint" type="Marker2D" parent="Area2D"]
-position = Vector2(-9.999999, -75)
+position = Vector2(-10.526356, 61.842346)
 
 [node name="BuildingHold" type="Sprite2D" parent="."]
 position = Vector2(35, 20)
