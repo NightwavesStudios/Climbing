@@ -1289,6 +1289,9 @@ func _on_copy_json():
 		var e = {"type": get_hold_type(h), "x": h.global_position.x, "y": h.global_position.y}
 		var mods: Array = _hold_modifiers.get(h, [])
 		if not mods.is_empty(): e["modifiers"] = mods.duplicate(true)
+		# ── FIX: persist custom spawn flag ────────────────────────────────
+		if is_instance_valid(custom_spawn_hold) and h == custom_spawn_hold:
+			e["custom_spawn"] = true
 		data["holds"].append(e)
 	for cp in crashpads_container.get_children():
 		data["crashpads"].append({"x": cp.global_position.x, "y": cp.global_position.y})
@@ -1342,6 +1345,10 @@ func _on_paste_json():
 		if "modifiers" in hd and not (hd["modifiers"] as Array).is_empty():
 			_hold_modifiers[hold] = (hd["modifiers"] as Array).duplicate(true)
 			_refresh_hold_tint(hold)
+		# ── FIX: restore custom spawn flag ────────────────────────────────
+		if hd.get("custom_spawn", false):
+			custom_spawn_hold = hold
+			hold.modulate = Color(0.4, 1.0, 0.5)
 	if "crashpads" in data and crashpad_scene:
 		for cpd in data["crashpads"]:
 			var cp = crashpad_scene.instantiate()
@@ -1394,7 +1401,9 @@ func save_undo_state():
 	for h in holds_container.get_children():
 		state.holds.append({
 			"type": get_hold_type(h), "x": h.global_position.x, "y": h.global_position.y,
-			"modifiers": (_hold_modifiers.get(h, []) as Array).duplicate(true)
+			"modifiers": (_hold_modifiers.get(h, []) as Array).duplicate(true),
+			# ── FIX: persist custom spawn flag in undo state ───────────────
+			"custom_spawn": (h == custom_spawn_hold)
 		})
 	for cp in crashpads_container.get_children():
 		state.crashpads.append({"x": cp.global_position.x, "y": cp.global_position.y})
@@ -1416,6 +1425,10 @@ func undo_last_action():
 		holds_container.add_child(hold); hold.add_to_group("holds"); hold.set_meta("editor_type", hd["type"])
 		if "modifiers" in hd and not (hd["modifiers"] as Array).is_empty():
 			_hold_modifiers[hold] = (hd["modifiers"] as Array).duplicate(true); _refresh_hold_tint(hold)
+		# ── FIX: restore custom spawn flag after undo ──────────────────────
+		if hd.get("custom_spawn", false):
+			custom_spawn_hold = hold
+			hold.modulate = Color(0.4, 1.0, 0.5)
 	if crashpad_scene:
 		for cpd in state["crashpads"]:
 			var cp = crashpad_scene.instantiate(); cp.global_position = Vector2(cpd["x"], cpd["y"])

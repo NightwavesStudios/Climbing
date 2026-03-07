@@ -17,6 +17,12 @@ var current_level_discipline: String  = "bouldering"
 var speed_time_limit: float           = 60.0
 var rope_belayer_position: Vector2    = Vector2.ZERO
 
+# Custom spawn hold (set via "custom_spawn": true in JSON).
+# Node reference is set during spawn_hold(); the world-space position is
+# cached after the scene tree has settled via _resolve_custom_spawn_position().
+var custom_spawn_hold: Node2D        = null
+var _custom_spawn_position: Vector2  = Vector2.ZERO
+
 # =============================================================================
 # READY
 # =============================================================================
@@ -145,19 +151,24 @@ func load_level(path: String) -> bool:
 	for i in range(level_data.holds.size()):
 		var hd = level_data.holds[i]
 		var has_mods = "modifiers" in hd and (hd["modifiers"] as Array).size() > 0
-		print("  [%d] type=%s  has_modifiers=%s  modifier_count=%d" % [
+		print("  [%d] type=%s  custom_spawn=%s  has_modifiers=%s  modifier_count=%d" % [
 			i,
 			hd.get("type", "?"),
+			hd.get("custom_spawn", false),
 			has_mods,
-			(hd["modifiers"] as Array).size() if has_mods else 0
+			(hd["modifiers"] as Array).size() if has_mods else 0,
 		])
 
 	for hold_data in level_data.holds:
 		spawn_hold(hold_data)
 		await get_tree().process_frame
 
+	# ── Extra frames so all holds have valid global_position ──────────────────
 	await get_tree().process_frame
 	await get_tree().process_frame
+
+	# ── Resolve and cache the custom spawn world position NOW ─────────────────
+	_resolve_custom_spawn_position()
 
 	for hold in get_tree().get_nodes_in_group("holds"):
 		if hold.has_method("_update_sprite_for_environment"):
@@ -227,9 +238,37 @@ func load_level(path: String) -> bool:
 			print("  Top edges: " + str(level_data.wall_polygon.top_edge_indices))
 	if weather_type > 0:
 		print("  Weather: type=", weather_type, " intensity=", weather_intensity)
+	if is_instance_valid(custom_spawn_hold):
+		print("  Custom spawn hold node pos: ", custom_spawn_hold.global_position)
+		print("  Custom spawn resolved pos:  ", _custom_spawn_position)
 	print("═══════════════════════════════════════\n")
 
 	return true
+
+# =============================================================================
+# CUSTOM SPAWN RESOLUTION
+# Call after holds are in the scene tree and at least two frames have passed.
+# =============================================================================
+func _resolve_custom_spawn_position() -> void:
+	_custom_spawn_position = Vector2.ZERO
+	if not is_instance_valid(custom_spawn_hold):
+		print("  [custom_spawn] No custom spawn hold — nothing to resolve.")
+		return
+
+	var hold_point = custom_spawn_hold.get_node_or_null("HoldPoint")
+	var world_pos: Vector2
+	if hold_point:
+		world_pos = hold_point.global_position
+		print("  [custom_spawn] Via HoldPoint: ", world_pos)
+	else:
+		world_pos = custom_spawn_hold.global_position
+		print("  [custom_spawn] Via hold root (no HoldPoint): ", world_pos)
+
+	if world_pos == Vector2.ZERO:
+		push_warning("LevelLoader: _resolve_custom_spawn_position got ZERO. " +
+					 "Hold may not be in scene tree yet.")
+
+	_custom_spawn_position = world_pos
 
 # =============================================================================
 # ENVIRONMENT
@@ -292,6 +331,12 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 	holds_container.add_child(hold)
 	hold.add_to_group("holds")
 
+	# ── Custom spawn flag ─────────────────────────────────────────────────────
+	# Save the node reference. World position is resolved after scene settles.
+	if hold_data.get("custom_spawn", false):
+		custom_spawn_hold = hold
+		print("  [spawn_hold] custom_spawn flag found on %s hold — node stored." % type_name)
+
 	# ── Attach modifiers ──────────────────────────────────────────────────────
 	var modifiers_data: Array = hold_data.get("modifiers", [])
 	print("  [spawn_hold] type=%s modifier_count=%d" % [type_name, modifiers_data.size()])
@@ -305,9 +350,6 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 	print("  [_attach_modifiers] Attaching %d modifier(s) to hold..." % modifiers_data.size())
 
-	# The hold scene root may be a plain Node2D wrapper with the actual
-	# ClimbingHold (Area2D + climbing_hold.gd) as a child. Attach modifiers
-	# to the Area2D so ClimbingHold._process() calls on_process() each frame.
 	var target: Node2D = hold
 	if hold.get_script() == null:
 		for child in hold.get_children():
@@ -351,7 +393,6 @@ func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 		if modifier.has_method("deserialize"):
 			modifier.deserialize(mod_data)
 
-		# Add to the ClimbingHold Area2D, not the wrapper root.
 		target.add_child(modifier)
 
 		if not target.is_processing():
@@ -366,6 +407,8 @@ func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 		])
 
 func clear_holds():
+	custom_spawn_hold      = null
+	_custom_spawn_position = Vector2.ZERO
 	if holds_container:
 		for child in holds_container.get_children():
 			child.queue_free()
@@ -394,29 +437,66 @@ func get_top_holds() -> Array[Node2D]:
 	return tops
 
 func get_player_spawn_position() -> Vector2:
-	print("GET_PLAYER_SPAWN_POSITION called")
 	print("\n=== GET_PLAYER_SPAWN_POSITION ===")
+	print("  custom_spawn_hold valid: ", is_instance_valid(custom_spawn_hold))
+	print("  _custom_spawn_position:  ", _custom_spawn_position)
+
+	# ── Custom spawn takes absolute priority ──────────────────────────────────
+	if is_instance_valid(custom_spawn_hold):
+		# Primary: use the pre-resolved cached position
+		if _custom_spawn_position != Vector2.ZERO:
+			var spawn_pos = _custom_spawn_position + Vector2(0, 80)
+			print("  → Custom spawn (cached): ", spawn_pos)
+			print("================================\n")
+			return spawn_pos
+
+		# Fallback: resolve right now in case load_level() hasn't finished yet
+		print("  [custom_spawn] Cache is zero — resolving on-the-fly now...")
+		_resolve_custom_spawn_position()
+
+		if _custom_spawn_position != Vector2.ZERO:
+			var spawn_pos = _custom_spawn_position + Vector2(0, 80)
+			print("  → Custom spawn (on-the-fly): ", spawn_pos)
+			print("================================\n")
+			return spawn_pos
+
+		# Last resort: direct node read (HoldPoint or root)
+		var hold_point = custom_spawn_hold.get_node_or_null("HoldPoint")
+		var raw: Vector2 = hold_point.global_position if hold_point else custom_spawn_hold.global_position
+		print("  [custom_spawn] Last-resort direct read: ", raw)
+		if raw != Vector2.ZERO:
+			var spawn_pos = raw + Vector2(0, 80)
+			print("  → Custom spawn (last-resort): ", spawn_pos)
+			print("================================\n")
+			return spawn_pos
+
+		push_warning("LevelLoader: custom_spawn_hold exists but ALL position reads returned ZERO." +
+					 " Falling back to START holds.")
+
+	# ── Fall back to START holds ──────────────────────────────────────────────
 	var starts = get_start_holds()
-	print("Found %d START holds" % starts.size())
+	print("  No custom spawn — checking START holds. Found: %d" % starts.size())
 
 	if starts.size() == 0:
-		print("⚠️  WARNING: No START holds found!")
+		print("⚠️  WARNING: No START holds found and no valid custom spawn!")
 		if holds_container:
 			for i in min(10, holds_container.get_child_count()):
-				var hold        = holds_container.get_child(i)
-				var has_method  = hold.has_method("is_start_hold")
-				var is_start    = has_method and hold.is_start_hold()
-				var hold_type   = hold.get("hold_type") if "hold_type" in hold else "NO_TYPE"
+				var hold       = holds_container.get_child(i)
+				var has_method = hold.has_method("is_start_hold")
+				var is_start   = has_method and hold.is_start_hold()
+				var hold_type  = hold.get("hold_type") if "hold_type" in hold else "NO_TYPE"
 				print("  [%d] hold_type='%s', has_method=%s, is_start=%s, pos=(%.1f, %.1f)" % [
 					i, hold_type, has_method, is_start,
 					hold.global_position.x, hold.global_position.y])
+		print("================================\n")
 		return Vector2.ZERO
 
 	if starts.size() == 1:
 		var hold_point = starts[0].get_node_or_null("HoldPoint")
 		var spawn_pos  = (hold_point.global_position if hold_point
 						  else starts[0].global_position) + Vector2(0, 80)
-		print("Single start hold spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+		print("  Single START hold spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+		print("================================\n")
 		return spawn_pos
 
 	var sum = Vector2.ZERO
@@ -424,16 +504,16 @@ func get_player_spawn_position() -> Vector2:
 		var hold_point = hold.get_node_or_null("HoldPoint")
 		if hold_point:
 			sum += hold_point.global_position
-			print("  Start hold (HoldPoint) at: (%.1f, %.1f)" % [
+			print("  START hold (HoldPoint) at: (%.1f, %.1f)" % [
 				hold_point.global_position.x, hold_point.global_position.y])
 		else:
 			sum += hold.global_position
-			print("  Start hold at: (%.1f, %.1f)" % [
+			print("  START hold at: (%.1f, %.1f)" % [
 				hold.global_position.x, hold.global_position.y])
 
 	var spawn_pos = sum / starts.size() + Vector2(0, 80)
-	print("Average spawn position: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
-	print("===============================\n")
+	print("  Averaged START spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+	print("================================\n")
 	return spawn_pos
 
 func validate_level() -> Dictionary:
@@ -455,10 +535,10 @@ func validate_level() -> Dictionary:
 	var tops   = get_top_holds()
 	result.start_count = starts.size()
 	result.top_count   = tops.size()
-	result.has_start   = result.start_count > 0
+	result.has_start   = result.start_count > 0 or is_instance_valid(custom_spawn_hold)
 	result.has_top     = result.top_count   > 0
 
-	if not result.has_start: result.errors.append("No START holds")
+	if not result.has_start: result.errors.append("No START holds or custom spawn")
 	if not result.has_top:   result.errors.append("No TOP holds")
 
 	result.valid = result.has_start and result.has_top
@@ -552,4 +632,6 @@ func unload_level() -> void:
 	if holds:
 		for child in holds.get_children():
 			child.queue_free()
+	custom_spawn_hold      = null
+	_custom_spawn_position = Vector2.ZERO
 	print("LevelLoader: level unloaded")

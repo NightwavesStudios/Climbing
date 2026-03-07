@@ -5,6 +5,7 @@
 	"grade": "VB",
 	"holds": [
 		{
+			"custom_spawn": true,
 			"type": "WINDOW",
 			"x": 32.0,
 			"y": 0.0

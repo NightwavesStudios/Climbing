@@ -179,6 +179,12 @@ func _load_initial_level(path: String) -> void:
 
 	await setup_discipline_systems()
 
+	# ── Position the player at the correct spawn point ────────────────────────
+	# Must happen AFTER load_level() has fully awaited (so custom_spawn_hold
+	# and _custom_spawn_position are resolved) and AFTER discipline systems are
+	# set up (so the player's discipline is configured before initial_grab runs).
+	position_player_at_spawn()
+
 	await get_tree().process_frame
 	center_camera_on_route()
 
@@ -312,10 +318,11 @@ func position_player_at_spawn():
 	var spawn_pos = level_loader.get_player_spawn_position()
 
 	if spawn_pos == Vector2.ZERO:
-		print("WARNING: spawn position is zero — check START holds")
+		print("WARNING: spawn position is zero — check START holds or custom_spawn flag")
 		return
 
 	player.global_position = spawn_pos
+	player.spawn_position   = spawn_pos
 
 	if player.has_method("set_spawn_position"):
 		player.set_spawn_position(spawn_pos)
