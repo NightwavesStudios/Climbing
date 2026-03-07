@@ -251,7 +251,7 @@ func _show_page(index: int) -> void:
 	info_vbox.add_child(btn_m)
 
 	if meta.unlocked:
-		var btn := UniversalButton.new()  # Changed: Button → UniversalButton for click SFX
+		var btn := UniversalButton.new()
 		btn.text = "Climb Again" if meta.completed else "Climb"
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.custom_minimum_size = Vector2(0, 42)
@@ -443,14 +443,31 @@ func _build_route_diagram(json: Dictionary) -> Control:
 			wall._apply_environment_theme()
 		wall.queue_redraw()
 
+	# ── Spawn holds using HoldRegistry first, HOLD_SCENE_MAP as fallback ──────
+	# Unknown types are skipped entirely — no more silent fallback to JUG.
+	var registry = get_node_or_null("/root/HoldRegistry")
+
 	for hd in holds:
 		var type := (hd.get("type", "JUG") as String).to_upper()
-		var scene_path: String = HOLD_SCENE_MAP.get(type, HOLD_SCENE_MAP["JUG"])
-		if not ResourceLoader.exists(scene_path):
-			continue
-		var hold_scene = load(scene_path)
+
+		var hold_scene: PackedScene = null
+
+		# 1. Try the live HoldRegistry (knows about all custom/modded types)
+		if registry:
+			hold_scene = registry.get_hold_scene(type)
+
+		# 2. Fall back to the static map for the core hold types
+		if hold_scene == null:
+			var scene_path: String = HOLD_SCENE_MAP.get(type, "")
+			if scene_path == "" or not ResourceLoader.exists(scene_path):
+				# Unknown type — skip rather than rendering a JUG placeholder
+				push_warning("LevelLoader preview: skipping unknown hold type '%s'" % type)
+				continue
+			hold_scene = load(scene_path)
+
 		if not hold_scene:
 			continue
+
 		var hold_node = hold_scene.instantiate()
 		hold_node.position = Vector2(hd.get("x", 0.0), hd.get("y", 0.0))
 		if hd.has("rotation"):
