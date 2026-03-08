@@ -113,7 +113,6 @@ const HOLD_CONFIGS = {
 		"display_name": "Undercling",
 		"sloper_drain": false,
 	},
-	# WINDOW hold: two-handed, both hands can grab simultaneously at separate points
 	"WINDOW": {
 		"difficulty": 1.5,
 		"rest_value": 5.0,
