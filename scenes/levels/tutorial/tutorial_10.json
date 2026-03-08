@@ -23,6 +23,11 @@
 			"y": 0.0
 		},
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "SLOPER",
 			"x": 160.0,
 			"y": -160.0
@@ -48,6 +53,11 @@
 			"y": 96.0
 		},
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "SLOPER",
 			"x": 0.0,
 			"y": -96.0
@@ -73,12 +83,18 @@
 			"y": -31.3455810546875
 		},
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "JUG",
 			"x": 74.3554077148438,
 			"y": -133.310607910156
 		}
 	],
 	"name": "Unnamed Route",
+	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 5,

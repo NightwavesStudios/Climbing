@@ -7,6 +7,9 @@ enum WeatherType {
 	RAIN,
 	NIGHT,
 	SNOW,
+	LIGHTNING,
+	FOG,
+	HAIL,
 }
 
 var weather: int = WeatherType.NONE : set = set_weather
@@ -65,6 +68,66 @@ var snow_cloud_color  := Color(0.88, 0.90, 0.94, 1.0)
 var snow_cloud_shadow := Color(0.55, 0.60, 0.68)
 var snow_fog_color    := Color(0.78, 0.82, 0.90, 0.22)
 
+# ── Lightning parameters ───────────────────────────────────────────────────────
+var lightning_bolt_color       := Color(0.88, 0.92, 1.00, 1.0)
+var lightning_glow_color       := Color(0.70, 0.78, 1.00, 0.35)
+var lightning_flash_color      := Color(0.82, 0.88, 1.00, 0.0)   # alpha set at flash time
+var lightning_min_interval     := 2.5    # seconds between strikes
+var lightning_max_interval     := 9.0
+var lightning_flash_duration   := 0.12  # how long the white screen flash lasts
+var lightning_bolt_duration    := 0.22  # how long the bolt is visible
+var lightning_bolt_width       := 2.5
+var lightning_glow_width       := 7.0
+var lightning_segments         := 10    # number of bolt segments
+var lightning_jitter           := 55.0  # horizontal jitter per segment
+var lightning_branch_chance    := 0.30  # probability to spawn a side branch
+var lightning_rain_density     := 700   # heavier rain during storm
+var lightning_rain_speed       := 1300.0
+var lightning_rain_angle_deg   := 18.0
+
+var lightning_sky_top      := Color(0.08, 0.08, 0.14)
+var lightning_sky_horizon  := Color(0.18, 0.18, 0.26)
+var lightning_cloud_color  := Color(0.20, 0.20, 0.28, 1.0)
+var lightning_cloud_shadow := Color(0.10, 0.10, 0.16)
+var lightning_fog_color    := Color(0.16, 0.16, 0.24, 0.32)
+
+# ── Fog parameters ─────────────────────────────────────────────────────────────
+var fog_color            := Color(0.78, 0.80, 0.84, 1.0)
+var fog_layers           := 6           # number of scrolling fog bands
+var fog_scroll_speeds    := [18.0, 28.0, 12.0, 22.0, 9.0, 35.0]  # px/s per layer
+var fog_layer_alphas     := [0.18, 0.13, 0.20, 0.11, 0.16, 0.09] # base alpha per layer
+var fog_layer_heights    := [0.18, 0.24, 0.14, 0.30, 0.10, 0.22] # fraction of draw height
+var fog_ground_alpha     := 0.60        # thick ground-hugging mist alpha
+var fog_ground_height    := 120.0       # px of thick base mist
+var fog_vignette_alpha   := 0.28        # edges-of-screen darkening
+var fog_ambient_darken   := 0.22        # overall scene darkening overlay alpha
+
+var fog_sky_top      := Color(0.62, 0.64, 0.68)
+var fog_sky_horizon  := Color(0.74, 0.76, 0.80)
+var fog_cloud_color  := Color(0.80, 0.82, 0.86, 1.0)
+var fog_cloud_shadow := Color(0.54, 0.56, 0.60)
+var fog_fog_color    := Color(0.76, 0.78, 0.82, 0.45)
+
+# ── Hail parameters ───────────────────────────────────────────────────────────
+var hail_density         := 500
+var hail_speed           := 900.0
+var hail_angle_deg       := 8.0
+var hail_min_radius      := 2.0
+var hail_max_radius      := 5.5
+var hail_color           := Color(0.88, 0.94, 1.00, 0.90)
+var hail_bounce_chance   := 0.45        # probability a stone bounces on impact
+var hail_bounce_speed    := 220.0       # initial upward bounce velocity
+var hail_bounce_gravity  := 480.0       # gravity on bouncing stones
+var hail_bounce_duration := 0.35        # max seconds a bounce is tracked
+var hail_wind            := 60.0        # sideways wind force
+var hail_impact_color    := Color(0.85, 0.92, 1.00, 0.70)
+
+var hail_sky_top      := Color(0.22, 0.24, 0.30)
+var hail_sky_horizon  := Color(0.36, 0.38, 0.44)
+var hail_cloud_color  := Color(0.38, 0.40, 0.46, 1.0)
+var hail_cloud_shadow := Color(0.20, 0.22, 0.28)
+var hail_fog_color    := Color(0.30, 0.32, 0.38, 0.30)
+
 # ── Player tracking ────────────────────────────────────────────────────────────
 var _player_head_world: Vector2 = Vector2.ZERO
 var _lamp_target_world: Vector2 = Vector2.ZERO
@@ -98,6 +161,24 @@ const FADE_IN_DURATION := 2.5
 
 var _drop_rng := RandomNumberGenerator.new()
 
+# ── Lightning internal state ───────────────────────────────────────────────────
+var _lightning_timer:        float = 0.0   # counts down to next strike
+var _lightning_interval:     float = 0.0   # current random interval
+var _lightning_flash_timer:  float = 0.0   # remaining flash duration
+var _lightning_bolt_timer:   float = 0.0   # remaining bolt-visible duration
+var _lightning_bolt_points:  Array[Vector2] = []
+var _lightning_branches:     Array[Array]   = []   # each entry = Array[Vector2]
+var _lightning_active:       bool = false
+var _lightning_audio:        AudioStreamPlayer = null
+const LIGHTNING_SFX_PATH := "res://assets/audio/sfx/thunder_sfx.wav"
+
+# ── Fog internal state ─────────────────────────────────────────────────────────
+var _fog_offsets: Array[float] = []   # per-layer horizontal scroll offset
+
+# ── Hail internal state ────────────────────────────────────────────────────────
+var _hailstones:  Array[Dictionary] = []
+var _hail_bounces: Array[Dictionary] = []
+
 
 # =============================================================================
 # LIFECYCLE
@@ -105,11 +186,12 @@ var _drop_rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	z_index = 20
-	add_to_group("weather_modifier")  # allows character.gd to find this node
+	add_to_group("weather_modifier")
 	_wall_ref = get_parent() if get_parent().has_method("get_bounds") else null
 	_drop_rng.randomize()
 	_setup_audio()
 	_setup_lights()
+	_setup_lightning_audio()
 	set_weather(weather)
 
 func _setup_audio() -> void:
@@ -124,8 +206,18 @@ func _setup_audio() -> void:
 	_audio.volume_db = -80.0
 	_audio.autoplay  = false
 
+func _setup_lightning_audio() -> void:
+	_lightning_audio = AudioStreamPlayer.new()
+	_lightning_audio.name = "ThunderSFX"
+	add_child(_lightning_audio)
+	if not ResourceLoader.exists(LIGHTNING_SFX_PATH):
+		push_warning("WeatherModifier: thunder SFX not found at " + LIGHTNING_SFX_PATH)
+		return
+	_lightning_audio.stream    = load(LIGHTNING_SFX_PATH)
+	_lightning_audio.bus       = "Master"
+	_lightning_audio.volume_db = -2.0
+
 func _setup_lights() -> void:
-	# ── Main headlamp ─────────────────────────────────────────────────────────
 	_headlamp = PointLight2D.new()
 	_headlamp.name           = "Headlamp"
 	_headlamp.texture        = _make_radial_texture(256)
@@ -136,7 +228,6 @@ func _setup_lights() -> void:
 	_headlamp.shadow_enabled = false
 	add_child(_headlamp)
 
-	# ── Ambient body glow ─────────────────────────────────────────────────────
 	_ambient_light = PointLight2D.new()
 	_ambient_light.name          = "AmbientGlow"
 	_ambient_light.texture       = _make_radial_texture(128)
@@ -180,6 +271,12 @@ func set_weather(new_weather: int) -> void:
 	_drops.clear()
 	_splashes.clear()
 	_snowflakes.clear()
+	_hailstones.clear()
+	_hail_bounces.clear()
+	_lightning_active      = false
+	_lightning_bolt_points = []
+	_lightning_branches    = []
+	_fog_offsets           = []
 
 	match weather:
 		WeatherType.RAIN:
@@ -192,14 +289,36 @@ func set_weather(new_weather: int) -> void:
 				_audio_fade_elapsed = 0.0
 		WeatherType.NIGHT:
 			_set_lights_enabled(true)
-			_blend = max(_blend, 0.001)  # kick-start blend so energy guard passes
+			_blend = max(_blend, 0.001)
 			_update_night_lamp(0.0)
-			_update_night_lights()       # apply energy immediately, don't wait for _process
+			_update_night_lights()
 			if _audio and _audio.playing:
 				_audio.stop()
 			_audio_fading_in = false
 		WeatherType.SNOW:
 			_init_snow()
+			_set_lights_enabled(false)
+			if _audio and _audio.playing:
+				_audio.stop()
+			_audio_fading_in = false
+		WeatherType.LIGHTNING:
+			_init_lightning()
+			_set_lights_enabled(false)
+			# Lightning uses rain drops with storm settings
+			_init_rain()
+			if _audio and _audio.stream and not _audio.playing:
+				_audio.volume_db    = -80.0
+				_audio.play()
+				_audio_fading_in    = true
+				_audio_fade_elapsed = 0.0
+		WeatherType.FOG:
+			_init_fog()
+			_set_lights_enabled(false)
+			if _audio and _audio.playing:
+				_audio.stop()
+			_audio_fading_in = false
+		WeatherType.HAIL:
+			_init_hail()
 			_set_lights_enabled(false)
 			if _audio and _audio.playing:
 				_audio.stop()
@@ -228,7 +347,8 @@ func _set_lights_enabled(on: bool) -> void:
 # =============================================================================
 
 func _init_rain() -> void:
-	var count := int(rain_density * clamp(intensity, 0.05, 1.0))
+	var density := lightning_rain_density if weather == WeatherType.LIGHTNING else rain_density
+	var count   := int(density * clamp(intensity, 0.05, 1.0))
 	for i in range(count):
 		_drops.append(_make_drop(true))
 
@@ -237,6 +357,8 @@ func _make_drop(spread: bool) -> Dictionary:
 	var layer       := _drop_rng.randi() % LAYERS
 	var speed_scale  = lerp(0.6, 1.0, float(layer) / float(LAYERS - 1))
 	var alpha_scale  = lerp(0.45, 1.0, float(layer) / float(LAYERS - 1))
+	var angle_deg   := lightning_rain_angle_deg if weather == WeatherType.LIGHTNING else rain_angle_deg
+	var spd         := lightning_rain_speed if weather == WeatherType.LIGHTNING else rain_speed
 	var x           := _drop_rng.randf_range(b.x - 200.0, b.x + b.z + 200.0)
 	var y           := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
 					   else b.y - _drop_rng.randf() * 150.0
@@ -244,11 +366,12 @@ func _make_drop(spread: bool) -> Dictionary:
 		"x":     x,
 		"y":     y,
 		"layer": layer,
-		"speed": rain_speed * speed_scale * (0.82 + _drop_rng.randf() * 0.36),
+		"speed": spd * speed_scale * (0.82 + _drop_rng.randf() * 0.36),
 		"alpha": (0.55 + _drop_rng.randf() * 0.45) * alpha_scale,
 		"len":   rain_streak_len * speed_scale * (0.7 + _drop_rng.randf() * 0.6),
 		"width": lerp(1.0, 2.2, float(layer) / float(LAYERS - 1)),
 		"wx":    (_drop_rng.randf() - 0.5) * 0.04,
+		"angle": angle_deg,
 	}
 
 
@@ -283,6 +406,103 @@ func _make_flake(spread: bool) -> Dictionary:
 
 
 # =============================================================================
+# LIGHTNING INIT
+# =============================================================================
+
+func _init_lightning() -> void:
+	_lightning_active  = false
+	_lightning_timer   = _drop_rng.randf_range(0.5, 2.0)  # short initial delay
+	_lightning_interval = _lightning_timer
+
+func _trigger_lightning_strike() -> void:
+	var b := _get_draw_bounds()
+
+	# Choose a random X across the top area of the bounds
+	var bolt_x := _drop_rng.randf_range(b.x + b.z * 0.1, b.x + b.z * 0.9)
+	var top_y  := b.y
+	var bot_y  := b.y + b.w * _drop_rng.randf_range(0.5, 0.95)
+
+	_lightning_bolt_points = _generate_bolt(
+		Vector2(bolt_x, top_y),
+		Vector2(bolt_x + _drop_rng.randf_range(-60.0, 60.0), bot_y),
+		lightning_segments
+	)
+
+	# Optional branches
+	_lightning_branches = []
+	for i in range(1, _lightning_bolt_points.size() - 1):
+		if _drop_rng.randf() < lightning_branch_chance * intensity:
+			var branch_len := int(lightning_segments * _drop_rng.randf_range(0.25, 0.55))
+			var branch_dir := Vector2(
+				_drop_rng.randf_range(-1.0, 1.0),
+				_drop_rng.randf_range(0.4, 1.0)
+			).normalized()
+			var branch_end := _lightning_bolt_points[i] + branch_dir * (bot_y - top_y) * 0.35
+			_lightning_branches.append(
+				_generate_bolt(_lightning_bolt_points[i], branch_end, branch_len)
+			)
+
+	_lightning_active     = true
+	_lightning_bolt_timer  = lightning_bolt_duration
+	_lightning_flash_timer = lightning_flash_duration
+
+	# Play thunder with slight delay simulation (just random pitch)
+	if _lightning_audio and _lightning_audio.stream:
+		_lightning_audio.pitch_scale = _drop_rng.randf_range(0.85, 1.15)
+		_lightning_audio.play()
+
+func _generate_bolt(start: Vector2, end: Vector2, segments: int) -> Array[Vector2]:
+	var pts: Array[Vector2] = []
+	pts.append(start)
+	for i in range(1, segments):
+		var t    := float(i) / float(segments)
+		var base  = start.lerp(end, t)
+		var perp  = Vector2(-(end - start).normalized().y, (end - start).normalized().x)
+		var jitter := _drop_rng.randf_range(-lightning_jitter, lightning_jitter) * (1.0 - t * 0.5)
+		pts.append(base + perp * jitter)
+	pts.append(end)
+	return pts
+
+
+# =============================================================================
+# FOG INIT
+# =============================================================================
+
+func _init_fog() -> void:
+	_fog_offsets = []
+	for i in range(fog_layers):
+		_fog_offsets.append(_drop_rng.randf_range(0.0, 2000.0))
+
+
+# =============================================================================
+# HAIL INIT / STONE FACTORY
+# =============================================================================
+
+func _init_hail() -> void:
+	var count := int(hail_density * clamp(intensity, 0.05, 1.0))
+	for i in range(count):
+		_hailstones.append(_make_hailstone(true))
+
+func _make_hailstone(spread: bool) -> Dictionary:
+	var b       := _get_draw_bounds()
+	var layer   := _drop_rng.randi() % LAYERS
+	var depth_t := float(layer) / float(LAYERS - 1)
+	var x       := _drop_rng.randf_range(b.x - 100.0, b.x + b.z + 100.0)
+	var y       := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
+				   else b.y - _drop_rng.randf() * 120.0
+	return {
+		"x":      x,
+		"y":      y,
+		"layer":  layer,
+		"radius": lerp(hail_min_radius, hail_max_radius, depth_t)
+				  * (0.7 + _drop_rng.randf() * 0.6),
+		"speed":  hail_speed * lerp(0.65, 1.0, depth_t)
+				  * (0.80 + _drop_rng.randf() * 0.40),
+		"alpha":  (0.55 + _drop_rng.randf() * 0.35) * lerp(0.5, 1.0, depth_t),
+	}
+
+
+# =============================================================================
 # PROCESS
 # =============================================================================
 
@@ -304,14 +524,33 @@ func _process(delta: float) -> void:
 			_update_night_lights()
 		WeatherType.SNOW:
 			_update_snow(delta)
+		WeatherType.LIGHTNING:
+			_update_rain(delta)
+			_update_rain_audio(delta)
+			_update_lightning(delta)
+		WeatherType.FOG:
+			_update_fog(delta)
+		WeatherType.HAIL:
+			_update_hail(delta)
 
-	# Advance splashes
+	# Advance splashes (shared by rain, lightning, hail)
 	var alive: Array[Dictionary] = []
 	for s in _splashes:
 		s["t"] += delta
 		if s["t"] < splash_duration:
 			alive.append(s)
 	_splashes = alive
+
+	# Advance hail bounces
+	var alive_bounces: Array[Dictionary] = []
+	for b in _hail_bounces:
+		b["t"] += delta
+		b["vy"] += hail_bounce_gravity * delta
+		b["x"]  += b["vx"] * delta
+		b["y"]  += b["vy"] * delta
+		if b["t"] < hail_bounce_duration:
+			alive_bounces.append(b)
+	_hail_bounces = alive_bounces
 
 	queue_redraw()
 
@@ -322,7 +561,8 @@ func _get_ground_y() -> float:
 	return b.y + b.w
 
 func _update_rain(delta: float) -> void:
-	var angle_rad := deg_to_rad(rain_angle_deg)
+	var angle_deg := lightning_rain_angle_deg if weather == WeatherType.LIGHTNING else rain_angle_deg
+	var angle_rad := deg_to_rad(angle_deg)
 	var dx        := sin(angle_rad) + rain_wind / rain_speed
 	var dy        := cos(angle_rad)
 	var b         := _get_draw_bounds()
@@ -356,7 +596,95 @@ func _update_rain_audio(delta: float) -> void:
 	else:
 		_audio.volume_db = move_toward(_audio.volume_db, target_db, 6.0 * delta)
 
-## _delta is intentionally unused — smoothing uses get_process_delta_time() internally.
+func _update_lightning(delta: float) -> void:
+	# Count down flash and bolt timers
+	if _lightning_flash_timer > 0.0:
+		_lightning_flash_timer -= delta
+	if _lightning_bolt_timer > 0.0:
+		_lightning_bolt_timer -= delta
+		if _lightning_bolt_timer <= 0.0:
+			_lightning_active = false
+
+	# Count down to next strike
+	_lightning_timer -= delta
+	if _lightning_timer <= 0.0:
+		_lightning_interval = _drop_rng.randf_range(
+			lerp(lightning_max_interval, lightning_min_interval, intensity),
+			lightning_max_interval
+		)
+		_lightning_timer = _lightning_interval
+		_trigger_lightning_strike()
+
+func _update_fog(delta: float) -> void:
+	for i in range(_fog_offsets.size()):
+		_fog_offsets[i] += fog_scroll_speeds[i % fog_scroll_speeds.size()] * delta
+
+func _update_snow(delta: float) -> void:
+	var b        := _get_draw_bounds()
+	var ground_y := _get_ground_y()
+
+	for i in range(_snowflakes.size()):
+		var f := _snowflakes[i]
+		f["y"] += f["speed"] * delta
+		f["x"] += sin(_time * snow_sway_frequency * TAU + f["phase"]) * f["drift"] * delta
+
+		var out_bottom = f["y"] >= ground_y
+		var out_sides  = f["x"] > b.x + b.z + 80.0 or f["x"] < b.x - 80.0
+
+		if out_bottom or out_sides:
+			_snowflakes[i] = _make_flake(false)
+		else:
+			_snowflakes[i] = f
+
+func _update_hail(delta: float) -> void:
+	var angle_rad := deg_to_rad(hail_angle_deg)
+	var dx        := sin(angle_rad) + hail_wind / hail_speed
+	var dy        := cos(angle_rad)
+	var b         := _get_draw_bounds()
+	var ground_y  := _get_ground_y()
+
+	for i in range(_hailstones.size()):
+		var s := _hailstones[i]
+		s["x"] += dx * s["speed"] * delta
+		s["y"] += dy * s["speed"] * delta
+
+		var out_bottom = s["y"] >= ground_y
+		var out_sides  = s["x"] > b.x + b.z + 200.0 or s["x"] < b.x - 200.0
+
+		if out_bottom or out_sides:
+			if out_bottom and _drop_rng.randf() < hail_bounce_chance * intensity:
+				_spawn_hail_bounce(s["x"], ground_y, s["alpha"], s["radius"])
+			_hailstones[i] = _make_hailstone(false)
+		else:
+			_hailstones[i] = s
+
+func _spawn_splash(sx: float, gy: float, drop_alpha: float, _layer: int) -> void:
+	if _drop_rng.randf() > 0.12:
+		return
+	_splashes.append({
+		"x":     sx,
+		"gy":    gy,
+		"t":     0.0,
+		"alpha": drop_alpha * clamp(intensity, 0.3, 0.7),
+	})
+
+func _spawn_hail_bounce(sx: float, gy: float, drop_alpha: float, radius: float) -> void:
+	var angle := _drop_rng.randf_range(-PI * 0.6, PI * 0.6)
+	_hail_bounces.append({
+		"x":      sx,
+		"y":      gy,
+		"vx":     cos(angle) * hail_bounce_speed * _drop_rng.randf_range(0.4, 1.0),
+		"vy":     -hail_bounce_speed * _drop_rng.randf_range(0.3, 0.8),
+		"t":      0.0,
+		"alpha":  drop_alpha * 0.7,
+		"radius": radius * 0.6,
+	})
+
+
+# =============================================================================
+# NIGHT PROCESS HELPERS
+# =============================================================================
+
 func _update_night_lamp(_delta: float) -> void:
 	var desired_dir: Vector2
 	if _has_player and _lamp_target_world != Vector2.ZERO:
@@ -376,8 +704,6 @@ func _update_night_lights() -> void:
 
 	if _headlamp:
 		if _has_player:
-			# Convert world position → local space of this Node2D,
-			# so the light sits correctly regardless of WeatherModifier's own position/parent.
 			_headlamp.position = to_local(_player_head_world)
 		_headlamp.energy   = target_energy
 		_headlamp.rotation = _lamp_dir_smooth.angle() + PI * 0.5
@@ -386,33 +712,6 @@ func _update_night_lights() -> void:
 		if _has_player:
 			_ambient_light.position = to_local(_player_head_world)
 		_ambient_light.energy = night_ambient_energy * _blend * intensity
-
-func _update_snow(delta: float) -> void:
-	var b        := _get_draw_bounds()
-	var ground_y := _get_ground_y()
-
-	for i in range(_snowflakes.size()):
-		var f := _snowflakes[i]
-		f["y"] += f["speed"] * delta
-		f["x"] += sin(_time * snow_sway_frequency * TAU + f["phase"]) * f["drift"] * delta
-
-		var out_bottom = f["y"] >= ground_y
-		var out_sides  = f["x"] > b.x + b.z + 80.0 or f["x"] < b.x - 80.0
-
-		if out_bottom or out_sides:
-			_snowflakes[i] = _make_flake(false)
-		else:
-			_snowflakes[i] = f
-
-func _spawn_splash(sx: float, gy: float, drop_alpha: float, _layer: int) -> void:
-	if _drop_rng.randf() > 0.12:
-		return
-	_splashes.append({
-		"x":     sx,
-		"gy":    gy,
-		"t":     0.0,
-		"alpha": drop_alpha * clamp(intensity, 0.3, 0.7),
-	})
 
 
 # =============================================================================
@@ -433,6 +732,22 @@ func _draw() -> void:
 			_draw_snow_fog()
 			_draw_snowflakes()
 			_draw_snow_accumulation()
+		WeatherType.LIGHTNING:
+			_draw_lightning_flash()
+			_draw_rain_streaks()
+			_draw_splashes()
+			_draw_rain_fog()
+			_draw_lightning_bolt()
+		WeatherType.FOG:
+			_draw_fog_ambient()
+			_draw_fog_layers()
+			_draw_fog_ground()
+			_draw_fog_vignette()
+		WeatherType.HAIL:
+			_draw_hail_fog()
+			_draw_hailstones()
+			_draw_hail_bounces()
+			_draw_splashes()
 		WeatherType.NONE:
 			pass
 
@@ -454,7 +769,8 @@ func _draw_night_darkness() -> void:
 # =============================================================================
 
 func _draw_rain_streaks() -> void:
-	var angle_rad := deg_to_rad(rain_angle_deg)
+	var angle_deg := lightning_rain_angle_deg if weather == WeatherType.LIGHTNING else rain_angle_deg
+	var angle_rad := deg_to_rad(angle_deg)
 	var udx       := sin(angle_rad)
 	var udy       := cos(angle_rad)
 	for layer in range(LAYERS):
@@ -494,8 +810,6 @@ func _draw_ellipse_ring(cx: float, cy: float, rx: float, ry: float,
 			draw_line(prev, pt, Color(color.r, color.g, color.b, alpha), line_w, true)
 		prev = pt
 
-## Renamed local vars from tl/tr/br/bl to top_left/top_right/bot_right/bot_left
-## to avoid shadowing the built-in Object.tr() method (fixes warning line 437).
 func _draw_grad_quad(x: float, y0: float, w: float, y1: float,
 					 c_top: Color, c_bot: Color) -> void:
 	var top_left  := Vector2(x,     y0)
@@ -572,6 +886,159 @@ func _draw_snow_accumulation() -> void:
 
 
 # =============================================================================
+# LIGHTNING DRAW
+# =============================================================================
+
+func _draw_lightning_flash() -> void:
+	if _lightning_flash_timer <= 0.0:
+		return
+	var b     := _get_draw_bounds()
+	var t     = clamp(_lightning_flash_timer / lightning_flash_duration, 0.0, 1.0)
+	# Ease out so it fades quickly
+	var alpha = t * t * 0.55 * _blend * intensity
+	draw_rect(
+		Rect2(b.x, b.y, b.z, b.w),
+		Color(lightning_flash_color.r, lightning_flash_color.g, lightning_flash_color.b, alpha))
+
+func _draw_lightning_bolt() -> void:
+	if not _lightning_active or _lightning_bolt_points.size() < 2:
+		return
+
+	var t     = clamp(_lightning_bolt_timer / lightning_bolt_duration, 0.0, 1.0)
+	var alpha = t * _blend * intensity
+
+	# Draw glow pass
+	_draw_bolt_path(_lightning_bolt_points,
+		Color(lightning_glow_color.r, lightning_glow_color.g, lightning_glow_color.b, alpha * 0.5),
+		lightning_glow_width)
+	# Draw core
+	_draw_bolt_path(_lightning_bolt_points,
+		Color(lightning_bolt_color.r, lightning_bolt_color.g, lightning_bolt_color.b, alpha),
+		lightning_bolt_width)
+
+	# Branches
+	for branch in _lightning_branches:
+		if branch.size() < 2:
+			continue
+		_draw_bolt_path(branch,
+			Color(lightning_glow_color.r, lightning_glow_color.g, lightning_glow_color.b, alpha * 0.25),
+			lightning_glow_width * 0.6)
+		_draw_bolt_path(branch,
+			Color(lightning_bolt_color.r, lightning_bolt_color.g, lightning_bolt_color.b, alpha * 0.65),
+			lightning_bolt_width * 0.55)
+
+func _draw_bolt_path(pts: Array[Vector2], color: Color, width: float) -> void:
+	for i in range(pts.size() - 1):
+		draw_line(pts[i], pts[i + 1], color, width, true)
+
+
+# =============================================================================
+# FOG DRAW
+# =============================================================================
+
+func _draw_fog_ambient() -> void:
+	var b := _get_draw_bounds()
+	var a := fog_ambient_darken * _blend * intensity
+	draw_rect(
+		Rect2(b.x, b.y, b.z, b.w),
+		Color(fog_color.r * 0.85, fog_color.g * 0.85, fog_color.b * 0.85, a))
+
+func _draw_fog_layers() -> void:
+	if _fog_offsets.size() == 0:
+		return
+	var b := _get_draw_bounds()
+	var y_cursor := b.y
+
+	for i in range(fog_layers):
+		var layer_h    = b.w * fog_layer_heights[i % fog_layer_heights.size()]
+		var base_alpha = fog_layer_alphas[i % fog_layer_alphas.size()] * _blend * intensity
+		var offset     := fmod(_fog_offsets[i], b.z + 400.0)
+
+		# Each fog band scrolls two rectangles side by side to tile seamlessly
+		for tile in range(2):
+			var tile_x := b.x - 200.0 + offset + float(tile) * (b.z + 400.0) - (b.z + 400.0)
+			var mid_a  = base_alpha * (0.6 + 0.4 * sin(_time * 0.3 + float(i) * 1.7))
+			_draw_grad_quad(tile_x, y_cursor, b.z + 400.0, y_cursor + layer_h * 0.5,
+				Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
+				Color(fog_color.r, fog_color.g, fog_color.b, mid_a))
+			_draw_grad_quad(tile_x, y_cursor + layer_h * 0.5, b.z + 400.0, y_cursor + layer_h,
+				Color(fog_color.r, fog_color.g, fog_color.b, mid_a),
+				Color(fog_color.r, fog_color.g, fog_color.b, 0.0))
+
+		y_cursor += layer_h * 0.55  # slight overlap so bands blend
+
+func _draw_fog_ground() -> void:
+	var b        := _get_draw_bounds()
+	var ground_y := _get_ground_y()
+	var strip_h  = fog_ground_height * clamp(intensity, 0.2, 1.0)
+	var a_top    := fog_ground_alpha * _blend * intensity
+	_draw_grad_quad(b.x, ground_y - strip_h, b.z, ground_y,
+		Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
+		Color(fog_color.r, fog_color.g, fog_color.b, a_top))
+
+func _draw_fog_vignette() -> void:
+	var b := _get_draw_bounds()
+	var va := fog_vignette_alpha * _blend * intensity
+	var vw := b.z * 0.22
+
+	# Left edge
+	_draw_grad_quad(b.x, b.y, vw, b.y + b.w,
+		Color(fog_color.r * 0.6, fog_color.g * 0.6, fog_color.b * 0.6, va),
+		Color(fog_color.r * 0.6, fog_color.g * 0.6, fog_color.b * 0.6, 0.0))
+	# Right edge (drawn RTL by negative width trick via two triangles)
+	_draw_grad_quad(b.x + b.z - vw, b.y, vw, b.y + b.w,
+		Color(fog_color.r * 0.6, fog_color.g * 0.6, fog_color.b * 0.6, 0.0),
+		Color(fog_color.r * 0.6, fog_color.g * 0.6, fog_color.b * 0.6, va))
+
+
+# =============================================================================
+# HAIL DRAW
+# =============================================================================
+
+func _draw_hail_fog() -> void:
+	var b     := _get_draw_bounds()
+	var haze  = lerp(0.0, 0.12, intensity * _blend)
+	_draw_grad_quad(b.x, b.y, b.z, b.y + b.w,
+		Color(hail_fog_color.r, hail_fog_color.g, hail_fog_color.b, haze * 0.3),
+		Color(hail_fog_color.r, hail_fog_color.g, hail_fog_color.b, haze))
+
+func _draw_hailstones() -> void:
+	var angle_rad := deg_to_rad(hail_angle_deg)
+	var udx       := sin(angle_rad)
+	var udy       := cos(angle_rad)
+	for layer in range(LAYERS):
+		for s in _hailstones:
+			if s["layer"] != layer:
+				continue
+			var a = s["alpha"] * _blend * intensity
+			if a < 0.02:
+				continue
+			# Draw as small ice pellet: filled circle with a tiny highlight
+			draw_circle(
+				Vector2(s["x"], s["y"]),
+				s["radius"],
+				Color(hail_color.r, hail_color.g, hail_color.b, a))
+			# Motion streak (short)
+			var streak_len = s["radius"] * 2.5
+			draw_line(
+				Vector2(s["x"], s["y"]),
+				Vector2(s["x"] - udx * streak_len, s["y"] - udy * streak_len),
+				Color(hail_color.r, hail_color.g, hail_color.b, a * 0.45),
+				s["radius"] * 0.5, true)
+
+func _draw_hail_bounces() -> void:
+	for bc in _hail_bounces:
+		var t_norm = clamp(bc["t"] / hail_bounce_duration, 0.0, 1.0)
+		var a      = (1.0 - t_norm) * bc["alpha"] * _blend
+		if a < 0.02:
+			continue
+		draw_circle(
+			Vector2(bc["x"], bc["y"]),
+			bc["radius"],
+			Color(hail_impact_color.r, hail_impact_color.g, hail_impact_color.b, a))
+
+
+# =============================================================================
 # PUBLIC API
 # =============================================================================
 
@@ -605,18 +1072,57 @@ func get_snow_sky_override() -> Dictionary:
 		"fog_color":    snow_fog_color,
 	}
 
+func get_lightning_sky_override() -> Dictionary:
+	return {
+		"sky_top":      lightning_sky_top,
+		"sky_horizon":  lightning_sky_horizon,
+		"cloud_color":  lightning_cloud_color,
+		"cloud_shadow": lightning_cloud_shadow,
+		"fog_color":    lightning_fog_color,
+	}
+
+func get_fog_sky_override() -> Dictionary:
+	return {
+		"sky_top":      fog_sky_top,
+		"sky_horizon":  fog_sky_horizon,
+		"cloud_color":  fog_cloud_color,
+		"cloud_shadow": fog_cloud_shadow,
+		"fog_color":    fog_fog_color,
+	}
+
+func get_hail_sky_override() -> Dictionary:
+	return {
+		"sky_top":      hail_sky_top,
+		"sky_horizon":  hail_sky_horizon,
+		"cloud_color":  hail_cloud_color,
+		"cloud_shadow": hail_cloud_shadow,
+		"fog_color":    hail_fog_color,
+	}
+
 func get_active_sky_override() -> Dictionary:
 	match weather:
-		WeatherType.RAIN:  return get_rain_sky_override()
-		WeatherType.NIGHT: return get_night_sky_override()
-		WeatherType.SNOW:  return get_snow_sky_override()
-		_:                 return {}
+		WeatherType.RAIN:      return get_rain_sky_override()
+		WeatherType.NIGHT:     return get_night_sky_override()
+		WeatherType.SNOW:      return get_snow_sky_override()
+		WeatherType.LIGHTNING: return get_lightning_sky_override()
+		WeatherType.FOG:       return get_fog_sky_override()
+		WeatherType.HAIL:      return get_hail_sky_override()
+		_:                     return {}
 
 func get_hold_friction_modifier() -> float:
 	if weather == WeatherType.RAIN:
 		return lerp(1.0, 0.60, _blend)
 	if weather == WeatherType.SNOW:
 		return lerp(1.0, 0.50, _blend)
+	if weather == WeatherType.LIGHTNING:
+		# Wet storm conditions — similar to rain
+		return lerp(1.0, 0.58, _blend)
+	if weather == WeatherType.FOG:
+		# Damp holds from moisture
+		return lerp(1.0, 0.82, _blend)
+	if weather == WeatherType.HAIL:
+		# Ice pellets make holds treacherous
+		return lerp(1.0, 0.45, _blend)
 	return 1.0
 
 func get_stamina_drain_modifier() -> float:
@@ -626,6 +1132,15 @@ func get_stamina_drain_modifier() -> float:
 		return lerp(1.0, 1.12, _blend)
 	if weather == WeatherType.SNOW:
 		return lerp(1.0, 1.35, _blend)
+	if weather == WeatherType.LIGHTNING:
+		# Storm + mental stress = higher drain
+		return lerp(1.0, 1.40, _blend)
+	if weather == WeatherType.FOG:
+		# Disorientation adds small overhead
+		return lerp(1.0, 1.15, _blend)
+	if weather == WeatherType.HAIL:
+		# Pain and flinching drain stamina
+		return lerp(1.0, 1.45, _blend)
 	return 1.0
 
 func get_gravity_modifier() -> float:
@@ -636,6 +1151,12 @@ func get_wind_force() -> Vector2:
 		return Vector2(rain_wind * 0.3 * _blend, 0.0)
 	if weather == WeatherType.SNOW:
 		return Vector2(sin(_time * snow_sway_frequency * TAU) * snow_drift_speed * 0.15 * _blend, 0.0)
+	if weather == WeatherType.LIGHTNING:
+		# Gusty storm wind
+		var gust := sin(_time * 1.3) * 0.5 + sin(_time * 3.1) * 0.3 + sin(_time * 7.4) * 0.2
+		return Vector2(gust * 80.0 * _blend * intensity, 0.0)
+	if weather == WeatherType.HAIL:
+		return Vector2(hail_wind * 0.25 * _blend, 0.0)
 	return Vector2.ZERO
 
 func _get_draw_bounds() -> Vector4:

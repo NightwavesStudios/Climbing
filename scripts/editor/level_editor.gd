@@ -82,7 +82,7 @@ var undo_stack: Array = []
 var _hold_modifiers: Dictionary = {}
 
 # ── Constants ──────────────────────────────────────────────────────────────
-const WEATHER_NAMES := ["None", "Rain", "Night", "Snow"]
+const WEATHER_NAMES := ["None", "Rain", "Night", "Snow", "Lightning", "Fog", "Hail"]
 const V_GRADES   = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
 const YDS_GRADES = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
 					"5.11a","5.11b","5.11c","5.11d","5.12a","5.12b","5.12c","5.12d","5.13a","5.13b"]

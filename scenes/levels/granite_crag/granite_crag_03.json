@@ -14,6 +14,11 @@
 	"grade": "V2",
 	"holds": [
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "CRIMP",
 			"x": 0.0,
 			"y": 0.0
@@ -64,12 +69,18 @@
 			"y": -160.0
 		},
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "CRIMP",
 			"x": 96.0,
 			"y": -96.0
 		}
 	],
 	"name": "Unnamed Route",
+	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 7,
