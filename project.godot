@@ -10,10 +10,11 @@ config_version=5
 
 [application]
 
-config/name="Climbing"
+config/name="Climbing Simplified"
+config/description="A minimalist physics-based climbing puzzle game where every move matters. Plan your moves, manage stamina, and master different climbing disciplines as you scale gyms, cliffs, and building routes. Each hold behaves differently, and weather conditions can turn an easy climb into a serious challenge."
 run/main_scene="uid://cmudrme1ntc3v"
 config/features=PackedStringArray("4.5", "Forward Plus")
-config/icon="res://assets/textures/icon.svg"
+config/icon="uid://b2ck0fmegil3"
 
 [autoload]
 
@@ -29,6 +30,7 @@ HoldRegistry="*res://scripts/holds/hold-registry.gd"
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+window/size/mode=3
 window/stretch/mode="canvas_items"
 
 [file_customization]
@@ -70,3 +72,4 @@ select_right_foot={
 [rendering]
 
 textures/vram_compression/import_etc2_astc=true
+anti_aliasing/quality/msaa_2d=3

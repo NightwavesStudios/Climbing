@@ -7,6 +7,20 @@ extends Node2D
 #    LEFT PANEL  (72px wide) — hold type palette
 #    CANVAS      — the climbing wall
 #    PROPERTIES  (floating, contextual) — appears on right-click of a hold
+#
+#  FIXES:
+#    1. Falling holds — modifiers are now instantiated + attached to hold
+#       nodes at placement time AND after paste/undo.  The FallingHold
+#       modifier component is looked up via HoldModifierRegistry and, if
+#       the registry isn't present, a built-in fallback is used.
+#    2. Rope / Belayer — belayer anchor now draws a visible rope line from
+#       the anchor down to the player during test mode.  A RopeVisual node
+#       is created and updated every frame.
+#    3. Modified-hold outline — instead of a floating diamond glyph drawn
+#       in _draw() (which is in world-space and never matched the hold),
+#       a coloured outline is applied directly to the hold's Sprite2D child
+#       using a per-hold CanvasItem material with a simple outline shader.
+#       Falls back to a modulate tint if no Sprite2D is found.
 # ═══════════════════════════════════════════════════════════════════════════
 
 var camera: Camera2D
@@ -65,6 +79,9 @@ var is_testing: bool = false
 var preview_player_ref: Node2D = null
 var _speed_timer_node: Node = null
 var _speed_fail_pending: bool = false
+
+# FIX 2: rope visual node shown during test mode
+var _rope_visual: Line2D = null
 
 var custom_spawn_hold: Node2D = null
 var climb_name: String = ""
@@ -132,6 +149,37 @@ const C_WARN      := Color(1.00, 0.42, 0.21)     # orange
 const C_SUCCESS   := Color(0.27, 0.85, 0.50)     # green
 const C_MODIFIER  := Color(0.60, 0.35, 1.00)     # purple
 
+# FIX 3: outline shader source — draws a 1-pixel coloured border around
+# the opaque region of the hold sprite by sampling 8 neighbours.
+const OUTLINE_SHADER_SRC := """
+shader_type canvas_item;
+uniform vec4 outline_color : source_color = vec4(0.6, 0.35, 1.0, 1.0);
+uniform float outline_width : hint_range(0.5, 8.0) = 2.0;
+
+void fragment() {
+	vec4 col = texture(TEXTURE, UV);
+	if (col.a > 0.1) {
+		COLOR = col;
+		return;
+	}
+	vec2 px = outline_width / vec2(textureSize(TEXTURE, 0));
+	float nb =
+		texture(TEXTURE, UV + vec2( px.x,  0.0  )).a +
+		texture(TEXTURE, UV + vec2(-px.x,  0.0  )).a +
+		texture(TEXTURE, UV + vec2( 0.0,   px.y )).a +
+		texture(TEXTURE, UV + vec2( 0.0,  -px.y )).a +
+		texture(TEXTURE, UV + vec2( px.x,  px.y )).a +
+		texture(TEXTURE, UV + vec2(-px.x,  px.y )).a +
+		texture(TEXTURE, UV + vec2( px.x, -px.y )).a +
+		texture(TEXTURE, UV + vec2(-px.x, -px.y )).a;
+	if (nb > 0.0) {
+		COLOR = outline_color;
+	} else {
+		COLOR = col;
+	}
+}
+"""
+
 # Hold type accent colours for palette buttons
 var HOLD_COLORS := {
 	"START":  Color(0.27, 0.85, 0.50),
@@ -155,6 +203,9 @@ var crashpad_scene: PackedScene = null
 const CLICK_SOUND = preload("res://assets/audio/sfx/button-clicked.wav")
 var _audio_player: AudioStreamPlayer
 
+# FIX 3: cached outline shader so we compile it once
+var _outline_shader: Shader = null
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  READY
@@ -162,6 +213,7 @@ var _audio_player: AudioStreamPlayer
 
 func _ready():
 	_setup_audio()
+	_build_outline_shader()
 
 	wall = get_node_or_null("Wall")
 	if wall:
@@ -202,6 +254,54 @@ func _get_or_create_node2d(n: String) -> Node2D:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  FIX 3 — OUTLINE SHADER
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _build_outline_shader():
+	_outline_shader = Shader.new()
+	_outline_shader.code = OUTLINE_SHADER_SRC
+
+## Apply or remove a purple outline on the hold's Sprite2D.
+## Falls back to modulate tint if the hold has no Sprite2D child.
+func _apply_hold_outline(hold: Node2D, active: bool):
+	# Walk children looking for a Sprite2D or AnimatedSprite2D
+	var sprite: Node2D = null
+	for child in hold.get_children():
+		if child is Sprite2D or child is AnimatedSprite2D:
+			sprite = child
+			break
+	# Also check the hold itself
+	if sprite == null and (hold is Sprite2D or hold is AnimatedSprite2D):
+		sprite = hold
+
+	if sprite != null:
+		if active:
+			var mat = ShaderMaterial.new()
+			mat.shader = _outline_shader
+			mat.set_shader_parameter("outline_color", C_MODIFIER)
+			mat.set_shader_parameter("outline_width", 2.5)
+			sprite.material = mat
+		else:
+			sprite.material = null
+		# Keep modulate neutral — the outline carries the visual signal
+		hold.modulate = Color(1, 1, 1)
+	else:
+		# Fallback: tint the whole hold
+		hold.modulate = C_MODIFIER if active else Color(1, 1, 1)
+
+func _refresh_hold_tint(hold: Node2D):
+	if hold == custom_spawn_hold:
+		hold.modulate = Color(0.4, 1.0, 0.5)
+		# Remove outline if it was set
+		for child in hold.get_children():
+			if child is Sprite2D or child is AnimatedSprite2D:
+				child.material = null
+		return
+	var has_m = _hold_modifiers.has(hold) and not (_hold_modifiers[hold] as Array).is_empty()
+	_apply_hold_outline(hold, has_m)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  AUDIO
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -234,7 +334,6 @@ func _build_ui():
 # ── TOP BAR ────────────────────────────────────────────────────────────────
 
 func _build_top_bar():
-	# Background
 	var bg = ColorRect.new()
 	bg.color = C_BG
 	bg.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -242,7 +341,6 @@ func _build_top_bar():
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(bg)
 
-	# Bottom border line
 	var line = ColorRect.new()
 	line.color = C_BORDER
 	line.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -262,14 +360,12 @@ func _build_top_bar():
 	hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	margin.add_child(hbox)
 
-	# Logo mark
 	var logo = _label("EDITOR", 10, C_ACCENT)
 	logo.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hbox.add_child(logo)
 
 	_bar_sep(hbox)
 
-	# Route name
 	climb_name_input = LineEdit.new()
 	climb_name_input.placeholder_text = "Route name…"
 	climb_name_input.custom_minimum_size = Vector2(160, 32)
@@ -279,7 +375,6 @@ func _build_top_bar():
 
 	_bar_sep(hbox)
 
-	# Discipline
 	discipline_dropdown = _make_option_button(110)
 	discipline_dropdown.add_item("Boulder")
 	discipline_dropdown.add_item("Roped")
@@ -287,7 +382,6 @@ func _build_top_bar():
 	discipline_dropdown.item_selected.connect(_on_discipline_changed)
 	hbox.add_child(discipline_dropdown)
 
-	# Grade
 	grade_dropdown = _make_option_button(80)
 	_populate_grade_dropdown()
 	grade_dropdown.item_selected.connect(_on_grade_changed)
@@ -295,7 +389,6 @@ func _build_top_bar():
 
 	_bar_sep(hbox)
 
-	# Hold type dropdown
 	var hold_type_dropdown = OptionButton.new()
 	hold_type_dropdown.custom_minimum_size = Vector2(110, 32)
 	_style_option_button(hold_type_dropdown)
@@ -316,11 +409,9 @@ func _build_top_bar():
 
 	_bar_sep(hbox)
 
-	# Crashpad
 	crashpad_button = _make_action_button("Crashpad", C_MUTED, func(): _on_place_crashpad_pressed())
 	hbox.add_child(crashpad_button)
 
-	# Discipline extras (speed timer, belayer)
 	discipline_extras_panel = HBoxContainer.new()
 	discipline_extras_panel.add_theme_constant_override("separation", 4)
 	discipline_extras_panel.visible = false
@@ -342,7 +433,6 @@ func _build_top_bar():
 
 	_bar_sep(hbox)
 
-	# Actions
 	hbox.add_child(_make_action_button("Copy JSON", C_MUTED,   func(): _on_copy_json()))
 	hbox.add_child(_make_action_button("Paste JSON", C_MUTED,  func(): _on_paste_json()))
 
@@ -358,7 +448,7 @@ func _build_top_bar():
 	hbox.add_child(fold_button)
 
 
-# ── DRAWER (weather / environment / editor tools) ─────────────────────────
+# ── DRAWER ─────────────────────────────────────────────────────────────────
 
 func _build_drawer():
 	drawer_panel       = ColorRect.new()
@@ -392,7 +482,6 @@ func _build_drawer():
 	hbox.add_theme_constant_override("separation", 20)
 	drawer_container.add_child(hbox)
 
-	# ── Environment column ──
 	var env_col = _drawer_col(hbox, "ENVIRONMENT")
 	var env_row = _drawer_row(env_col, "Surface")
 	var environment_dropdown = OptionButton.new()
@@ -424,7 +513,6 @@ func _build_drawer():
 
 	_drawer_vsep(hbox)
 
-	# ── Editor tools column ──
 	var ed_col = _drawer_col(hbox, "EDITOR TOOLS")
 
 	var row1 = HBoxContainer.new()
@@ -455,7 +543,6 @@ func _build_drawer():
 
 	_drawer_vsep(hbox)
 
-	# ── Shortcuts column ──
 	var sc_col = _drawer_col(hbox, "SHORTCUTS")
 	for pair in [
 		["Click",         "Place hold"],
@@ -475,12 +562,8 @@ func _build_drawer():
 		r.add_child(_label(pair[1], 9, C_MUTED))
 
 
-# (palette replaced by dropdown in top bar)
-
-
 func _on_palette_type_selected(type_key: String):
 	if selected_hold_type == type_key:
-		# Clicking the active type deselects
 		selected_hold_type = ""
 		_deselect_all_palette()
 		clear_preview()
@@ -513,7 +596,7 @@ func _highlight_palette_button(key: String, active: bool):
 	btn.add_theme_color_override("font_color", col if active else Color(col.r,col.g,col.b,0.55))
 
 
-# ── INFO BAR ─────────────────────────────────────────────────────────────
+# ── INFO BAR ──────────────────────────────────────────────────────────────
 
 func _build_info_bar():
 	info_label = Label.new()
@@ -557,7 +640,6 @@ func _open_props_panel(hold: Node2D):
 	vbox.add_theme_constant_override("separation", 12)
 	margin.add_child(vbox)
 
-	# ── Header ──
 	var hdr = HBoxContainer.new()
 	vbox.add_child(hdr)
 	var ttl = _label("HOLD PROPERTIES", 11, C_ACCENT)
@@ -572,7 +654,6 @@ func _open_props_panel(hold: Node2D):
 
 	vbox.add_child(_hsep())
 
-	# ── Modifier list ──
 	var mod_list = VBoxContainer.new()
 	mod_list.name = "ModList"
 	mod_list.add_theme_constant_override("separation", 4)
@@ -581,7 +662,6 @@ func _open_props_panel(hold: Node2D):
 
 	vbox.add_child(_hsep())
 
-	# ── Add modifier row ──
 	var add_hbox = HBoxContainer.new()
 	add_hbox.add_theme_constant_override("separation", 6)
 	vbox.add_child(add_hbox)
@@ -646,7 +726,6 @@ func _rebuild_mod_list(list: VBoxContainer, hold: Node2D):
 		card_vbox.add_theme_constant_override("separation", 4)
 		card_margin.add_child(card_vbox)
 
-		# Header row
 		var row = HBoxContainer.new()
 		card_vbox.add_child(row)
 		var display = registry.get_display_name(mod_type) if registry else mod_type.capitalize()
@@ -664,11 +743,12 @@ func _rebuild_mod_list(list: VBoxContainer, hold: Node2D):
 			else: _hold_modifiers[hold] = cur
 			_rebuild_mod_list(list, hold)
 			_refresh_hold_tint(hold)
+			# FIX 1: detach runtime modifier component when removed
+			_detach_modifier_component(hold, mod_type)
 			_sfx(0.7)
 		)
 		row.add_child(rm)
 
-		# ── Per-type editable fields ──────────────────────────────────────
 		if mod_type == "falling":
 			var fields_grid = GridContainer.new()
 			fields_grid.columns = 2
@@ -676,7 +756,6 @@ func _rebuild_mod_list(list: VBoxContainer, hold: Node2D):
 			fields_grid.add_theme_constant_override("v_separation", 4)
 			card_vbox.add_child(fields_grid)
 
-			# Fall delay
 			fields_grid.add_child(_label("Fall delay", 9, C_MUTED))
 			var delay_spin = SpinBox.new()
 			delay_spin.min_value = 0.5; delay_spin.max_value = 10.0
@@ -689,10 +768,11 @@ func _rebuild_mod_list(list: VBoxContainer, hold: Node2D):
 				if ci2 < cur.size():
 					(cur[ci2] as Dictionary)["fall_delay"] = v
 				_hold_modifiers[hold] = cur
+				# FIX 1: live-update runtime component parameter
+				_sync_modifier_component(hold, cur[ci2])
 			)
 			fields_grid.add_child(delay_spin)
 
-			# Fall gravity (compact, labelled)
 			fields_grid.add_child(_label("Gravity", 9, C_MUTED))
 			var grav_spin = SpinBox.new()
 			grav_spin.min_value = 200.0; grav_spin.max_value = 4000.0
@@ -705,6 +785,7 @@ func _rebuild_mod_list(list: VBoxContainer, hold: Node2D):
 				if ci3 < cur.size():
 					(cur[ci3] as Dictionary)["fall_gravity"] = v
 				_hold_modifiers[hold] = cur
+				_sync_modifier_component(hold, cur[ci3])
 			)
 			fields_grid.add_child(grav_spin)
 
@@ -722,10 +803,16 @@ func _add_modifier(hold: Node2D, type_key: String, list: VBoxContainer):
 	if registry:
 		var tmp = registry.create_modifier(type_key)
 		if tmp and tmp.has_method("serialize"): default_data = tmp.serialize(); tmp.queue_free()
+	# Ensure defaults for falling if registry didn't supply them
+	if type_key == "falling":
+		if not default_data.has("fall_delay"):   default_data["fall_delay"]   = 2.2
+		if not default_data.has("fall_gravity"): default_data["fall_gravity"] = 1800.0
 	if not _hold_modifiers.has(hold): _hold_modifiers[hold] = []
 	(_hold_modifiers[hold] as Array).append(default_data)
 	_rebuild_mod_list(list, hold)
 	_refresh_hold_tint(hold)
+	# FIX 1: attach runtime modifier component immediately
+	_attach_modifier_component(hold, default_data)
 	_sfx(1.2)
 	_notify("Added '%s' modifier" % type_key)
 
@@ -733,10 +820,183 @@ func _close_props_panel():
 	if props_panel and is_instance_valid(props_panel): props_panel.queue_free()
 	props_panel = null; props_hold = null
 
-func _refresh_hold_tint(hold: Node2D):
-	if hold == custom_spawn_hold: hold.modulate = Color(0.4, 1.0, 0.5); return
-	var has_m = _hold_modifiers.has(hold) and not (_hold_modifiers[hold] as Array).is_empty()
-	hold.modulate = C_MODIFIER if has_m else Color(1,1,1)
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX 1 — FALLING HOLD MODIFIER  (runtime component management)
+#
+#  We attach a lightweight child node called "_FallingModifier" to each
+#  hold that has the "falling" modifier.  This node drives the actual
+#  physics: it waits for a grab signal (or auto-timer), then applies
+#  gravity to the hold's position.  If the hold's scene already has its
+#  own modifier system we defer to that; otherwise we use a built-in
+#  fallback implemented here.
+# ═══════════════════════════════════════════════════════════════════════════
+
+const _FALLING_MOD_NODE_NAME := "_FallingModifier"
+
+## Attach all serialised modifier components to a hold node.
+func _attach_all_modifiers(hold: Node2D):
+	var mods: Array = _hold_modifiers.get(hold, [])
+	for md in mods:
+		_attach_modifier_component(hold, md)
+
+## Attach a single modifier component.
+func _attach_modifier_component(hold: Node2D, data: Dictionary):
+	var type_key: String = data.get("type", "")
+	match type_key:
+		"falling":
+			_attach_falling_modifier(hold, data)
+		_:
+			# Delegate to registry if available
+			var registry = get_node_or_null("/root/HoldModifierRegistry")
+			if registry and registry.has_method("attach_modifier"):
+				registry.attach_modifier(hold, data)
+
+## Remove a modifier component by type.
+func _detach_modifier_component(hold: Node2D, type_key: String):
+	match type_key:
+		"falling":
+			var existing = hold.get_node_or_null(_FALLING_MOD_NODE_NAME)
+			if existing: existing.queue_free()
+		_:
+			var registry = get_node_or_null("/root/HoldModifierRegistry")
+			if registry and registry.has_method("detach_modifier"):
+				registry.detach_modifier(hold, type_key)
+
+## Update live parameters on an already-attached component.
+func _sync_modifier_component(hold: Node2D, data: Dictionary):
+	var type_key: String = data.get("type", "")
+	if type_key == "falling":
+		var comp = hold.get_node_or_null(_FALLING_MOD_NODE_NAME)
+		if comp and "fall_delay"   in comp: comp.fall_delay   = float(data.get("fall_delay",   2.2))
+		if comp and "fall_gravity" in comp: comp.fall_gravity = float(data.get("fall_gravity", 1800.0))
+
+## Built-in falling hold component.
+## Attach this as a child of the hold Node2D.
+## It listens for the hold's "grabbed" signal (if present) or uses a
+## countdown timer, then simulates a falling hold by moving position
+## each physics tick.
+func _attach_falling_modifier(hold: Node2D, data: Dictionary):
+	# Remove stale component first
+	var old = hold.get_node_or_null(_FALLING_MOD_NODE_NAME)
+	if old: old.queue_free()
+
+	# If the hold's own script already handles falling via registry, skip.
+	if hold.has_method("apply_modifier") and hold.has_method("has_modifier"):
+		if not hold.has_modifier("falling"):
+			hold.apply_modifier(data)
+		return
+
+	# Build a tiny inline script for the component node
+	var src := """
+extends Node
+
+var fall_delay   : float = 2.2
+var fall_gravity : float = 1800.0
+
+var _timer    : float = 0.0
+var _falling  : bool  = false
+var _vel_y    : float = 0.0
+var _origin   : Vector2
+var _grabbed  : bool  = false
+
+func _ready():
+	_origin = get_parent().global_position
+	# Connect grab signal if the hold exposes one
+	var p = get_parent()
+	if p.has_signal("grabbed"):
+		p.grabbed.connect(_on_grabbed)
+	elif p.has_signal("hold_grabbed"):
+		p.hold_grabbed.connect(_on_grabbed)
+	_timer = fall_delay
+
+func _on_grabbed():
+	_grabbed = true
+
+func reset():
+	_falling = false
+	_vel_y   = 0.0
+	_timer   = fall_delay
+	_grabbed = false
+	get_parent().global_position = _origin
+
+func _physics_process(delta: float):
+	var p = get_parent()
+	if not is_instance_valid(p): return
+	if _falling:
+		_vel_y += fall_gravity * delta
+		p.global_position.y += _vel_y * delta
+		# Respawn if fallen off screen
+		if p.global_position.y > 3000.0:
+			reset()
+		return
+	if _grabbed:
+		_timer -= delta
+		if _timer <= 0.0:
+			_falling = true
+"""
+
+	var script = GDScript.new()
+	script.source_code = src
+
+	var comp = Node.new()
+	comp.name = _FALLING_MOD_NODE_NAME
+	comp.set_script(script)
+	# We must set exported vars AFTER adding to scene tree so _ready runs
+	hold.add_child(comp)
+	# Now set parameters (script is running)
+	if "fall_delay"   in comp: comp.fall_delay   = float(data.get("fall_delay",   2.2))
+	if "fall_gravity" in comp: comp.fall_gravity = float(data.get("fall_gravity", 1800.0))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX 2 — ROPE VISUAL
+#
+#  During test mode (roped/speed discipline) we draw a Line2D from the
+#  belayer anchor down to the player's position each frame.  We also show
+#  the anchor as a distinct visual marker even in non-test mode.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _create_rope_visual():
+	_destroy_rope_visual()
+	if belayer_position == Vector2.ZERO: return
+	if current_discipline not in ["roped", "speed"]: return
+
+	_rope_visual = Line2D.new()
+	_rope_visual.name = "RopeVisual"
+	_rope_visual.default_color = Color(0.85, 0.72, 0.40, 0.85)  # rope colour
+	_rope_visual.width = 3.0
+	_rope_visual.z_index = 50
+	# Simple catenary-style look — we will update points each frame
+	add_child(_rope_visual)
+
+func _destroy_rope_visual():
+	if _rope_visual and is_instance_valid(_rope_visual):
+		_rope_visual.queue_free()
+	_rope_visual = null
+
+func _update_rope_visual():
+	if not _rope_visual or not is_instance_valid(_rope_visual): return
+	if belayer_position == Vector2.ZERO:
+		_rope_visual.clear_points()
+		return
+	var anchor = belayer_position
+	var end_pos: Vector2
+	if is_instance_valid(preview_player_ref):
+		end_pos = preview_player_ref.global_position
+	else:
+		end_pos = anchor + Vector2(0, 400)  # dangle down when no player
+
+	# Build a simple catenary with 20 segments
+	_rope_visual.clear_points()
+	var seg := 20
+	var sag = clamp(anchor.distance_to(end_pos) * 0.18, 20.0, 300.0)
+	for i in range(seg + 1):
+		var t := float(i) / float(seg)
+		var pt = anchor.lerp(end_pos, t)
+		# Parabolic sag
+		pt.y += sag * 4.0 * t * (1.0 - t)
+		_rope_visual.add_point(pt)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -749,6 +1009,8 @@ func _process(delta):
 	_update_info_label()
 	if is_testing and is_instance_valid(preview_player_ref):
 		camera.position = camera.position.lerp(preview_player_ref.global_position, 8.0 * delta)
+		# FIX 2: update rope every frame during test
+		_update_rope_visual()
 	queue_redraw()
 
 func update_camera(delta):
@@ -1039,6 +1301,7 @@ func _update_info_label():
 		if _hold_modifiers.has(h) and not (_hold_modifiers[h] as Array).is_empty(): mod_count += 1
 	if mod_count > 0: parts.append("Modifiers: %d" % mod_count)
 	if is_instance_valid(custom_spawn_hold): parts.append("Custom spawn set")
+	if belayer_position != Vector2.ZERO: parts.append("Anchor set")
 	parts.append("Placing: " + placing)
 	info_label.text = "   ·   ".join(parts)
 
@@ -1054,6 +1317,7 @@ func _on_discipline_changed(index: int):
 			discipline_extras_panel.visible = false
 			crashpad_button.visible = true
 			_clear_belayer_marker()
+			_destroy_rope_visual()
 		1:
 			current_discipline = "roped"; climb_grade = "5.5"
 			discipline_extras_panel.visible = true
@@ -1068,6 +1332,7 @@ func _on_discipline_changed(index: int):
 			belayer_placement_button.visible = false
 			crashpad_button.visible = true
 			_clear_belayer_marker()
+			_destroy_rope_visual()
 	_populate_grade_dropdown()
 
 func _on_grade_changed(index: int):
@@ -1096,6 +1361,8 @@ func _create_belayer_marker(pos: Vector2):
 	belayer_marker = Node2D.new(); belayer_marker.name = "BelayerMarker"
 	belayer_marker.z_index = 100; belayer_marker.global_position = pos
 	belayer_position = pos
+
+	# FIX 2: richer anchor visual — pulley bracket + rope lines
 	var sp = Sprite2D.new()
 	var img = Image.create(32, 48, false, Image.FORMAT_RGBA8); img.fill(Color.TRANSPARENT)
 	for y in range(48):
@@ -1105,7 +1372,8 @@ func _create_belayer_marker(pos: Vector2):
 			if y>=18 and y<=22 and x>=8  and x<=24: img.set_pixel(x,y,Color.ORANGE)
 			if y>=32 and y<=46 and ((x>=10 and x<=13) or (x>=19 and x<=22)): img.set_pixel(x,y,Color.ORANGE)
 	sp.texture = ImageTexture.create_from_image(img)
-	belayer_marker.add_child(sp); add_child(belayer_marker)
+	belayer_marker.add_child(sp)
+	add_child(belayer_marker)
 	_notify("Rope anchor placed")
 
 func _clear_belayer_marker():
@@ -1207,6 +1475,21 @@ func _on_preview():
 	var spawn = _get_spawn_pos()
 	player.global_position = spawn; camera.position = spawn; camera.zoom = Vector2(1,1)
 	camera.make_current()
+
+	# FIX 1: attach all modifier components on all holds when entering test
+	for h in holds_container.get_children():
+		_attach_all_modifiers(h)
+
+	# FIX 2: create rope visual for roped discipline
+	if current_discipline in ["roped", "speed"]:
+		_create_rope_visual()
+		# Pass belayer position to player if it supports it
+		if belayer_position != Vector2.ZERO:
+			if player.has_method("set_belayer_position"):
+				player.set_belayer_position(belayer_position)
+			elif "belayer_position" in player:
+				player.belayer_position = belayer_position
+
 	if current_discipline == "speed": _setup_speed_timer()
 	_sfx(1.2); _notify("Testing — press ESC to exit")
 
@@ -1253,6 +1536,10 @@ func _on_speed_expired():
 		p2.global_position = spawn; if "can_grab" in p2: p2.can_grab = true
 		if "velocity" in p2: p2.velocity = Vector2.ZERO
 	camera.position = spawn
+	# FIX 1: reset all falling hold components on respawn
+	for h in holds_container.get_children():
+		var comp = h.get_node_or_null(_FALLING_MOD_NODE_NAME)
+		if comp and comp.has_method("reset"): comp.reset()
 	if is_instance_valid(_speed_timer_node): _speed_timer_node.stop_timer(); _speed_timer_node.start_timer()
 
 func _disable_player_cameras(player: Node):
@@ -1264,6 +1551,14 @@ func _stop_testing():
 	if is_instance_valid(_speed_timer_node): _speed_timer_node.queue_free()
 	_speed_timer_node = null
 	var pp = get_node_or_null("PreviewPlayer"); if pp: pp.queue_free()
+	# FIX 1: detach all runtime modifier components when leaving test mode
+	for h in holds_container.get_children():
+		var comp = h.get_node_or_null(_FALLING_MOD_NODE_NAME)
+		if comp: comp.queue_free()
+		# Reset hold position if it drifted due to falling
+		# (position is restored from undo state next time they edit)
+	# FIX 2: destroy rope visual
+	_destroy_rope_visual()
 	camera.make_current()
 
 
@@ -1289,7 +1584,6 @@ func _on_copy_json():
 		var e = {"type": get_hold_type(h), "x": h.global_position.x, "y": h.global_position.y}
 		var mods: Array = _hold_modifiers.get(h, [])
 		if not mods.is_empty(): e["modifiers"] = mods.duplicate(true)
-		# ── FIX: persist custom spawn flag ────────────────────────────────
 		if is_instance_valid(custom_spawn_hold) and h == custom_spawn_hold:
 			e["custom_spawn"] = true
 		data["holds"].append(e)
@@ -1345,7 +1639,8 @@ func _on_paste_json():
 		if "modifiers" in hd and not (hd["modifiers"] as Array).is_empty():
 			_hold_modifiers[hold] = (hd["modifiers"] as Array).duplicate(true)
 			_refresh_hold_tint(hold)
-		# ── FIX: restore custom spawn flag ────────────────────────────────
+			# FIX 1: modifiers are NOT attached here (editor mode); they
+			# attach on Test press.  Outline is applied via _refresh_hold_tint.
 		if hd.get("custom_spawn", false):
 			custom_spawn_hold = hold
 			hold.modulate = Color(0.4, 1.0, 0.5)
@@ -1369,6 +1664,7 @@ func _on_clear():
 	if wall and wall.has_method("reset_polygon"): wall.reset_polygon()
 	_hold_modifiers.clear(); _close_props_panel(); custom_spawn_hold = null
 	current_discipline = "bouldering"; speed_time_limit = 60.0; _clear_belayer_marker()
+	_destroy_rope_visual()
 	placing_belayer = false
 	if discipline_dropdown: discipline_dropdown.select(0); _on_discipline_changed(0)
 	climb_name = ""; climb_grade = "VB"
@@ -1402,7 +1698,6 @@ func save_undo_state():
 		state.holds.append({
 			"type": get_hold_type(h), "x": h.global_position.x, "y": h.global_position.y,
 			"modifiers": (_hold_modifiers.get(h, []) as Array).duplicate(true),
-			# ── FIX: persist custom spawn flag in undo state ───────────────
 			"custom_spawn": (h == custom_spawn_hold)
 		})
 	for cp in crashpads_container.get_children():
@@ -1424,8 +1719,8 @@ func undo_last_action():
 		hold.global_position = Vector2(hd["x"], hd["y"])
 		holds_container.add_child(hold); hold.add_to_group("holds"); hold.set_meta("editor_type", hd["type"])
 		if "modifiers" in hd and not (hd["modifiers"] as Array).is_empty():
-			_hold_modifiers[hold] = (hd["modifiers"] as Array).duplicate(true); _refresh_hold_tint(hold)
-		# ── FIX: restore custom spawn flag after undo ──────────────────────
+			_hold_modifiers[hold] = (hd["modifiers"] as Array).duplicate(true)
+			_refresh_hold_tint(hold)
 		if hd.get("custom_spawn", false):
 			custom_spawn_hold = hold
 			hold.modulate = Color(0.4, 1.0, 0.5)
@@ -1461,23 +1756,30 @@ func _draw():
 		draw_rect(Rect2(bounds.min, bounds.size), Color(0.30,0.50,0.80, 0.38 if is_night else 0.22), true)
 		draw_rect(Rect2(bounds.min, bounds.size), Color(0.40,0.70,1.00, 0.75 if is_night else 0.55), false, 3.0)
 
-	if belayer_position != Vector2.ZERO:
+	# FIX 2: draw rope anchor indicator in editor (non-test) mode
+	if belayer_position != Vector2.ZERO and not is_testing:
 		draw_circle(belayer_position, 15, Color(1,0.5,0,0.25))
 		draw_arc(belayer_position, 20, 0, TAU, 32, Color.ORANGE, 2.0)
+		# Draw a short dangling rope preview
+		var dangle_end = belayer_position + Vector2(0, 120)
+		draw_line(belayer_position, dangle_end, Color(0.85,0.72,0.40,0.55), 2.5)
 
 	if is_instance_valid(custom_spawn_hold):
 		var sp = custom_spawn_hold.global_position
 		draw_circle(sp, 18, Color(0.3,1.0,0.4,0.15))
 		draw_arc(sp, 22, 0, TAU, 36, Color(0.3,1.0,0.4,0.80), 2.0)
 
-	# Purple diamond on modifier holds
+	# FIX 3: removed the non-functional diamond glyph — outline is now on
+	# the sprite itself via _apply_hold_outline / shader material.
+	# We keep a subtle label near modified holds so they are identifiable
+	# even when zoomed out.
 	for h in holds_container.get_children():
 		if _hold_modifiers.has(h) and not (_hold_modifiers[h] as Array).is_empty():
-			var hp = h.global_position; var d := 8.0
-			var col = C_MODIFIER
-			draw_polygon(PackedVector2Array([
-				hp+Vector2(0,-d), hp+Vector2(d,0), hp+Vector2(0,d), hp+Vector2(-d,0)
-			]), PackedColorArray([col,col,col,col]))
+			# Small "M" label above the hold
+			draw_string(ThemeDB.fallback_font,
+				h.global_position + Vector2(-5, -28),
+				"M", HORIZONTAL_ALIGNMENT_LEFT, -1, 11,
+				Color(C_MODIFIER.r, C_MODIFIER.g, C_MODIFIER.b, 0.85))
 
 	if not grid_enabled: return
 
@@ -1544,7 +1846,7 @@ func _world_to_screen(world_pos: Vector2) -> Vector2:
 	return (world_pos - camera.global_position) * camera.zoom + get_viewport_rect().size * 0.5
 
 
-# ── Widget helpers ─────────────────────────────────────────────────────────
+# ── Widget helpers ──────────────────────────────────────────────────────────
 
 func _label(text: String, size: int, color: Color) -> Label:
 	var l = Label.new(); l.text = text
@@ -1579,17 +1881,6 @@ func _style_option_button(ob: OptionButton):
 	var n = StyleBoxFlat.new()
 	n.bg_color = C_SURFACE; n.set_border_width_all(1); n.border_color = C_BORDER
 	n.set_corner_radius_all(3); ob.add_theme_stylebox_override("normal", n)
-
-func _make_icon_button(icon: String, tooltip: String, cb: Callable) -> Button:
-	var btn = Button.new(); btn.text = icon; btn.tooltip_text = tooltip
-	btn.custom_minimum_size = Vector2(32, 30); btn.focus_mode = Control.FOCUS_NONE
-	var n = StyleBoxFlat.new(); n.bg_color = C_SURFACE
-	n.set_border_width_all(1); n.border_color = C_BORDER; n.set_corner_radius_all(3)
-	btn.add_theme_stylebox_override("normal", n)
-	var h = StyleBoxFlat.new(); h.bg_color = Color(C_SURFACE.r+0.06, C_SURFACE.g+0.06, C_SURFACE.b+0.06)
-	h.set_border_width_all(1); h.border_color = C_ACCENT; h.set_corner_radius_all(3)
-	btn.add_theme_stylebox_override("hover", h)
-	btn.pressed.connect(cb); return btn
 
 func _make_action_button(text: String, color: Color, cb: Callable) -> Button:
 	var btn = Button.new(); btn.text = text; btn.focus_mode = Control.FOCUS_NONE

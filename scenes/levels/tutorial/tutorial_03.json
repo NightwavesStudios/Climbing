@@ -15,7 +15,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "VB",
+	"grade": "V0",
 	"holds": [
 		{
 			"type": "START",
@@ -79,6 +79,7 @@
 		}
 	],
 	"name": "Pocket Galore",
+	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 4,

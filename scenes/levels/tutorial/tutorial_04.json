@@ -309,7 +309,8 @@
 			"y": -970.397644042969
 		}
 	],
-	"name": "Unnamed Route",
+	"name": "First Roped",
+	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 5,
@@ -333,13 +334,15 @@
 			},
 			{
 				"x": 166.808898925781,
-				"y": 214.0
+				"y": 246.0
 			},
 			{
 				"x": -166.746032714844,
-				"y": 214.0
+				"y": 246.0
 			}
 		],
 		"top_edge_indices": []
-	}
+	},
+	"weather": 0,
+	"weather_intensity": 1.0
 }

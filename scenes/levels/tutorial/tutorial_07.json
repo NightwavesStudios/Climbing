@@ -11,7 +11,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "V2",
+	"grade": "V3",
 	"holds": [
 		{
 			"type": "CRIMP",
@@ -69,6 +69,11 @@
 			"y": 0.0
 		},
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "JUG",
 			"x": 128.0,
 			"y": -352.0
@@ -84,11 +89,21 @@
 			"y": -32.0
 		},
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "JUG",
 			"x": 32.0,
 			"y": -96.0
 		},
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "JUG",
 			"x": -32.0,
 			"y": -160.0
@@ -115,6 +130,7 @@
 		}
 	],
 	"name": "Crimp",
+	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 3,

@@ -33,6 +33,11 @@
 			"y": -192.0
 		},
 		{
+			"modifiers": [
+				{
+					"type": "falling"
+				}
+			],
 			"type": "JUG",
 			"x": -64.0,
 			"y": -288.0
@@ -89,6 +94,7 @@
 		}
 	],
 	"name": "Unnamed Route",
+	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 4,
