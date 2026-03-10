@@ -12,18 +12,23 @@ var hold_metadata: Dictionary = {}   # type_name -> { path, filename, display_na
 # HOLD BEHAVIOR CONFIG
 # Define all hold behavior here. Adding a new hold type = add one entry below.
 # ClimbingHold reads this at runtime - no code changes needed there.
+#
+# wall_types: [] = available on ALL wall types (default)
+# wall_types: ["building"] = ONLY available on building walls
+# Add as many wall type strings as needed per hold.
 # =============================================================================
 const HOLD_CONFIGS = {
 	"JUG": {
 		"difficulty": 0.0,
 		"rest_value": 50.0,
 		"snap_to_point": true,
-		"is_pocket": false,       # pocket = only one limb at a time
+		"is_pocket": false,
 		"is_foothold": false,
 		"is_start": false,
 		"is_top_out": false,
 		"display_name": "Jug",
-		"sloper_drain": false,    # slopers drain extra when held
+		"sloper_drain": false,
+		"wall_types": [],
 	},
 	"START": {
 		"difficulty": 0.0,
@@ -35,6 +40,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": false,
 		"display_name": "Start",
 		"sloper_drain": false,
+		"wall_types": [],
 	},
 	"TOP": {
 		"difficulty": 0.0,
@@ -46,6 +52,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": true,
 		"display_name": "Top Out",
 		"sloper_drain": false,
+		"wall_types": [],
 	},
 	"CRIMP": {
 		"difficulty": 3.0,
@@ -57,6 +64,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": false,
 		"display_name": "Crimp",
 		"sloper_drain": false,
+		"wall_types": [],
 	},
 	"SLOPER": {
 		"difficulty": 2.5,
@@ -68,6 +76,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": false,
 		"display_name": "Sloper",
 		"sloper_drain": true,
+		"wall_types": [],
 	},
 	"POCKET": {
 		"difficulty": 1.2,
@@ -79,6 +88,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": false,
 		"display_name": "Pocket",
 		"sloper_drain": false,
+		"wall_types": [],
 	},
 	"FOOT": {
 		"difficulty": 1.0,
@@ -90,6 +100,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": false,
 		"display_name": "Foothold",
 		"sloper_drain": false,
+		"wall_types": [],
 	},
 	"PINCH": {
 		"difficulty": 2.0,
@@ -101,6 +112,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": false,
 		"display_name": "Pinch",
 		"sloper_drain": false,
+		"wall_types": [],
 	},
 	"UNDERCLING": {
 		"difficulty": 2.2,
@@ -112,6 +124,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": false,
 		"display_name": "Undercling",
 		"sloper_drain": false,
+		"wall_types": [],
 	},
 	"WINDOW": {
 		"difficulty": 1.5,
@@ -123,6 +136,7 @@ const HOLD_CONFIGS = {
 		"is_top_out": false,
 		"display_name": "Window",
 		"sloper_drain": false,
+		"wall_types": ["building"],  # building walls only — not gym, granite, or sandstone
 	},
 }
 
@@ -137,6 +151,7 @@ const DEFAULT_CONFIG = {
 	"is_top_out": false,
 	"display_name": "",
 	"sloper_drain": false,
+	"wall_types": [],   # empty = allowed on all wall types
 }
 
 func _ready():
@@ -228,6 +243,27 @@ func get_config_value(type_name: String, property: String, fallback = null):
 	"""Get a single property from a hold's config."""
 	var config = get_hold_config(type_name)
 	return config.get(property, fallback)
+
+# =============================================================================
+# WALL TYPE FILTERING
+# =============================================================================
+func get_holds_for_wall_type(wall_type: String) -> Array:
+	"""Return all hold type keys valid for the given wall type.
+	Holds with empty wall_types are allowed everywhere."""
+	var valid = []
+	var wt = wall_type.to_lower()
+	for hold_type in hold_scenes.keys():
+		var config = get_hold_config(hold_type)
+		var allowed: Array = config.get("wall_types", [])
+		if allowed.is_empty() or wt in allowed:
+			valid.append(hold_type)
+	return valid
+
+func is_hold_valid_for_wall(hold_type: String, wall_type: String) -> bool:
+	"""Returns true if the hold type is allowed on the given wall type."""
+	var config = get_hold_config(hold_type)
+	var allowed: Array = config.get("wall_types", [])
+	return allowed.is_empty() or wall_type.to_lower() in allowed
 
 # =============================================================================
 # PUBLIC API

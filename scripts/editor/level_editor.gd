@@ -21,6 +21,10 @@ extends Node2D
 #       a coloured outline is applied directly to the hold's Sprite2D child
 #       using a per-hold CanvasItem material with a simple outline shader.
 #       Falls back to a modulate tint if no Sprite2D is found.
+#    4. Wall-type filtering — hold palette buttons are shown/hidden based on
+#       the current environment. Holds with wall_types:[] are universal;
+#       holds with specific wall_types (e.g. WINDOW = ["building"]) only
+#       appear on matching environments. Placement is also guarded.
 # ═══════════════════════════════════════════════════════════════════════════
 
 var camera: Camera2D
@@ -91,6 +95,9 @@ var speed_time_limit: float = 60.0
 var belayer_position: Vector2 = Vector2.ZERO
 var current_weather: int = 0
 var current_weather_intensity: float = 1.0
+
+# FIX 4: track current environment for hold palette filtering
+var current_environment: String = "gym"
 
 var grid_enabled: bool = true
 var grid_size: float = 32.0
@@ -403,6 +410,13 @@ func _build_top_bar():
 			clear_preview()
 			return
 		var key: String = hold_type_dropdown.get_item_metadata(idx)
+		# FIX 4: guard dropdown selection against current wall type
+		var registry = get_node_or_null("/root/HoldRegistry")
+		if registry and not registry.is_hold_valid_for_wall(key, current_environment):
+			_notify("'%s' hold not available on %s walls" % [key, current_environment], true)
+			_sfx(0.5)
+			hold_type_dropdown.select(0)
+			return
 		_on_palette_type_selected(key)
 	)
 	hbox.add_child(hold_type_dropdown)
@@ -594,6 +608,28 @@ func _highlight_palette_button(key: String, active: bool):
 	n.set_corner_radius_all(0)
 	btn.add_theme_stylebox_override("normal", n)
 	btn.add_theme_color_override("font_color", col if active else Color(col.r,col.g,col.b,0.55))
+
+
+# ── FIX 4: PALETTE WALL-TYPE FILTERING ────────────────────────────────────
+
+func _refresh_hold_palette_for_environment():
+	"""Show/hide palette buttons based on what's valid for the current wall type.
+	Also clears the active selection if it's no longer valid."""
+	var registry = get_node_or_null("/root/HoldRegistry")
+	for type_key in HOLD_TYPES:
+		var btn = palette_buttons.get(type_key)
+		if btn == null:
+			continue
+		var valid = true
+		if registry:
+			valid = registry.is_hold_valid_for_wall(type_key, current_environment)
+		btn.visible = valid
+		# If the currently selected type is no longer valid, deselect it
+		if not valid and selected_hold_type == type_key:
+			selected_hold_type = ""
+			clear_preview()
+			_deselect_all_palette()
+			_notify("'%s' hold not available on %s walls" % [type_key, current_environment], true)
 
 
 # ── INFO BAR ──────────────────────────────────────────────────────────────
@@ -823,13 +859,6 @@ func _close_props_panel():
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  FIX 1 — FALLING HOLD MODIFIER  (runtime component management)
-#
-#  We attach a lightweight child node called "_FallingModifier" to each
-#  hold that has the "falling" modifier.  This node drives the actual
-#  physics: it waits for a grab signal (or auto-timer), then applies
-#  gravity to the hold's position.  If the hold's scene already has its
-#  own modifier system we defer to that; otherwise we use a built-in
-#  fallback implemented here.
 # ═══════════════════════════════════════════════════════════════════════════
 
 const _FALLING_MOD_NODE_NAME := "_FallingModifier"
@@ -871,11 +900,6 @@ func _sync_modifier_component(hold: Node2D, data: Dictionary):
 		if comp and "fall_delay"   in comp: comp.fall_delay   = float(data.get("fall_delay",   2.2))
 		if comp and "fall_gravity" in comp: comp.fall_gravity = float(data.get("fall_gravity", 1800.0))
 
-## Built-in falling hold component.
-## Attach this as a child of the hold Node2D.
-## It listens for the hold's "grabbed" signal (if present) or uses a
-## countdown timer, then simulates a falling hold by moving position
-## each physics tick.
 func _attach_falling_modifier(hold: Node2D, data: Dictionary):
 	# Remove stale component first
 	var old = hold.get_node_or_null(_FALLING_MOD_NODE_NAME)
@@ -887,7 +911,6 @@ func _attach_falling_modifier(hold: Node2D, data: Dictionary):
 			hold.apply_modifier(data)
 		return
 
-	# Build a tiny inline script for the component node
 	var src := """
 extends Node
 
@@ -902,7 +925,6 @@ var _grabbed  : bool  = false
 
 func _ready():
 	_origin = get_parent().global_position
-	# Connect grab signal if the hold exposes one
 	var p = get_parent()
 	if p.has_signal("grabbed"):
 		p.grabbed.connect(_on_grabbed)
@@ -926,7 +948,6 @@ func _physics_process(delta: float):
 	if _falling:
 		_vel_y += fall_gravity * delta
 		p.global_position.y += _vel_y * delta
-		# Respawn if fallen off screen
 		if p.global_position.y > 3000.0:
 			reset()
 		return
@@ -942,19 +963,13 @@ func _physics_process(delta: float):
 	var comp = Node.new()
 	comp.name = _FALLING_MOD_NODE_NAME
 	comp.set_script(script)
-	# We must set exported vars AFTER adding to scene tree so _ready runs
 	hold.add_child(comp)
-	# Now set parameters (script is running)
 	if "fall_delay"   in comp: comp.fall_delay   = float(data.get("fall_delay",   2.2))
 	if "fall_gravity" in comp: comp.fall_gravity = float(data.get("fall_gravity", 1800.0))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  FIX 2 — ROPE VISUAL
-#
-#  During test mode (roped/speed discipline) we draw a Line2D from the
-#  belayer anchor down to the player's position each frame.  We also show
-#  the anchor as a distinct visual marker even in non-test mode.
 # ═══════════════════════════════════════════════════════════════════════════
 
 func _create_rope_visual():
@@ -964,10 +979,9 @@ func _create_rope_visual():
 
 	_rope_visual = Line2D.new()
 	_rope_visual.name = "RopeVisual"
-	_rope_visual.default_color = Color(0.85, 0.72, 0.40, 0.85)  # rope colour
+	_rope_visual.default_color = Color(0.85, 0.72, 0.40, 0.85)
 	_rope_visual.width = 3.0
 	_rope_visual.z_index = 50
-	# Simple catenary-style look — we will update points each frame
 	add_child(_rope_visual)
 
 func _destroy_rope_visual():
@@ -985,16 +999,14 @@ func _update_rope_visual():
 	if is_instance_valid(preview_player_ref):
 		end_pos = preview_player_ref.global_position
 	else:
-		end_pos = anchor + Vector2(0, 400)  # dangle down when no player
+		end_pos = anchor + Vector2(0, 400)
 
-	# Build a simple catenary with 20 segments
 	_rope_visual.clear_points()
 	var seg := 20
 	var sag = clamp(anchor.distance_to(end_pos) * 0.18, 20.0, 300.0)
 	for i in range(seg + 1):
 		var t := float(i) / float(seg)
 		var pt = anchor.lerp(end_pos, t)
-		# Parabolic sag
 		pt.y += sag * 4.0 * t * (1.0 - t)
 		_rope_visual.add_point(pt)
 
@@ -1009,7 +1021,6 @@ func _process(delta):
 	_update_info_label()
 	if is_testing and is_instance_valid(preview_player_ref):
 		camera.position = camera.position.lerp(preview_player_ref.global_position, 8.0 * delta)
-		# FIX 2: update rope every frame during test
 		_update_rope_visual()
 	queue_redraw()
 
@@ -1136,6 +1147,14 @@ func _is_mouse_over_ui() -> bool:
 
 func _place_hold(pos: Vector2) -> bool:
 	if not selected_hold_type or selected_hold_type not in loaded_scenes: return false
+
+	# FIX 4: hard guard — block placement if hold isn't valid for this wall type
+	var registry = get_node_or_null("/root/HoldRegistry")
+	if registry and not registry.is_hold_valid_for_wall(selected_hold_type, current_environment):
+		_notify("'%s' hold not available on %s walls" % [selected_hold_type, current_environment], true)
+		_sfx(0.5)
+		return false
+
 	pos = pos.clamp(Vector2(CANVAS_MIN_X,CANVAS_MIN_Y), Vector2(CANVAS_MAX_X,CANVAS_MAX_Y))
 	if selected_hold_type == "START" and _count_type("START") >= MAX_START_HOLDS:
 		_notify("Max %d START holds" % MAX_START_HOLDS, true); _sfx(0.5); return false
@@ -1290,6 +1309,7 @@ func _update_info_label():
 	var disc_map = {"bouldering":"Boulder","roped":"Roped","speed":"Speed"}
 	var parts = [
 		"%s  %s" % [disc_map.get(current_discipline, current_discipline), climb_grade],
+		"Env: %s" % current_environment,
 		"Holds: %d" % holds_container.get_child_count(),
 		"Start: %d/%d  Top: %d/%d" % [_count_type("START"), MAX_START_HOLDS,
 									   _count_type("TOP"),   MAX_TOP_HOLDS],
@@ -1362,7 +1382,6 @@ func _create_belayer_marker(pos: Vector2):
 	belayer_marker.z_index = 100; belayer_marker.global_position = pos
 	belayer_position = pos
 
-	# FIX 2: richer anchor visual — pulley bracket + rope lines
 	var sp = Sprite2D.new()
 	var img = Image.create(32, 48, false, Image.FORMAT_RGBA8); img.fill(Color.TRANSPARENT)
 	for y in range(48):
@@ -1416,8 +1435,12 @@ func on_environment_changed(index: int, dd: OptionButton):
 	var env = get_node_or_null("/root/EnvironmentConfig")
 	if not env: return
 	var types = env.get_all_environment_types()
-	if index < types.size(): env.set_environment(types[index])
+	if index < types.size():
+		env.set_environment(types[index])
+		# FIX 4: sync current_environment and refresh palette
+		current_environment = env.get_environment_name(types[index]).to_lower()
 	update_wall_bounds()
+	_refresh_hold_palette_for_environment()
 	for h in holds_container.get_children():
 		if h.has_method("_update_sprite_for_environment"): h._update_sprite_for_environment()
 	for cp in crashpads_container.get_children():
@@ -1483,7 +1506,6 @@ func _on_preview():
 	# FIX 2: create rope visual for roped discipline
 	if current_discipline in ["roped", "speed"]:
 		_create_rope_visual()
-		# Pass belayer position to player if it supports it
 		if belayer_position != Vector2.ZERO:
 			if player.has_method("set_belayer_position"):
 				player.set_belayer_position(belayer_position)
@@ -1536,7 +1558,6 @@ func _on_speed_expired():
 		p2.global_position = spawn; if "can_grab" in p2: p2.can_grab = true
 		if "velocity" in p2: p2.velocity = Vector2.ZERO
 	camera.position = spawn
-	# FIX 1: reset all falling hold components on respawn
 	for h in holds_container.get_children():
 		var comp = h.get_node_or_null(_FALLING_MOD_NODE_NAME)
 		if comp and comp.has_method("reset"): comp.reset()
@@ -1551,13 +1572,9 @@ func _stop_testing():
 	if is_instance_valid(_speed_timer_node): _speed_timer_node.queue_free()
 	_speed_timer_node = null
 	var pp = get_node_or_null("PreviewPlayer"); if pp: pp.queue_free()
-	# FIX 1: detach all runtime modifier components when leaving test mode
 	for h in holds_container.get_children():
 		var comp = h.get_node_or_null(_FALLING_MOD_NODE_NAME)
 		if comp: comp.queue_free()
-		# Reset hold position if it drifted due to falling
-		# (position is restored from undo state next time they edit)
-	# FIX 2: destroy rope visual
 	_destroy_rope_visual()
 	camera.make_current()
 
@@ -1622,8 +1639,13 @@ func _on_paste_json():
 		var en = data.get("environment","gym"); var types = env.get_all_environment_types(); var matched = false
 		for i in range(types.size()):
 			if env.get_environment_name(types[i]).to_lower() == en.to_lower():
-				env.set_environment(types[i]); matched = true; break
-		if not matched and not types.is_empty(): env.set_environment(types[0])
+				env.set_environment(types[i])
+				current_environment = en   # FIX 4: sync env on paste
+				matched = true; break
+		if not matched and not types.is_empty():
+			env.set_environment(types[0])
+			current_environment = env.get_environment_name(types[0]).to_lower()
+		_refresh_hold_palette_for_environment()
 		update_wall_bounds()
 	var lw = int(data.get("weather",0)); var li = float(data.get("weather_intensity",1.0))
 	current_weather = lw; current_weather_intensity = li
@@ -1639,8 +1661,6 @@ func _on_paste_json():
 		if "modifiers" in hd and not (hd["modifiers"] as Array).is_empty():
 			_hold_modifiers[hold] = (hd["modifiers"] as Array).duplicate(true)
 			_refresh_hold_tint(hold)
-			# FIX 1: modifiers are NOT attached here (editor mode); they
-			# attach on Test press.  Outline is applied via _refresh_hold_tint.
 		if hd.get("custom_spawn", false):
 			custom_spawn_hold = hold
 			hold.modulate = Color(0.4, 1.0, 0.5)
@@ -1756,11 +1776,9 @@ func _draw():
 		draw_rect(Rect2(bounds.min, bounds.size), Color(0.30,0.50,0.80, 0.38 if is_night else 0.22), true)
 		draw_rect(Rect2(bounds.min, bounds.size), Color(0.40,0.70,1.00, 0.75 if is_night else 0.55), false, 3.0)
 
-	# FIX 2: draw rope anchor indicator in editor (non-test) mode
 	if belayer_position != Vector2.ZERO and not is_testing:
 		draw_circle(belayer_position, 15, Color(1,0.5,0,0.25))
 		draw_arc(belayer_position, 20, 0, TAU, 32, Color.ORANGE, 2.0)
-		# Draw a short dangling rope preview
 		var dangle_end = belayer_position + Vector2(0, 120)
 		draw_line(belayer_position, dangle_end, Color(0.85,0.72,0.40,0.55), 2.5)
 
@@ -1769,13 +1787,8 @@ func _draw():
 		draw_circle(sp, 18, Color(0.3,1.0,0.4,0.15))
 		draw_arc(sp, 22, 0, TAU, 36, Color(0.3,1.0,0.4,0.80), 2.0)
 
-	# FIX 3: removed the non-functional diamond glyph — outline is now on
-	# the sprite itself via _apply_hold_outline / shader material.
-	# We keep a subtle label near modified holds so they are identifiable
-	# even when zoomed out.
 	for h in holds_container.get_children():
 		if _hold_modifiers.has(h) and not (_hold_modifiers[h] as Array).is_empty():
-			# Small "M" label above the hold
 			draw_string(ThemeDB.fallback_font,
 				h.global_position + Vector2(-5, -28),
 				"M", HORIZONTAL_ALIGNMENT_LEFT, -1, 11,

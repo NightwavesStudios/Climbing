@@ -87,9 +87,9 @@ const HIP_OFFSET := 0.0
 const HIP_DOWN := 20.0
 const HEAD_OFFSET := -20.0
 
-const BODY_PULL_STRENGTH := 0.35
-const JOINT_STIFFNESS := 0.98
-const LIMB_STIFFNESS := 0.98
+const BODY_PULL_STRENGTH := 0.55
+const JOINT_STIFFNESS := 0.92
+const LIMB_STIFFNESS := 0.92
 
 const FOOT_SUPPORT_STRENGTH := 0.40
 const FOOT_SUPPORT_MIN_Y := -30.0
@@ -110,7 +110,7 @@ const COM_OFFSET_Y := 15.0
 
 const FOOT_CUT_THRESHOLD := 320.0
 
-const HAND_LOAD_TOLERANCE := 1.25
+const HAND_LOAD_TOLERANCE := 1.08
 const MOMENTUM_TRANSFER_STRENGTH := 0.2
 const DYNO_VELOCITY_BOOST := 0.8
 
@@ -135,7 +135,7 @@ const FOOT_SNAP_SPEED := 0.12
 const FOOT_RESTABILIZE_TIME := 0.6
 const CRIMP_LEG_SPEED_FACTOR := 0.45
 
-const ONE_ARM_PRESSURE_MULTIPLIER := 2.5
+const ONE_ARM_PRESSURE_MULTIPLIER := 1.8
 const TWO_ARM_PRESSURE_MULTIPLIER := 1.5
 const THREE_LIMB_PRESSURE_MULTIPLIER := 1.0
 const FOUR_LIMB_PRESSURE_MULTIPLIER := 0.6
@@ -168,7 +168,7 @@ const LOAD_LERP_SPEED := 4.0
 
 const UPWARD_VELOCITY_THRESHOLD    := -80.0
 const UPWARD_DRAIN_MULT            := 1.5
-const SOLE_SUPPORT_DRAIN_MULT      := 1.75
+const SOLE_SUPPORT_DRAIN_MULT      := 1.2
 
 const CATCH_BURST_1_LIMB           := 0.20
 const CATCH_BURST_2_LIMB           := 0.08
@@ -395,8 +395,6 @@ func _ready():
 	_spotlight = get_node_or_null("SpotLight2D")
 
 	await get_tree().process_frame
-	await get_tree().process_frame
-	await get_tree().process_frame
 	call_deferred("initial_grab")
 
 func _process(delta):
@@ -428,7 +426,7 @@ func _process(delta):
 	update_camera()
 	_update_spotlight()
 	_update_weather_modifier()
-	
+
 	queue_redraw()
 
 
@@ -1309,8 +1307,6 @@ func reset_climb():
 	_spotlight = get_node_or_null("SpotLight2D")
 
 	await get_tree().process_frame
-	await get_tree().process_frame
-	await get_tree().process_frame
 	call_deferred("initial_grab")
 
 func _query_water(pos: Vector2, vel: Vector2) -> Dictionary:
@@ -1347,7 +1343,7 @@ func simulate_physics(delta):
 		com_velocity.y -= _buoyancy * delta
 
 	if held_hand_count > 0:
-		var no_foot_gravity_mult = 1.0 if held_foot_count > 0 else 2.2
+		var no_foot_gravity_mult = 1.0 if held_foot_count > 0 else 1.2
 		com_velocity.y += GRAVITY * delta * 0.15 * no_foot_gravity_mult
 	else:
 		if _in_water:
@@ -1453,7 +1449,6 @@ func _apply_hip_shift(delta: float, held_hand_count: int, held_foot_count: int):
 		desired *= 0.4
 
 	_hip_shift_offset = _hip_shift_offset.lerp(desired, HIP_SHIFT_STRENGTH * delta * 60.0)
-
 	_apply_hip_shift_bias()
 
 func _apply_hip_shift_bias():
@@ -1582,7 +1577,6 @@ func _update_ghost_with_reach(delta: float, limb: Limb, limb_node: Node2D,
 		return
 
 	var mouse_global := mouse_aim_position
-
 	var to_mouse := mouse_global - anchor
 	var dist := to_mouse.length()
 	var clamped_target: Vector2
@@ -1636,7 +1630,6 @@ func _update_ghost_with_reach(delta: float, limb: Limb, limb_node: Node2D,
 				hip_r + ((_ghost_rf - hip_r).normalized() * LEG_UPPER_LENGTH), 0.35)
 			right_foot_velocity = Vector2.ZERO
 			right_foot_joint_velocity = Vector2.ZERO
-
 
 func apply_natural_limb_positions(_delta):
 	var relax = 0.18
@@ -2191,6 +2184,21 @@ func find_best_foot_hold(foot_position: Vector2, is_left: bool) -> Area2D:
 	return best_hold
 
 func initial_grab():
+	# Hard-reset ALL velocity and position before touching any holds
+	body_velocity              = Vector2.ZERO
+	com_velocity               = Vector2.ZERO
+	swing_momentum             = Vector2.ZERO
+	left_hand_velocity         = Vector2.ZERO
+	right_hand_velocity        = Vector2.ZERO
+	left_foot_velocity         = Vector2.ZERO
+	right_foot_velocity        = Vector2.ZERO
+	left_hand_joint_velocity   = Vector2.ZERO
+	right_hand_joint_velocity  = Vector2.ZERO
+	left_foot_joint_velocity   = Vector2.ZERO
+	right_foot_joint_velocity  = Vector2.ZERO
+	global_position            = spawn_position
+	com_position               = spawn_position + Vector2(0, COM_OFFSET_Y)
+
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -2347,7 +2355,6 @@ func attempt_grab(limb: Limb):
 		Limb.RIGHT_FOOT: limb_node = right_foot; is_foot = true
 		_: return
 
-	# Query using GRAB_RADIUS so detection is independent of scene Area2D shape sizes
 	var space_state := get_world_2d().direct_space_state
 	var query := PhysicsShapeQueryParameters2D.new()
 	var circle := CircleShape2D.new()
@@ -2374,11 +2381,8 @@ func attempt_grab(limb: Limb):
 
 		var dist_metric: float
 		if hold.get("snap_to_point"):
-			# Snapping holds: pick nearest HoldPoint marker
 			dist_metric = limb_node.global_position.distance_to(hold_point_node.global_position)
 		else:
-			# Free-grab holds: distance to the CollisionShape2D centre (not Area2D origin),
-			# accounting for any position offset the shape node has within the Area2D.
 			var shape_node = hold.get_node_or_null("CollisionShape2D")
 			var shape_centre: Vector2
 			if shape_node:
@@ -2395,7 +2399,6 @@ func attempt_grab(limb: Limb):
 	if closest_hold == null:
 		return
 
-	# For snap holds use the shared-hold offset logic; for free holds use limb position directly
 	var grab_pos: Vector2
 	if closest_hold.get("snap_to_point"):
 		grab_pos = calculate_grab_position(limb, closest_hold, closest_hold_point, limb_node.global_position)
@@ -2405,7 +2408,6 @@ func attempt_grab(limb: Limb):
 	if not closest_hold.try_claim(limb_node, is_foot, grab_pos):
 		return
 
-	# get_limb_anchor returns the clamped-within-shape position stored by try_claim
 	var resolved_pos = closest_hold.get_limb_anchor(limb_node)
 
 	match limb:
@@ -2557,14 +2559,12 @@ func set_speed_timer(timer: Node):
 
 func get_climbing_discipline() -> int:
 	return current_discipline
-	
+
 func _update_weather_modifier() -> void:
 	if not _weather_modifier:
 		return
 	if not _weather_modifier.has_method("update_player_data"):
 		return
-	# Head position: slightly above body centre
 	var head_world := global_position + Vector2(0, HEAD_OFFSET)
-	# Lamp target: use mouse position so the beam follows your aim
 	var lamp_target := get_global_mouse_position()
 	_weather_modifier.update_player_data(head_world, lamp_target)
