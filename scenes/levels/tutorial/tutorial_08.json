@@ -3,7 +3,20 @@
 		"x": 32.0,
 		"y": 224.0
 	},
-	"crashpads": [],
+	"crashpads": [
+		{
+			"x": -64.0,
+			"y": 352.0
+		},
+		{
+			"x": 160.0,
+			"y": 352.0
+		},
+		{
+			"x": 384.0,
+			"y": 352.0
+		}
+	],
 	"discipline": "roped",
 	"environment": "gym",
 	"grade": "5.7",
@@ -335,6 +348,7 @@
 		}
 	],
 	"name": "Unnamed Route",
+	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 3,
@@ -350,11 +364,11 @@
 			},
 			{
 				"x": 484.0,
-				"y": 246.0
+				"y": 342.0
 			},
 			{
 				"x": -132.0,
-				"y": 246.0
+				"y": 342.0
 			}
 		],
 		"top_edge_indices": []

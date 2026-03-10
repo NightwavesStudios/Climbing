@@ -12,7 +12,7 @@ var _current_index: int = 0
 var _tween: Tween = null
 var _transitioning: bool = false
 
-const WEATHER_NAMES = { 0: "", 1: "Rain", 2: "Dark", 3: "Snow"}
+const WEATHER_NAMES = { 0: "", 1: "Rain", 2: "Night", 3: "Snow", 4: "Lightning", 5: "Fog", 6: "Hail" }
 
 const HOLD_SCENE_MAP = {
 	"JUG":    "res://scenes/holds/jug.tscn",
@@ -23,6 +23,8 @@ const HOLD_SCENE_MAP = {
 	"START":  "res://scenes/holds/start.tscn",
 	"TOP":    "res://scenes/holds/top_out.tscn",
 }
+
+const CRASHPAD_SCENE = "res://scenes/props/crashpad.tscn"
 
 const ENV_COLORS = {
 	"gym":      { "wall": Color(0.68, 0.60, 0.50), "sky": Color(0.30, 0.28, 0.26), "edge": Color(0.82, 0.75, 0.62), "ground": Color(0.20, 0.18, 0.16) },
@@ -88,13 +90,16 @@ func _show_page(index: int) -> void:
 	var meta: Dictionary = _levels[index]
 	var json: Dictionary = _load_json(meta.path)
 
-	var route_name:  String = json.get("name",       "Route %d" % (index + 1))
-	var grade:       String = json.get("grade",       "—")
-	var discipline:  String = json.get("discipline",  "bouldering")
-	var environment: String = json.get("environment", "gym")
-	var weather_int: int    = int(json.get("weather", 0))
-	var holds:       Array  = json.get("holds",       [])
-	var palette             = _get_env_palette(environment)
+	var route_name:        String = json.get("name",             "Route %d" % (index + 1))
+	var grade:             String = json.get("grade",             "—")
+	var discipline:        String = json.get("discipline",        "bouldering")
+	var environment:       String = json.get("environment",       "gym")
+	var weather_int:       int    = int(json.get("weather",       0))
+	var weather_intensity: float  = float(json.get("weather_intensity", 1.0))
+	var time_of_day:       float  = float(json.get("time_of_day", 0.5))   # 0=midnight 1=midnight, 0.5=noon
+	var holds:             Array  = json.get("holds",             [])
+	var crashpads:         Array  = json.get("crashpads",         [])
+	var palette                   = _get_env_palette(environment)
 
 	var hbox := HBoxContainer.new()
 	hbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -110,7 +115,7 @@ func _show_page(index: int) -> void:
 
 	var diagram: Control
 	if meta.unlocked:
-		diagram = _build_route_diagram(json)
+		diagram = _build_route_diagram(json, weather_int, weather_intensity, time_of_day, crashpads)
 	else:
 		diagram = _build_locked_diagram(palette, environment)
 	diagram.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -203,6 +208,10 @@ func _show_page(index: int) -> void:
 		_add_tag(tags_hbox, environment.capitalize(),  Color(palette.wall.r * 0.7, palette.wall.g * 0.7, palette.wall.b * 0.7, 0.55))
 		if weather_int > 0:
 			_add_tag(tags_hbox, WEATHER_NAMES.get(weather_int, ""), Color(0.25, 0.38, 0.55, 0.7))
+		# Time-of-day tag: only show if meaningfully non-midday
+		var tod_label := _time_of_day_label(time_of_day)
+		if tod_label != "":
+			_add_tag(tags_hbox, tod_label, Color(0.18, 0.18, 0.28, 0.7))
 
 	var sep1 := ColorRect.new()
 	sep1.color = Color(1, 1, 1, 0.06)
@@ -230,6 +239,8 @@ func _show_page(index: int) -> void:
 		var foot_count := holds.filter(func(h): return h.get("type","") == "FOOT").size()
 		var move_count := holds.size() - foot_count
 		_add_stat(stats_vbox, "HOLDS", "%d moves  +  %d feet" % [move_count, foot_count], Color(1,1,1,0.55))
+		if crashpads.size() > 0:
+			_add_stat(stats_vbox, "CRASHPADS", str(crashpads.size()), Color(1,1,1,0.55))
 	else:
 		_add_stat(stats_vbox, "STATUS", "Complete the previous route to unlock", Color(1,1,1,0.28))
 
@@ -265,7 +276,30 @@ func _show_page(index: int) -> void:
 	page_label.text = "%d / %d" % [index + 1, _levels.size()]
 	_update_nav()
 
+# =============================================================================
+# TIME-OF-DAY HELPERS
+# =============================================================================
+
+## Returns a human-readable label for a time_of_day value (0–1, 0.5 = noon).
+## Returns "" when it's close enough to midday that no label is warranted.
+func _time_of_day_label(tod: float) -> String:
+	# Normalise to 0–24 h
+	var hour := fmod(tod * 24.0, 24.0)
+	if   hour >= 5.0  and hour < 8.0:  return "Dawn"
+	elif hour >= 8.0  and hour < 11.5: return "Morning"
+	elif hour >= 11.5 and hour < 13.5: return ""         # midday — unremarkable, no tag
+	elif hour >= 13.5 and hour < 17.0: return "Afternoon"
+	elif hour >= 17.0 and hour < 20.0: return "Dusk"
+	elif hour >= 20.0 and hour < 22.0: return "Evening"
+	else:                               return "Night"
+
+# =============================================================================
+# TAG / STAT HELPERS
+# =============================================================================
+
 func _add_tag(parent: HBoxContainer, text: String, bg: Color) -> void:
+	if text == "":
+		return
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left",   8)
 	m.add_theme_constant_override("margin_right",  8)
@@ -302,6 +336,10 @@ func _add_stat(parent: VBoxContainer, label_text: String, value_text: String, va
 	row.add_child(lbl)
 	row.add_child(val)
 	parent.add_child(row)
+
+# =============================================================================
+# LOCKED DIAGRAM
+# =============================================================================
 
 func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> Control:
 	var wrapper := Control.new()
@@ -370,11 +408,23 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 	wrapper.add_child(lock_canvas)
 	return wrapper
 
-func _build_route_diagram(json: Dictionary) -> Control:
-	var holds: Array             = json.get("holds", [])
-	var wall_polygon: Dictionary = json.get("wall_polygon", {})
-	var environment: String      = json.get("environment", "gym")
+# =============================================================================
+# ROUTE DIAGRAM
+# =============================================================================
 
+func _build_route_diagram(
+		json:              Dictionary,
+		weather_int:       int   = 0,
+		weather_intensity: float = 1.0,
+		time_of_day:       float = 0.5,
+		crashpads_data:    Array = []
+) -> Control:
+
+	var holds:        Array      = json.get("holds",        [])
+	var wall_polygon: Dictionary = json.get("wall_polygon", {})
+	var environment:  String     = json.get("environment",  "gym")
+
+	# ── World bounds ──────────────────────────────────────────────────────────
 	var bmin := Vector2(INF, INF)
 	var bmax := Vector2(-INF, -INF)
 	var poly_points: Array = wall_polygon.get("points", [])
@@ -386,6 +436,10 @@ func _build_route_diagram(json: Dictionary) -> Control:
 		for hd in holds:
 			var p := Vector2(hd.get("x", 0.0), hd.get("y", 0.0))
 			bmin = bmin.min(p); bmax = bmax.max(p)
+	for cp in crashpads_data:
+		var p := Vector2(cp.get("x", 0.0), cp.get("y", 0.0))
+		bmin = bmin.min(p); bmax = bmax.max(p)
+
 	if bmin.x == INF:
 		bmin = Vector2(-200, -400); bmax = Vector2(200, 0)
 
@@ -416,11 +470,24 @@ func _build_route_diagram(json: Dictionary) -> Control:
 	cam.zoom = Vector2(zoom, zoom)
 	svp.add_child(cam)
 
-	if ResourceLoader.exists("res://scripts/holds/dynamic_wall.gd"):
-		var wall_script = load("res://scripts/holds/dynamic_wall.gd")
-		var wall = wall_script.new()
+	# ── Dynamic wall ──────────────────────────────────────────────────────────
+	const WALL_SCRIPT_PATH    := "res://scripts/holds/dynamic_wall.gd"
+	const WEATHER_SCRIPT_PATH := "res://scripts/levels/weather_modifier.gd"
+
+	if not ResourceLoader.exists(WALL_SCRIPT_PATH):
+		push_warning("LevelLoader preview: dynamic_wall.gd not found")
+	else:
+		var wall_script = load(WALL_SCRIPT_PATH)
+		var wall: Node2D = wall_script.new()
 		wall.z_index = -10
+
+		# ── Pre-wire all properties BEFORE add_child so _ready() sees them ────
+		wall.set("wall_min",   Vector2(bmin.x, bmin.y))
+		wall.set("wall_max",   Vector2(bmax.x, bmax.y))
+		wall.set("ground_y",   bmax.y)
+		wall.set("wall_valid", true)
 		wall.set("current_environment", environment.to_lower())
+
 		var env_config = get_node_or_null("/root/EnvironmentConfig")
 		if env_config:
 			for env_type in env_config.get_all_environment_types():
@@ -428,43 +495,53 @@ func _build_route_diagram(json: Dictionary) -> Control:
 					env_config.set_environment(env_type)
 					break
 			var env_data = env_config.get_environment_data()
-			wall.set("current_wall_color", env_data.get("wall_color",       Color(0.82, 0.75, 0.62)))
-			wall.set("background_color",   env_data.get("background_color", Color(0.53, 0.81, 0.92)))
-			wall.set("show_bolt_holes",    env_data.get("show_bolt_holes",   false))
+			wall.set("current_wall_color", env_data.get("wall_color",          Color(0.82, 0.75, 0.62)))
+			wall.set("background_color",   env_data.get("background_color",    Color(0.53, 0.81, 0.92)))
+			wall.set("show_bolt_holes",    env_data.get("show_bolt_holes",      false))
 			wall.set("is_granite",         env_data.get("show_granite_texture", false))
-		wall.set("wall_min",   Vector2(bmin.x, bmin.y))
-		wall.set("wall_max",   Vector2(bmax.x, bmax.y))
-		wall.set("ground_y",   bmax.y)
-		wall.set("wall_valid", true)
+
+		# ── Pre-create WeatherModifier and attach it to the wall BEFORE
+		#    add_child(wall), so DynamicWall._init_weather() finds it via
+		#    get_node_or_null("WeatherModifier") and skips re-creating it.
+		#    We set intensity + weather BEFORE the node enters the tree so
+		#    WeatherModifier._ready() -> set_weather() fires with the right type.
+		if weather_int > 0 and ResourceLoader.exists(WEATHER_SCRIPT_PATH):
+			var wm_script = load(WEATHER_SCRIPT_PATH)
+			var wm: Node2D = wm_script.new()
+			wm.name      = "WeatherModifier"
+			wm.set("intensity", clamp(weather_intensity, 0.0, 1.0))
+			wm.set("weather",   weather_int)
+			# _wall_ref is set in WeatherModifier._ready() as get_parent(),
+			# which will be the wall — so no manual wiring needed.
+			wall.add_child(wm)
+
+		# ── Now enter the scene tree ──────────────────────────────────────────
+		svp.add_child(wall)
+
+		# ── Post-ready setup ──────────────────────────────────────────────────
 		if not wall_polygon.is_empty() and wall.has_method("set_polygon_data"):
 			wall.set_polygon_data(wall_polygon)
-		svp.add_child(wall)
+
 		if wall.has_method("_apply_environment_theme"):
 			wall._apply_environment_theme()
+
 		wall.queue_redraw()
 
-	# ── Spawn holds using HoldRegistry first, HOLD_SCENE_MAP as fallback ──────
-	# Unknown types are skipped entirely — no more silent fallback to JUG.
+	# ── Holds ─────────────────────────────────────────────────────────────────
 	var registry = get_node_or_null("/root/HoldRegistry")
 
 	for hd in holds:
 		var type := (hd.get("type", "JUG") as String).to_upper()
 
 		var hold_scene: PackedScene = null
-
-		# 1. Try the live HoldRegistry (knows about all custom/modded types)
 		if registry:
 			hold_scene = registry.get_hold_scene(type)
-
-		# 2. Fall back to the static map for the core hold types
 		if hold_scene == null:
 			var scene_path: String = HOLD_SCENE_MAP.get(type, "")
 			if scene_path == "" or not ResourceLoader.exists(scene_path):
-				# Unknown type — skip rather than rendering a JUG placeholder
 				push_warning("LevelLoader preview: skipping unknown hold type '%s'" % type)
 				continue
 			hold_scene = load(scene_path)
-
 		if not hold_scene:
 			continue
 
@@ -477,7 +554,22 @@ func _build_route_diagram(json: Dictionary) -> Control:
 			hold_node.modulate = Color(1.0, 1.0, 1.0, 0.5)
 		svp.add_child(hold_node)
 
-	_defer_freeze_viewport(svp)
+	# ── Crashpads ─────────────────────────────────────────────────────────────
+	if crashpads_data.size() > 0 and ResourceLoader.exists(CRASHPAD_SCENE):
+		var crashpad_scene: PackedScene = load(CRASHPAD_SCENE)
+		if crashpad_scene:
+			for cp in crashpads_data:
+				var pad = crashpad_scene.instantiate()
+				pad.position = Vector2(cp.get("x", 0.0), cp.get("y", 0.0))
+				if cp.has("rotation"):
+					pad.rotation = cp.get("rotation")
+				svp.add_child(pad)
+
+	# Weather animates — keep viewport live. Static levels freeze after settling.
+	if weather_int > 0:
+		svp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	else:
+		_defer_freeze_viewport(svp)
 
 	var wrapper := Control.new()
 	wrapper.size_flags_horizontal = Control.SIZE_EXPAND_FILL

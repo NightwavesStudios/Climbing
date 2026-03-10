@@ -1,5 +1,18 @@
 {
-	"crashpads": [],
+	"crashpads": [
+		{
+			"x": -32.0,
+			"y": 224.0
+		},
+		{
+			"x": 192.0,
+			"y": 224.0
+		},
+		{
+			"x": 416.0,
+			"y": 224.0
+		}
+	],
 	"discipline": "speed",
 	"environment": "gym",
 	"grade": "5.6",
