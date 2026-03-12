@@ -1,6 +1,7 @@
-[gd_scene load_steps=4 format=3 uid="uid://cmudrme1ntc3v"]
+[gd_scene load_steps=5 format=3 uid="uid://cmudrme1ntc3v"]
 
 [ext_resource type="Script" uid="uid://cih6ocoqb46qx" path="res://scripts/menus/main_menu.gd" id="1_xqga4"]
+[ext_resource type="Script" uid="uid://bwqbvj0onxb7s" path="res://scripts/menus/random_background.gd" id="4_6bivr"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="5_imvie"]
 [ext_resource type="AudioStream" uid="uid://c3aekoibdpqul" path="res://assets/audio/music/Main_Menu_Theme.mp3" id="6_ng0o5"]
 
@@ -62,6 +63,12 @@ script = ExtResource("5_imvie")
 stream = ExtResource("6_ng0o5")
 volume_db = -5.0
 autoplay = true
+
+[node name="RandomBackground" type="Control" parent="."]
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+script = ExtResource("4_6bivr")
 
 [connection signal="pressed" from="CanvasLayer/Buttons/Story" to="." method="_on_play_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]

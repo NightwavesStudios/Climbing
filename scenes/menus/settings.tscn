@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://yajtbkqrwd1m"]
+[gd_scene load_steps=4 format=3 uid="uid://yajtbkqrwd1m"]
 
 [ext_resource type="Script" uid="uid://bkpjoeawvlf41" path="res://scripts/menus/settings.gd" id="1_del6v"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_erjg3"]
+[ext_resource type="Script" uid="uid://bwqbvj0onxb7s" path="res://scripts/menus/random_background.gd" id="3_e7wif"]
 
 [node name="Settings" type="Control"]
 layout_mode = 3
@@ -90,6 +91,12 @@ script = ExtResource("2_erjg3")
 layout_mode = 2
 text = "Back"
 script = ExtResource("2_erjg3")
+
+[node name="RandomBackground" type="Control" parent="."]
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+script = ExtResource("3_e7wif")
 
 [connection signal="value_changed" from="MarginContainer/VBoxContainer/Volume" to="." method="_on_volume_value_changed"]
 [connection signal="item_selected" from="MarginContainer/VBoxContainer/WindowMode" to="." method="_on_window_mode_item_selected"]

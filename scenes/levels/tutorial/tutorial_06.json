@@ -18,7 +18,7 @@
 		}
 	],
 	"discipline": "bouldering",
-	"environment": "gym",
+	"environment": "granite",
 	"grade": "V3",
 	"holds": [
 		{
@@ -161,6 +161,6 @@
 		],
 		"top_edge_indices": []
 	},
-	"weather": 0,
+	"weather": 5,
 	"weather_intensity": 1.0
 }

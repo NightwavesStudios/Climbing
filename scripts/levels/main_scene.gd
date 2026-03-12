@@ -459,6 +459,13 @@ func _on_next_level_requested(next_level_path: String) -> void:
 
 	await _load_initial_level(next_level_path)
 
+	# Give the scene tree extra frames to fully settle holds/spawn position,
+	# then force a clean reset so initial_grab() re-runs with correct data.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if player and player.has_method("reset_climb"):
+		player.reset_climb()
+
 	await get_tree().create_timer(0.1).timeout
 
 	await LevelTransition.fade_in_only()
