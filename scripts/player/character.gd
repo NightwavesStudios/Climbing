@@ -2124,7 +2124,6 @@ func find_best_foot_hold(foot_position: Vector2, is_left: bool) -> Area2D:
 
 	var best_hold: Area2D = null
 	var best_score := -INF
-
 	var hip_pos := global_position + Vector2(-HIP_OFFSET if is_left else HIP_OFFSET, HIP_DOWN)
 	var max_reach := (LEG_UPPER_LENGTH + LEG_LOWER_LENGTH) * 0.95
 
@@ -2182,6 +2181,58 @@ func find_best_foot_hold(foot_position: Vector2, is_left: bool) -> Area2D:
 			best_hold = hold
 
 	return best_hold
+
+# =============================================================================
+# FOOT SNAP ON SPAWN/RESET
+# Searches from the hip (where reachability is judged) rather than from the
+# foot's default dangling position, then claims the best reachable hold.
+# =============================================================================
+func _snap_feet_on_spawn() -> void:
+	var left_hip  := global_position + Vector2(-HIP_OFFSET, HIP_DOWN)
+	var right_hip := global_position + Vector2( HIP_OFFSET, HIP_DOWN)
+
+	# Temporarily relocate foot nodes to hip so find_best_foot_hold() scores
+	# reachability correctly (it uses foot_position as the search centre).
+	var saved_lf := left_foot.global_position
+	var saved_rf := right_foot.global_position
+	left_foot.global_position  = left_hip
+	right_foot.global_position = right_hip
+
+	var left_best  := find_best_foot_hold(left_hip,  true)
+	var right_best := find_best_foot_hold(right_hip, false)
+
+	# Restore positions — pin_held_limbs() will overwrite if a hold is claimed.
+	left_foot.global_position  = saved_lf
+	right_foot.global_position = saved_rf
+
+	if (left_best
+			and left_best != left_hand_hold
+			and left_best != right_hand_hold
+			and left_best.can_grab(left_foot, true)):
+		var lf_point := left_best.get_node_or_null("HoldPoint")
+		var snap_pos = lf_point.global_position if lf_point else left_best.global_position
+		if left_best.try_claim(left_foot, true, snap_pos):
+			left_foot_hold   = left_best
+			left_foot.global_position = left_best.get_limb_anchor(left_foot)
+			left_foot_anchor = left_foot.global_position
+			left_foot_pin    = left_foot.global_position
+			left_foot_velocity       = Vector2.ZERO
+			left_foot_joint_velocity = Vector2.ZERO
+
+	if (right_best
+			and right_best != left_hand_hold
+			and right_best != right_hand_hold
+			and right_best != left_foot_hold
+			and right_best.can_grab(right_foot, true)):
+		var rf_point := right_best.get_node_or_null("HoldPoint")
+		var snap_pos = rf_point.global_position if rf_point else right_best.global_position
+		if right_best.try_claim(right_foot, true, snap_pos):
+			right_foot_hold   = right_best
+			right_foot.global_position = right_best.get_limb_anchor(right_foot)
+			right_foot_anchor = right_foot.global_position
+			right_foot_pin    = right_foot.global_position
+			right_foot_velocity       = Vector2.ZERO
+			right_foot_joint_velocity = Vector2.ZERO
 
 func initial_grab():
 	# Hard-reset ALL velocity and position before touching any holds
@@ -2272,26 +2323,10 @@ func initial_grab():
 
 	com_position = global_position + Vector2(0, COM_OFFSET_Y)
 
-	var left_foot_start := find_nearest_hold(left_foot.global_position)
-	var right_foot_start := find_nearest_hold(right_foot.global_position)
-
-	if (left_foot_start and left_foot_start != left_hand_hold and left_foot_start != right_hand_hold
-			and left_foot_start.can_grab(left_foot, true)):
-		var snap_pos = left_foot.global_position
-		if left_foot_start.try_claim(left_foot, true, snap_pos):
-			left_foot_hold = left_foot_start
-			left_foot.global_position = left_foot_start.get_limb_anchor(left_foot)
-			left_foot_anchor = left_foot.global_position
-			left_foot_pin = left_foot.global_position
-
-	if (right_foot_start and right_foot_start != left_hand_hold and right_foot_start != right_hand_hold
-			and right_foot_start != left_foot_hold and right_foot_start.can_grab(right_foot, true)):
-		var snap_pos = right_foot.global_position
-		if right_foot_start.try_claim(right_foot, true, snap_pos):
-			right_foot_hold = right_foot_start
-			right_foot.global_position = right_foot_start.get_limb_anchor(right_foot)
-			right_foot_anchor = right_foot.global_position
-			right_foot_pin = right_foot.global_position
+	# ── Snap feet to nearest reachable holds ──────────────────────────────────
+	# Uses find_best_foot_hold() from the hip position so reachability scoring
+	# is correct, rather than searching from the dangling default foot position.
+	_snap_feet_on_spawn()
 
 	for i in range(15):
 		apply_joint_constraints()
