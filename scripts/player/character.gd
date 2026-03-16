@@ -244,8 +244,8 @@ var limb_swing_velocities: Dictionary = {}
 
 const MOUSE_CONTROL_ENABLED := true
 const MOUSE_DEADZONE := 5.0
-const ALLOW_ARM_CROSSING := true
-const ALLOW_FOOT_CROSSING := true
+const ALLOW_ARM_CROSSING := false
+const ALLOW_FOOT_CROSSING := false
 const MIN_HAND_SEPARATION := 20.0
 const MIN_FOOT_SEPARATION := 15.0
 

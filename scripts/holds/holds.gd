@@ -15,11 +15,9 @@ const GRAB_SFX = preload("res://assets/audio/sfx/grab-hold.wav")
 var _audio_player: AudioStreamPlayer
 var occupied_by: Node2D = null
 var limb_placements: Dictionary = {}
-var grab_areas: Dictionary = {}
+var grab_areas: Array[CollisionShape2D] = []
 var sprite_nodes: Dictionary = {}
 var _type_was_set_manually: bool = false
-
-@onready var hold_point: Marker2D = $HoldPoint
 
 func _ready():
 	print("climbing_hold _ready fired on: ", name, " | has _process: ", has_method("_process"))
@@ -37,7 +35,6 @@ func _ready():
 	collision_layer = 2
 	collision_mask = 0
 	monitoring = true
-	# Explicitly enable _process so modifiers receive on_process() every frame.
 	set_process(true)
 
 	if not _type_was_set_manually:
@@ -57,7 +54,6 @@ func _ready():
 	_audio_player.stream = GRAB_SFX
 	_audio_player.volume_db = 12.0
 
-# ── Modifier hook: drive on_process every frame ───────────────────────────────
 func _process(delta: float) -> void:
 	for child in get_children():
 		if child.has_method("on_process"):
@@ -66,11 +62,21 @@ func _process(delta: float) -> void:
 func _setup_multi_areas():
 	grab_areas.clear()
 	for child in get_children():
-		if child is Area2D and child != self:
-			var point_name = child.name.replace("Area2D", "Point")
-			var point = get_node_or_null(point_name)
-			if point and point is Marker2D:
-				grab_areas[child] = point
+		if child is CollisionShape2D:
+			grab_areas.append(child)
+	print("multi_area setup on ", name, " — found ", grab_areas.size(), " shapes")
+
+func _find_nearest_shape(global_pos: Vector2) -> CollisionShape2D:
+	if grab_areas.is_empty():
+		return get_node_or_null("CollisionShape2D")
+	var nearest: CollisionShape2D = grab_areas[0]
+	var nearest_dist: float = INF
+	for shape in grab_areas:
+		var dist: float = shape.global_position.distance_to(global_pos)
+		if dist < nearest_dist:
+			nearest_dist = dist
+			nearest = shape
+	return nearest
 
 func _cache_sprite_nodes():
 	sprite_nodes.clear()
@@ -199,7 +205,6 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 		if occupied_by != null and occupied_by != limb:
 			return false
 
-	# ── Modifier: allow_grab gate ─────────────────────────────────────────────
 	for child in get_children():
 		if child.has_method("allow_grab"):
 			if not child.allow_grab(limb, is_foot):
@@ -208,16 +213,17 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 	var local_grab: Vector2
 	if snap_to_point:
 		if multi_area_enabled:
-			var snap_point = _find_nearest_area_point(grab_position)
-			local_grab = to_local(snap_point.global_position)
+			var snap_shape = _find_nearest_shape(grab_position)
+			local_grab = to_local(snap_shape.global_position)
 		else:
-			if grab_position != Vector2.ZERO:
-				local_grab = to_local(grab_position)
-			else:
-				local_grab = to_local(hold_point.global_position)
+			local_grab = to_local(grab_position) if grab_position != Vector2.ZERO else Vector2.ZERO
 	else:
 		local_grab = to_local(grab_position)
-		var shape_node = get_node_or_null("CollisionShape2D")
+		var shape_node: CollisionShape2D
+		if multi_area_enabled:
+			shape_node = _find_nearest_shape(grab_position)
+		else:
+			shape_node = get_node_or_null("CollisionShape2D")
 		if shape_node and shape_node.shape:
 			var shape_offset: Vector2 = shape_node.position
 			var local_relative = local_grab - shape_offset
@@ -239,32 +245,17 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 	_audio_player.pitch_scale = randf_range(0.8, 1.3)
 	_audio_player.play()
 
-	# ── Modifier: notify grab ─────────────────────────────────────────────────
 	for child in get_children():
 		if child.has_method("on_grab"):
 			child.on_grab(limb)
 
 	return true
 
-func _find_nearest_area_point(global_pos: Vector2) -> Marker2D:
-	if grab_areas.size() == 0:
-		return hold_point
-	var nearest_point = hold_point
-	var nearest_dist = INF
-	for area in grab_areas:
-		var point = grab_areas[area]
-		var dist = point.global_position.distance_to(global_pos)
-		if dist < nearest_dist:
-			nearest_dist = dist
-			nearest_point = point
-	return nearest_point
-
 func release(limb: Node2D):
 	if occupied_by == limb:
 		occupied_by = null
 	limb_placements.erase(limb)
 
-	# ── Modifier: notify release ──────────────────────────────────────────────
 	for child in get_children():
 		if child.has_method("on_release"):
 			child.on_release(limb)
@@ -277,7 +268,6 @@ func can_grab(limb: Node2D, is_foot: bool) -> bool:
 	if is_pocket() and occupied_by != null and occupied_by != limb:
 		return false
 
-	# ── Modifier: allow_grab gate ─────────────────────────────────────────────
 	for child in get_children():
 		if child.has_method("allow_grab"):
 			if not child.allow_grab(limb, is_foot):
@@ -289,21 +279,27 @@ func get_limb_anchor(limb: Node2D) -> Vector2:
 	if limb in limb_placements:
 		return to_global(limb_placements[limb])
 	if snap_to_point:
-		return hold_point.global_position
+		if multi_area_enabled:
+			return _find_nearest_shape(limb.global_position).global_position
+		return global_position
 	return limb.global_position
 
 func get_placement_offset(limb: Node2D) -> float:
 	if limb not in limb_placements:
 		return 0.0
 	var local_pos = limb_placements[limb]
-	var shape = get_node_or_null("CollisionShape2D")
-	if not shape or not shape.shape:
+	var shape_node: CollisionShape2D
+	if multi_area_enabled and not grab_areas.is_empty():
+		shape_node = _find_nearest_shape(to_global(local_pos))
+	else:
+		shape_node = get_node_or_null("CollisionShape2D")
+	if not shape_node or not shape_node.shape:
 		return 0.0
 	var shape_extents = Vector2.ZERO
-	if shape.shape is RectangleShape2D:
-		shape_extents = shape.shape.size / 2.0
-	elif shape.shape is CircleShape2D:
-		var radius = shape.shape.radius
+	if shape_node.shape is RectangleShape2D:
+		shape_extents = shape_node.shape.size / 2.0
+	elif shape_node.shape is CircleShape2D:
+		var radius = shape_node.shape.radius
 		shape_extents = Vector2(radius, radius)
 	if shape_extents.length() < 0.1:
 		return 0.0
@@ -344,7 +340,6 @@ func get_recovery_rate(delta: float, body_balance: float, foot_support_ratio: fl
 	return recovery
 
 func notify_climb_start():
-	# Reset all modifiers so falling holds restore on climb reload.
 	for child in get_children():
 		if child.has_method("on_climb_reset"):
 			child.on_climb_reset()

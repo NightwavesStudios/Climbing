@@ -564,14 +564,18 @@ func load_crashpads(level_data: Dictionary) -> void:
 	var crashpad_scene = load(CRASHPAD_SCENE)
 	var crashpad_count = 0
 
-	var belayer_exclusion_radius = 120.0
+	# Only exclude crashpads near belayer if:
+	# 1. Discipline is roped (speed doesn't have a belayer)
+	# 2. A belayer_position was actually saved in the JSON (not just defaulted to zero)
+	var belayer_exclusion_radius = 40.0
 	var has_belayer = (current_level_discipline == "roped"
-					   and rope_belayer_position != Vector2.ZERO)
+					   and rope_belayer_position != Vector2.ZERO
+					   and level_data.get("belayer_position", null) != null)
 
 	print("\n=== SPAWNING CRASHPADS ===")
 	if has_belayer:
-		print("  Roped mode — excluding crashpads near belayer at: ",
-			  rope_belayer_position)
+		print("  Roped mode — excluding crashpads within ", belayer_exclusion_radius,
+			  "px of belayer at: ", rope_belayer_position)
 
 	for crashpad_data in level_data.crashpads:
 		var crashpad_pos = Vector2(crashpad_data.get("x", 0),

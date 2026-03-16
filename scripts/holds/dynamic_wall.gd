@@ -163,7 +163,8 @@ func _init_clouds():
 func _make_cloud(rng: RandomNumberGenerator, initial_spread: bool) -> Dictionary:
 	var layer = rng.randi() % CLOUD_LAYERS
 	var bg_left  = wall_min.x - BACKGROUND_EXPANSION if wall_valid else -3000.0
-	var bg_right = wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
+	var _bg_right = wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
+	var bg_right  = _bg_right
 	var sky_top  = (wall_min.y - BACKGROUND_EXPANSION) if wall_valid else -2000.0
 	var sky_bottom = ground_y - 120.0 if wall_valid else -400.0
 
@@ -626,12 +627,12 @@ func _draw_stars():
 	var sw = br - bl
 	var rb := _get_weather_blend()
 	for i in range(80):
-		var seed = (_scenery_seed ^ 0xBEEF) + i * 17
-		var sx = bl + _hf(seed) * sw
-		var sy = st + _hf(seed + 1) * (ground_y - st - 80.0)
-		var bright  = (0.5 + _hf(seed + 2) * 0.5) * (1.0 - rb)
-		var size    = 1.0 + _hf(seed + 3) * 2.0
-		var twinkle = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(seed + 4) * 3.0) + float(i))
+		var star_seed = (_scenery_seed ^ 0xBEEF) + i * 17
+		var sx = bl + _hf(star_seed) * sw
+		var sy = st + _hf(star_seed + 1) * (ground_y - st - 80.0)
+		var bright  = (0.5 + _hf(star_seed + 2) * 0.5) * (1.0 - rb)
+		var size    = 1.0 + _hf(star_seed + 3) * 2.0
+		var twinkle = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(star_seed + 4) * 3.0) + float(i))
 		draw_circle(Vector2(sx, sy), size, Color(1.0, 1.0, 1.0, bright * twinkle * 0.9))
 
 func _draw_sun():
@@ -674,17 +675,18 @@ func _draw_mountains():
 	_draw_hill_layer(bl, br, ground_y,          40.0, 110.0, 45, hs.darkened(0.42),               _scenery_seed ^ 0x7F8A9B)
 
 func _draw_hill_layer(left: float, right: float, base_y: float,
-					  min_h: float, max_h: float, segs: int, color: Color, seed: int):
+					  min_h: float, max_h: float, segs: int, color: Color, hill_seed: int):
 	var step = (right - left) / float(segs)
 	var pts: PackedVector2Array = []
 	pts.append(Vector2(left, base_y + 500.0))
 	for i in range(segs + 1):
-		var h0 = _hf(seed + (i - 1) * 7) * (max_h - min_h) + min_h
-		var h1 = _hf(seed + i * 7) * (max_h - min_h) + min_h
-		var h2 = _hf(seed + (i + 1) * 7) * (max_h - min_h) + min_h
+		var h0 = _hf(hill_seed + (i - 1) * 7) * (max_h - min_h) + min_h
+		var h1 = _hf(hill_seed + i * 7) * (max_h - min_h) + min_h
+		var h2 = _hf(hill_seed + (i + 1) * 7) * (max_h - min_h) + min_h
 		pts.append(Vector2(left + i * step, base_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2)))
 	pts.append(Vector2(right, base_y + 500.0))
-	draw_colored_polygon(pts, color)
+	if pts.size() >= 3:
+		draw_colored_polygon(pts, color)
 
 # ─── City silhouette — clean, minimal, natural ────────────────────────────────
 
@@ -726,18 +728,18 @@ func _draw_city_silhouette() -> void:
 		var col       : Color = sil_colors[li]
 		var x := bl; var bldg_idx := 0
 		while x < br + w_max:
-			var seed := seed_base + bldg_idx * 31
-			var bw   := w_min + _hf(seed)     * (w_max - w_min)
-			var bh   := h_min + _hf(seed + 1) * (h_max - h_min)
-			var bx   := x + (_hf(seed + 2) - 0.5) * 20.0
+			var bldg_seed := seed_base + bldg_idx * 31
+			var bw   := w_min + _hf(bldg_seed)     * (w_max - w_min)
+			var bh   := h_min + _hf(bldg_seed + 1) * (h_max - h_min)
+			var bx   := x + (_hf(bldg_seed + 2) - 0.5) * 20.0
 			draw_rect(Rect2(bx, ground_y - bh, bw, bh), col, true)
 			# Occasional thin antenna — nothing else on the rooftop
-			if _hf(seed + 5) > 0.72:
-				var ah := 10.0 + _hf(seed + 6) * 18.0
-				var ax := bx + bw * (0.4 + _hf(seed + 7) * 0.2)
+			if _hf(bldg_seed + 5) > 0.72:
+				var ah := 10.0 + _hf(bldg_seed + 6) * 18.0
+				var ax := bx + bw * (0.4 + _hf(bldg_seed + 7) * 0.2)
 				draw_line(Vector2(ax, ground_y - bh), Vector2(ax, ground_y - bh - ah),
 						  col.darkened(0.15), 1.5)
-			x = bx + bw + _hf(seed + 8) * 25.0
+			x = bx + bw + _hf(bldg_seed + 8) * 25.0
 			bldg_idx += 1
 
 	# Night: barely-there warm street glow at the very bottom only
@@ -773,10 +775,10 @@ func _draw_clouds():
 				Color(sc.r, sc.g, sc.b, ba * 0.55),
 				c["seed"], rb)
 
-func _draw_overcast_layer(blend: float, cc: Color, sc: Color):
+func _draw_overcast_layer(blend: float, cc: Color, _sc: Color):
 	var bl   = wall_min.x - BACKGROUND_EXPANSION
 	var br   = wall_max.x + BACKGROUND_EXPANSION
-	var sw   = br - bl
+	var _sw  = br - bl
 	var h    = blend * BACKGROUND_EXPANSION * 0.55
 	var base = wall_min.y - BACKGROUND_EXPANSION * 0.25
 
@@ -788,15 +790,15 @@ func _draw_overcast_layer(blend: float, cc: Color, sc: Color):
 		var a1 = lerp(blend * 0.72, 0.0, t1)
 		var y0 = base + t0 * h
 		var y1 = base + t1 * h
-		var tl := Vector2(bl, y0); var tr := Vector2(br, y0)
+		var tl2 := Vector2(bl, y0); var tr2 := Vector2(br, y0)
 		var br2 := Vector2(br, y1); var bl2 := Vector2(bl, y1)
 		var c0  := Color(cc.r, cc.g, cc.b, a0)
 		var c1  := Color(cc.r, cc.g, cc.b, a1)
-		draw_polygon(PackedVector2Array([tl, tr, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
 func _draw_cloud_shape(cx: float, cy: float, sx: float, sy: float,
-					   color: Color, shadow: Color, seed: int, rain_blend: float = 0.0):
+					   color: Color, shadow: Color, cloud_seed: int, rain_blend: float = 0.0):
 	var ry_mult := 1.0 + rain_blend * 0.35
 	_draw_oval(cx, cy + sy * 0.38, sx * 0.85, sy * 0.52 * ry_mult, shadow)
 	_draw_oval(cx, cy, sx, sy * ry_mult, color)
@@ -807,8 +809,8 @@ func _draw_cloud_shape(cx: float, cy: float, sx: float, sy: float,
 	]
 	var sizes = [0.50, 0.44, 0.48, 0.38, 0.36]
 	for pi in range(offsets.size()):
-		var wobble = Vector2((_hf(seed + pi * 3) - 0.5) * sx * 0.10,
-							 (_hf(seed + pi * 3 + 1) - 0.5) * sy * 0.12)
+		var wobble = Vector2((_hf(cloud_seed + pi * 3) - 0.5) * sx * 0.10,
+							 (_hf(cloud_seed + pi * 3 + 1) - 0.5) * sy * 0.12)
 		_draw_oval(cx + offsets[pi].x + wobble.x, cy + offsets[pi].y + wobble.y,
 				   sx * sizes[pi], sy * (sizes[pi] + 0.1) * ry_mult, color)
 
@@ -818,7 +820,8 @@ func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color):
 	for i in range(steps):
 		var angle = (float(i) / float(steps)) * TAU
 		pts.append(Vector2(cx + cos(angle) * rx, cy + sin(angle) * ry))
-	draw_colored_polygon(pts, color)
+	if pts.size() >= 3:
+		draw_colored_polygon(pts, color)
 
 func _draw_fog():
 	var rb := _get_weather_blend()
@@ -840,18 +843,23 @@ func _draw_fog():
 		var y1 := bt + t1 * total_h
 		var c0 := Color(fc.r, fc.g, fc.b, a0)
 		var c1 := Color(fc.r, fc.g, fc.b, a1)
-		var tl := Vector2(bl, y0); var tr2 := Vector2(br, y0)
+		var tl2 := Vector2(bl, y0); var tr2 := Vector2(br, y0)
 		var br2 := Vector2(br, y1); var bl2 := Vector2(bl, y1)
-		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
 func _draw_gym_interior():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var width = br - bl
+	# When used as a pure backdrop, wall_min/wall_max may be zero.
+	# Use the full background span for vis_top/bot so polygons never collapse.
 	var vis_top = wall_min.y
-	var vis_bot = ground_y
+	var vis_bot = ground_y if ground_y > vis_top + 10.0 else vis_top + (wall_max.y - wall_min.y)
 	var vis_h   = vis_bot - vis_top
+	# Guard against degenerate geometry (zero viewport not yet laid out, etc.).
+	if width < 1.0 or vis_h < 10.0:
+		return
 
 	for i in range(8):
 		var t = float(i) / 8.0
@@ -903,12 +911,12 @@ func _draw_gym_interior():
 
 		for gi in range(10):
 			var gt = float(gi) / 10.0
-			var sc: Color
+			var sky_c: Color
 			if gt < 0.5:
-				sc = sky_top_c.lerp(sky_mid_c, gt * 2.0)
+				sky_c = sky_top_c.lerp(sky_mid_c, gt * 2.0)
 			else:
-				sc = sky_mid_c.lerp(sky_haze_c, (gt - 0.5) * 2.0)
-			draw_rect(Rect2(Vector2(wx, win_top + gt*win_h), Vector2(win_w, win_h/10.0+1.0)), sc, true)
+				sky_c = sky_mid_c.lerp(sky_haze_c, (gt - 0.5) * 2.0)
+			draw_rect(Rect2(Vector2(wx, win_top + gt*win_h), Vector2(win_w, win_h/10.0+1.0)), sky_c, true)
 
 		if _env.get("has_gym_stars", false):
 			for si in range(30):
@@ -995,7 +1003,7 @@ func _draw_gym_interior():
 			var gh    = gnd_h * (0.6 + _hf(gseed) * 0.4)
 			gpts.append(Vector2(gx2, win_bot - gh))
 		gpts.append(Vector2(wx2, win_bot + 4.0))
-		if gpts.size() >= 4:
+		if gpts.size() >= 3:
 			draw_colored_polygon(gpts, gym_grass_color)
 		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
 				  gym_grass_color.darkened(0.18), true)
@@ -1043,10 +1051,10 @@ func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: f
 		var y1 := win_top + t1 * win_h
 		var c0 := Color(0.08, 0.11, 0.18, a0)
 		var c1 := Color(0.10, 0.14, 0.22, a1)
-		var tl := Vector2(wx, y0);  var tr2 := Vector2(wx2, y0)
+		var tl2 := Vector2(wx, y0);  var tr2 := Vector2(wx2, y0)
 		var br2 := Vector2(wx2, y1); var bl2 := Vector2(wx, y1)
-		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
 	var mist_col   := Color(0.55, 0.64, 0.78)
 	var mist_h     := win_h * 0.16 * blend
@@ -1060,10 +1068,10 @@ func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: f
 		var y1 := win_bot - t1 * mist_h
 		var c0 := Color(mist_col.r, mist_col.g, mist_col.b, a0)
 		var c1 := Color(mist_col.r, mist_col.g, mist_col.b, a1)
-		var tl := Vector2(wx, y0);  var tr2 := Vector2(wx2, y0)
+		var tl2 := Vector2(wx, y0);  var tr2 := Vector2(wx2, y0)
 		var br2 := Vector2(wx2, y1); var bl2 := Vector2(wx, y1)
-		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
 	var streak_count := int(14.0 * blend)
 	for si in range(streak_count):
@@ -1120,6 +1128,7 @@ func _draw_rectangle_wall():
 
 func _draw_polygon_wall():
 	var pp = PackedVector2Array(control_points)
+	if pp.size() < 3: return
 	draw_colored_polygon(pp, current_wall_color)
 	if wall_texture_enabled:
 		var p2: PackedVector2Array = PackedVector2Array()
@@ -1128,7 +1137,8 @@ func _draw_polygon_wall():
 			p2.append(pp[i])
 			var t = clamp((pp[i].y - wall_min.y) / max(wall_max.y - wall_min.y, 1.0), 0.0, 1.0)
 			cols.append(Color(0.0, 0.0, 0.0, t * 0.09))
-		draw_polygon(p2, cols)
+		if p2.size() >= 3:
+			draw_polygon(p2, cols)
 
 # ─── Building facade wall — clean concrete, no texture patches ───────────────
 
@@ -1151,6 +1161,9 @@ func _draw_building_facade_wall() -> void:
 			dark_col = Color(0.38, 0.38, 0.40)
 			lite_col = Color(0.64, 0.64, 0.66)
 
+	# Suppress unused warning — base_col informs the palette but isn't drawn directly
+	var _base_col_ref = base_col
+
 	base_col = base_col.lerp(Color(0.34, 0.36, 0.40), rb * 0.4)
 	lite_col = lite_col.lerp(Color(0.40, 0.42, 0.46), rb * 0.3)
 
@@ -1166,10 +1179,10 @@ func _draw_building_facade_wall() -> void:
 		var y1 := wall_min.y + t1 * h
 		var c0 := lite_col.lerp(dark_col, t0 * 0.5)
 		var c1 := lite_col.lerp(dark_col, t1 * 0.5)
-		var tl := Vector2(wall_min.x, y0);  var tr2 := Vector2(wall_max.x, y0)
-		var br2 := Vector2(wall_max.x, y1); var bl2 := Vector2(wall_min.x, y1)
-		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		var tl2 := Vector2(wall_min.x, y0);  var tr2 := Vector2(wall_max.x, y0)
+		var br2 := Vector2(wall_max.x, y1);  var bl2 := Vector2(wall_min.x, y1)
+		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
 	# ── 2. Panel grid lines only (no filled rects) ────────────────────────
 	var panel_w := 220.0
@@ -1309,14 +1322,14 @@ func _draw_underwater_wall_depth():
 		for si in range(slices):
 			var t0=float(si)/float(slices); var t1=float(si+1)/float(slices)
 			var c0=rock_col_top.lerp(rock_col_deep,t0); var c1=rock_col_top.lerp(rock_col_deep,t1)
-			var tl=top0.lerp(bot0,t0); var tr=top1.lerp(bot1,t0)
-			var br=top1.lerp(bot1,t1); var bl2=top0.lerp(bot0,t1)
-			draw_polygon(PackedVector2Array([tl,tr,br]),PackedColorArray([c0,c0,c1]))
-			draw_polygon(PackedVector2Array([tl,br,bl2]),PackedColorArray([c0,c1,c1]))
+			var tl2=top0.lerp(bot0,t0); var tr2=top1.lerp(bot1,t0)
+			var br2=top1.lerp(bot1,t1); var bl2=top0.lerp(bot0,t1)
+			draw_polygon(PackedVector2Array([tl2,tr2,br2]),PackedColorArray([c0,c0,c1]))
+			draw_polygon(PackedVector2Array([tl2,br2,bl2]),PackedColorArray([c0,c1,c1]))
 			var ha0=lerp(0.08,0.58,t0); var ha1=lerp(0.08,0.58,t1)
 			var wc0=Color(wc.r,wc.g,wc.b,ha0); var wc1=Color(wc.r,wc.g,wc.b,ha1)
-			draw_polygon(PackedVector2Array([tl,tr,br]),PackedColorArray([wc0,wc0,wc1]))
-			draw_polygon(PackedVector2Array([tl,br,bl2]),PackedColorArray([wc0,wc1,wc1]))
+			draw_polygon(PackedVector2Array([tl2,tr2,br2]),PackedColorArray([wc0,wc0,wc1]))
+			draw_polygon(PackedVector2Array([tl2,br2,bl2]),PackedColorArray([wc0,wc1,wc1]))
 	for li in range(5):
 		var t=float(li+1)/6.0; var alp=lerp(0.22,0.04,t)
 		var p_l=base_l.lerp(bot_pts[0],t); var p_r=base_r.lerp(bot_pts[segs],t)
@@ -1334,12 +1347,12 @@ func draw_edges():
 			draw_circle(p1, thickness * 0.5, color)
 		draw_circle(control_points[control_points.size() - 1], edge_thickness * 0.5, edge_color)
 	else:
-		var tl = wall_min; var tr = Vector2(wall_max.x, wall_min.y)
+		var tl = wall_min; var tr2 = Vector2(wall_max.x, wall_min.y)
 		var bl = Vector2(wall_min.x, wall_max.y); var br = wall_max
 		var sc = edge_color.darkened(0.3); var r = edge_thickness * 0.5
-		draw_line(tl, bl, sc, edge_thickness, true); draw_line(tr, br, sc, edge_thickness, true)
-		draw_line(tl, tr, edge_color, 4.0, true);    draw_line(bl, br, sc, 6.0, true)
-		for pt in [tl, tr, bl, br]: draw_circle(pt, r, sc)
+		draw_line(tl, bl, sc, edge_thickness, true); draw_line(tr2, br, sc, edge_thickness, true)
+		draw_line(tl, tr2, edge_color, 4.0, true);   draw_line(bl, br, sc, 6.0, true)
+		for pt in [tl, tr2, bl, br]: draw_circle(pt, r, sc)
 
 func _draw_ground():
 	if not wall_valid: return
@@ -1365,29 +1378,30 @@ func _draw_ground_grass():
 	draw_rect(Rect2(Vector2(left, ground_y + 32.0), Vector2(width, 99999.0)), cd, true)
 	draw_rect(Rect2(Vector2(left, ground_y + 4.0),  Vector2(width, 30.0)), cm, true)
 	for si in range(8):
-		var seed = (_scenery_seed ^ 0x57AA) + si * 31
-		var sy = ground_y + 7.0 + _hf(seed) * 22.0
-		var sx_s = left + _hf(seed + 1) * width * 0.4
-		var sx_e = sx_s + 80.0 + _hf(seed + 2) * 320.0
+		var stripe_seed = (_scenery_seed ^ 0x57AA) + si * 31
+		var sy = ground_y + 7.0 + _hf(stripe_seed) * 22.0
+		var sx_s = left + _hf(stripe_seed + 1) * width * 0.4
+		var sx_e = sx_s + 80.0 + _hf(stripe_seed + 2) * 320.0
 		draw_line(Vector2(sx_s, sy), Vector2(min(sx_e, right), sy),
-				  Color(cd.r, cd.g, cd.b, 0.25 + _hf(seed + 3) * 0.20), 2.0, true)
+				  Color(cd.r, cd.g, cd.b, 0.25 + _hf(stripe_seed + 3) * 0.20), 2.0, true)
 
 	var gc = [ct.darkened(0.28), ct, ct.lightened(0.18)]
 	var segs = 80; var step = width / float(segs)
 	for pass_i in range(3):
-		var seed = (_scenery_seed ^ 0x6A55) + pass_i * 200
+		var pass_seed = (_scenery_seed ^ 0x6A55) + pass_i * 200
 		var amp = 10.0 - float(pass_i) * 2.5
 		var oy  = float(pass_i) * 2.0
 		var pts: PackedVector2Array = []
 		pts.append(Vector2(left, ground_y + 26.0))
 		for i in range(segs + 1):
 			var gx = left + float(i) * step
-			var h0 = _hf(seed + (i - 1) * 11) * amp
-			var h1 = _hf(seed + i * 11) * amp
-			var h2 = _hf(seed + (i + 1) * 11) * amp
+			var h0 = _hf(pass_seed + (i - 1) * 11) * amp
+			var h1 = _hf(pass_seed + i * 11) * amp
+			var h2 = _hf(pass_seed + (i + 1) * 11) * amp
 			pts.append(Vector2(gx, ground_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2) + oy))
 		pts.append(Vector2(right, ground_y + 26.0))
-		draw_colored_polygon(pts, gc[pass_i])
+		if pts.size() >= 3:
+			draw_colored_polygon(pts, gc[pass_i])
 
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), ct.lightened(0.35), 2.0, true)
 
@@ -1410,7 +1424,8 @@ func _draw_ground_puddles(left: float, right: float, blend: float):
 		for si in range(steps):
 			var a := (float(si) / float(steps)) * TAU
 			pts.append(Vector2(px + cos(a) * pw, ground_y + 2.0 + sin(a) * ph))
-		draw_colored_polygon(pts, water_col)
+		if pts.size() >= 3:
+			draw_colored_polygon(pts, water_col)
 		draw_line(Vector2(px - pw * 0.3, ground_y + 1.0),
 				  Vector2(px + pw * 0.3, ground_y + 1.0), reflect, 1.5, true)
 
@@ -1424,8 +1439,8 @@ func _draw_ground_gym():
 	var tile_w = 200.0; var tile_count = int(ceil(width / tile_w)) + 1
 	for ti in range(tile_count):
 		var tx   = left + float(ti) * tile_w
-		var seed = (_scenery_seed ^ 0xAABB) + ti * 7
-		var v    = (_hf(seed) - 0.5) * 0.018
+		var tile_seed = (_scenery_seed ^ 0xAABB) + ti * 7
+		var v    = (_hf(tile_seed) - 0.5) * 0.018
 		draw_rect(Rect2(Vector2(tx+2.0, ground_y+1.0), Vector2(tile_w-4.0, 40.0)),
 				  Color(ct.r+v, ct.g+v, ct.b+v+0.01), true)
 		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y+42.0),
@@ -1460,10 +1475,10 @@ func _draw_ground_city() -> void:
 			  ct.lightened(0.20), 1.5, true)
 
 	# Dashed centre line
-	var sc  := Color(0.55, 0.52, 0.22, 0.30 if tod == 0 else 0.40)
+	var stripe_col  := Color(0.55, 0.52, 0.22, 0.30 if tod == 0 else 0.40)
 	var ssx = floor(left / 150.0) * 150.0
 	while ssx < right:
-		draw_rect(Rect2(ssx, ground_y + 15.0, 28.0, 3.0), sc, true)
+		draw_rect(Rect2(ssx, ground_y + 15.0, 28.0, 3.0), stripe_col, true)
 		ssx += 150.0
 
 	# Rain puddles only when wet
@@ -1489,10 +1504,10 @@ func _draw_water_surface():
 		var a1 = lerp(0.55, 0.0, t1)
 		var c0 := Color(0.02, 0.22, 0.50, a0)
 		var c1 := Color(0.01, 0.10, 0.28, a1)
-		var tl := Vector2(bl, y0); var tr2 := Vector2(br, y0)
+		var tl2 := Vector2(bl, y0); var tr2 := Vector2(br, y0)
 		var br2 := Vector2(br, y1); var bl2 := Vector2(bl, y1)
-		draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
+		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
 	var caustic_count := 6
 	for ci in range(caustic_count):
@@ -1529,7 +1544,8 @@ func _draw_water_surface():
 					 - sin(x * freq * 3.14 + phase * 1.3) * amp * 0.14
 			pts.append(Vector2(x, y))
 		pts.append(Vector2(br, ground_y + 300.0))
-		draw_colored_polygon(pts, wcol)
+		if pts.size() >= 3:
+			draw_colored_polygon(pts, wcol)
 
 	var spec_segs := 80
 	var spec_step := width / float(spec_segs)
@@ -1579,7 +1595,7 @@ func _draw_water_surface():
 
 func _draw_splashes():
 	for s in _splashes:
-		var age = s["time"]
+		var _age = s["time"]
 
 		var ring_r = s["ring_radius"]
 		if ring_r < 250.0:
@@ -1694,8 +1710,8 @@ func draw_textured_wall(start_pos: Vector2, size: Vector2):
 	for x in cols:
 		for y in rows:
 			var px=gx+x*tile; var py=gy+y*tile
-			var seed:=int(px/tile)+int(py/tile)*1000
-			var v:=(_hf(seed)-0.5)*texture_variation
+			var tile_seed:=int(px/tile)+int(py/tile)*1000
+			var v:=(_hf(tile_seed)-0.5)*texture_variation
 			var tr2=Rect2(Vector2(px,py),Vector2(tile,tile))
 			var wr=Rect2(wall_min,wall_max-wall_min)
 			var cl=tr2.intersection(wr)
@@ -1712,8 +1728,8 @@ func draw_bolt_holes(start_pos: Vector2, end_pos: Vector2):
 	while x<=ceil(dMx/hole_spacing.x)*hole_spacing.x:
 		var y=sy
 		while y<=ceil(dMy/hole_spacing.y)*hole_spacing.y:
-			var seed:=int(x/hole_spacing.x)+int(y/hole_spacing.y)*1000
-			var hp=Vector2(x,y)+Vector2((_hf(seed)-0.5)*hole_jitter,(_hf(seed+1)-0.5)*hole_jitter)
+			var hole_seed:=int(x/hole_spacing.x)+int(y/hole_spacing.y)*1000
+			var hp=Vector2(x,y)+Vector2((_hf(hole_seed)-0.5)*hole_jitter,(_hf(hole_seed+1)-0.5)*hole_jitter)
 			if hp.x>=dmx and hp.x<=dMx and hp.y>=dmy and hp.y<=dMy:
 				draw_circle(hp,hole_radius,hole_color)
 			y+=hole_spacing.y
@@ -1729,8 +1745,8 @@ func draw_bolt_holes_on_polygon():
 	while x<=ceil(dMx/hole_spacing.x)*hole_spacing.x:
 		var y=sy
 		while y<=ceil(dMy/hole_spacing.y)*hole_spacing.y:
-			var seed:=int(x/hole_spacing.x)+int(y/hole_spacing.y)*1000
-			var hp=Vector2(x,y)+Vector2((_hf(seed)-0.5)*hole_jitter,(_hf(seed+1)-0.5)*hole_jitter)
+			var hole_seed:=int(x/hole_spacing.x)+int(y/hole_spacing.y)*1000
+			var hp=Vector2(x,y)+Vector2((_hf(hole_seed)-0.5)*hole_jitter,(_hf(hole_seed+1)-0.5)*hole_jitter)
 			if _point_in_polygon(hp): draw_circle(hp,hole_radius,hole_color)
 			y+=hole_spacing.y
 		x+=hole_spacing.x
@@ -1903,7 +1919,7 @@ func _create_top_edge_holds():
 		var p2 = control_points[(edge_idx + 1) % control_points.size()]
 		_create_top_hold_at((p1 + p2) / 2.0, p1.distance_to(p2))
 
-func _create_top_hold_at(position: Vector2, width: float):
+func _create_top_hold_at(hold_position: Vector2, width: float):
 	var top_hold = Area2D.new()
 	top_hold.set_meta("is_top_edge_hold", true)
 	top_hold.collision_layer = 2
@@ -1923,7 +1939,7 @@ func _create_top_hold_at(position: Vector2, width: float):
 	hold_point.position     = Vector2.ZERO
 	top_hold.add_child(hold_point)
 
-	top_hold.global_position = position
+	top_hold.global_position = hold_position
 	add_child(top_hold)
 	top_hold.add_to_group("holds")
 

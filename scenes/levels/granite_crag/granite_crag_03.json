@@ -11,7 +11,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "granite",
-	"grade": "V2",
+	"grade": "V4",
 	"holds": [
 		{
 			"modifiers": [
@@ -64,11 +64,6 @@
 			"y": -96.0
 		},
 		{
-			"type": "SLOPER",
-			"x": 0.0,
-			"y": -160.0
-		},
-		{
 			"modifiers": [
 				{
 					"type": "falling"
@@ -77,6 +72,18 @@
 			"type": "CRIMP",
 			"x": 96.0,
 			"y": -96.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "POCKET",
+			"x": 128.0,
+			"y": -160.0
 		}
 	],
 	"name": "Unnamed Route",
