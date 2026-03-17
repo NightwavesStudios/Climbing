@@ -852,12 +852,9 @@ func _draw_gym_interior():
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var width = br - bl
-	# When used as a pure backdrop, wall_min/wall_max may be zero.
-	# Use the full background span for vis_top/bot so polygons never collapse.
 	var vis_top = wall_min.y
 	var vis_bot = ground_y if ground_y > vis_top + 10.0 else vis_top + (wall_max.y - wall_min.y)
 	var vis_h   = vis_bot - vis_top
-	# Guard against degenerate geometry (zero viewport not yet laid out, etc.).
 	if width < 1.0 or vis_h < 10.0:
 		return
 
@@ -1161,7 +1158,6 @@ func _draw_building_facade_wall() -> void:
 			dark_col = Color(0.38, 0.38, 0.40)
 			lite_col = Color(0.64, 0.64, 0.66)
 
-	# Suppress unused warning — base_col informs the palette but isn't drawn directly
 	var _base_col_ref = base_col
 
 	base_col = base_col.lerp(Color(0.34, 0.36, 0.40), rb * 0.4)
@@ -1170,7 +1166,6 @@ func _draw_building_facade_wall() -> void:
 	var w := wall_max.x - wall_min.x
 	var h := wall_max.y - wall_min.y
 
-	# ── 1. Smooth vertical gradient — no tiled patches ────────────────────
 	var v_bands := 8
 	for vi in range(v_bands):
 		var t0 := float(vi) / float(v_bands)
@@ -1184,7 +1179,6 @@ func _draw_building_facade_wall() -> void:
 		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
 		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
 
-	# ── 2. Panel grid lines only (no filled rects) ────────────────────────
 	var panel_w := 220.0
 	var panel_h := 160.0
 	var groove  := Color(dark_col.r, dark_col.g, dark_col.b, 0.45)
@@ -1201,7 +1195,6 @@ func _draw_building_facade_wall() -> void:
 			draw_line(Vector2(wall_min.x, hg_y), Vector2(wall_max.x, hg_y), groove, 2.0, true)
 		hg_y += panel_h
 
-	# ── 3. Windows — calm, no flicker, no glow spill ─────────────────────
 	var win_w  := panel_w * 0.42
 	var win_h2 := panel_h * 0.50
 	var wmx    := (panel_w - win_w) * 0.5
@@ -1243,7 +1236,6 @@ func _draw_building_facade_wall() -> void:
 					draw_rect(cl, win_glass, true)
 				else:
 					draw_rect(cl, Color(dark_col.r, dark_col.g, dark_col.b, 0.50), true)
-				# Day only: single small reflection glint in upper-left corner
 				if tod == 0 and rb < 0.5:
 					draw_rect(Rect2(cl.position, Vector2(cl.size.x * 0.28, cl.size.y * 0.20)),
 							  Color(0.75, 0.86, 0.96, 0.16 * (1.0 - rb * 2.0)), true)
@@ -1252,12 +1244,10 @@ func _draw_building_facade_wall() -> void:
 		col_i += 1
 		cpx   += panel_w
 
-	# ── 4. Corner pilasters ───────────────────────────────────────────────
 	var rib_w := 12.0
 	draw_rect(Rect2(wall_min.x,         wall_min.y, rib_w, h), dark_col, true)
 	draw_rect(Rect2(wall_max.x - rib_w, wall_min.y, rib_w, h), dark_col, true)
 
-	# ── 5. Rain streaks (subtle) ──────────────────────────────────────────
 	if rb > 0.2:
 		for si in range(int(10.0 * rb)):
 			var sseed  := (_scenery_seed ^ 0xC0DE) + si * 43
@@ -1463,25 +1453,21 @@ func _draw_ground_city() -> void:
 		_:  ct = Color(0.26,0.26,0.28); cm = Color(0.19,0.19,0.21); cd = Color(0.13,0.13,0.14)
 	ct = ct.lerp(Color(0.16, 0.18, 0.20), rb * 0.45)
 
-	# Asphalt — three simple layers
 	draw_rect(Rect2(Vector2(left, ground_y),      Vector2(width, 99999.0)), cd, true)
 	draw_rect(Rect2(Vector2(left, ground_y),      Vector2(width, 26.0)),    cm, true)
 	draw_rect(Rect2(Vector2(left, ground_y),      Vector2(width, 5.0)),     ct, true)
 
-	# Narrow sidewalk at base of building
 	draw_rect(Rect2(Vector2(left, ground_y - 12.0), Vector2(width, 12.0)),
 			  ct.lightened(0.10), true)
 	draw_line(Vector2(left, ground_y - 12.0), Vector2(right, ground_y - 12.0),
 			  ct.lightened(0.20), 1.5, true)
 
-	# Dashed centre line
 	var stripe_col  := Color(0.55, 0.52, 0.22, 0.30 if tod == 0 else 0.40)
 	var ssx = floor(left / 150.0) * 150.0
 	while ssx < right:
 		draw_rect(Rect2(ssx, ground_y + 15.0, 28.0, 3.0), stripe_col, true)
 		ssx += 150.0
 
-	# Rain puddles only when wet
 	if rb > 0.1:
 		_draw_ground_puddles(left, right, rb)
 
@@ -2002,6 +1988,61 @@ func get_top_edge_y() -> float:
 
 func get_wall_height() -> float: return ground_y-get_top_edge_y()
 func get_wall_width() -> float: return wall_max.x-wall_min.x
+
+# ─── Rope anchor API ──────────────────────────────────────────────────────────
+## Returns the point on the drawn wall geometry directly above world_x.
+## Prefers top_edge_indices (the orange-marked edges), falls back to all
+## non-ground edges, and finally falls back to the bounding-box top.
+
+func get_anchor_position_for_x(world_x: float) -> Vector2:
+	if use_polygon_mode and control_points.size() >= 3:
+		var edges_to_check: Array[int] = []
+
+		# Prefer explicitly marked top edges first
+		if not top_edge_indices.is_empty():
+			edges_to_check = top_edge_indices.duplicate()
+		else:
+			# Fall back to every non-ground, non-vertical edge
+			for i in range(control_points.size()):
+				if not _is_ground_edge(i):
+					edges_to_check.append(i)
+
+		var best_pos   := Vector2.ZERO
+		var best_score := INF   # lowest Y (highest on screen) wins; ties broken by X proximity
+
+		for ei in edges_to_check:
+			if ei >= control_points.size():
+				continue
+			var p1 := control_points[ei]
+			var p2 := control_points[(ei + 1) % control_points.size()]
+
+			# Skip edges that are effectively vertical — no sensible X-interpolation
+			var x_min := minf(p1.x, p2.x)
+			var x_max := maxf(p1.x, p2.x)
+			if x_max - x_min < 1.0:
+				continue
+
+			# Interpolate Y at the clamped X position along this edge
+			var clamped_x := clampf(world_x, x_min, x_max)
+			var t         := (clamped_x - p1.x) / (p2.x - p1.x)
+			t              = clampf(t, 0.0, 1.0)
+			var on_edge   := p1.lerp(p2, t)
+
+			# Score: prefer higher points (lower Y), penalise horizontal distance
+			# when the player is outside this edge's span
+			var x_penalty := absf(world_x - clamped_x) * 0.5
+			var score     := on_edge.y + x_penalty
+			if score < best_score:
+				best_score = score
+				best_pos   = on_edge
+
+		if best_score < INF:
+			return best_pos
+
+	# Rectangle / no-polygon fallback
+	return Vector2(clampf(world_x, wall_min.x, wall_max.x), wall_min.y)
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 func _hf(v: int) -> float:
 	return float(hash(v)%10000)/10000.0

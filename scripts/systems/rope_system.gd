@@ -388,17 +388,36 @@ func _draw():
 	draw_circle(al, 8, black); draw_circle(al, 6, Color.WHITE); draw_circle(al, 4, black)
 
 # ═══════════════════════════════════════════════════════════════════════════
+## Anchor lookup — snaps to the actual drawn polygon geometry
+# ═══════════════════════════════════════════════════════════════════════════
+
+func find_top_anchor() -> Vector2:
+	var anchor_x := player.global_position.x if player else 0.0
+
+	# Ask DynamicWall for the exact point on its drawn edge above the player
+	for wall in get_tree().get_nodes_in_group("environment_walls"):
+		if wall.has_method("get_anchor_position_for_x"):
+			return wall.get_anchor_position_for_x(anchor_x)
+
+	# Last resort: highest hold in the scene
+	return _find_highest_hold_anchor()
+
+func _find_highest_hold_anchor() -> Vector2:
+	var best_y   := INF
+	var best_pos := (belayer_position + Vector2(0, -200.0)) if belayer_position != Vector2.ZERO \
+				 else Vector2(0.0, -200.0)
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold.global_position.y < best_y:
+			best_y   = hold.global_position.y
+			best_pos = hold.global_position
+	# Sit just above the highest hold rather than beside the belayer
+	return best_pos + Vector2(0, -30.0)
+
+# ═══════════════════════════════════════════════════════════════════════════
 
 func get_player_chest_position() -> Vector2:
 	if player: return player.global_position + player_attach_offset
 	return belayer_position + Vector2(0, 100)
-
-func find_top_anchor() -> Vector2:
-	var highest_y = player.global_position.y
-	for hold in get_tree().get_nodes_in_group("holds"):
-		if hold.global_position.y < highest_y:
-			highest_y = hold.global_position.y
-	return Vector2(belayer_position.x, highest_y - 60.0)
 
 func _init_rope_points(from: Vector2, mid: Vector2, to: Vector2):
 	rope_points.clear()

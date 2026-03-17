@@ -30,6 +30,18 @@ extends Control
 ## Ground line as a fraction of viewport height.
 @export var ground_fraction: float = 0.85
 
+# ── Weather types ────────────────────────────────────────────────────────────
+
+enum WeatherType {
+	NONE,
+	RAIN,
+	NIGHT,
+	SNOW,
+	LIGHTNING,
+	FOG,
+	HAIL,
+}
+
 # ── Internal state ───────────────────────────────────────────────────────────
 
 var _wall: Node2D        = null
@@ -117,13 +129,29 @@ func _maybe_set_weather() -> void:
 	if wm == null:
 		return
 
+	# Weighted rolls: ~55% chance of no weather, otherwise pick a type.
+	# Rare/dramatic effects (lightning, hail) are less likely than common ones.
 	var roll := randf()
-	if roll < 0.1:
+	if roll < 0.55:
+		wm.set_weather(WeatherType.NONE)
+	elif roll < 0.70:
 		wm.intensity = randf_range(0.3, 1.0)
-		wm.set_weather(3)           # heavy weather
-	elif roll < 0.3:
+		wm.set_weather(WeatherType.RAIN)
+	elif roll < 0.80:
 		wm.intensity = randf_range(0.3, 1.0)
-		wm.set_weather(1)           # light weather
+		wm.set_weather(WeatherType.NIGHT)
+	elif roll < 0.88:
+		wm.intensity = randf_range(0.3, 1.0)
+		wm.set_weather(WeatherType.SNOW)
+	elif roll < 0.93:
+		wm.intensity = randf_range(0.3, 1.0)
+		wm.set_weather(WeatherType.FOG)
+	elif roll < 0.97:
+		wm.intensity = randf_range(0.3, 1.0)
+		wm.set_weather(WeatherType.LIGHTNING)
+	else:
+		wm.intensity = randf_range(0.3, 1.0)
+		wm.set_weather(WeatherType.HAIL)
 
 
 func _fade_in(duration: float) -> void:
@@ -154,3 +182,13 @@ func set_environment(env_name: String) -> void:
 			EnvironmentConfig.current_environment = env
 			break
 	rerandomize()
+
+## Force a specific weather type directly.
+func set_weather(type: WeatherType, intensity: float = 1.0) -> void:
+	if _wall == null:
+		return
+	var wm: Node = _wall.get_node_or_null("WeatherModifier")
+	if wm == null:
+		return
+	wm.intensity = intensity
+	wm.set_weather(type)
