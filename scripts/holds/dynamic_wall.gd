@@ -1911,73 +1911,76 @@ func _create_top_edge_holds():
 		var p2 = control_points[(edge_idx + 1) % control_points.size()]
 		_create_top_hold_at((p1 + p2) / 2.0, p1.distance_to(p2))
 
-func _create_top_hold_at(hold_position: Vector2, width: float):
-	var top_hold = Area2D.new()
+func _create_top_hold_at(hold_position: Vector2, width: float) -> void:
+	var top_hold = _TopEdgeHold.new()
 	top_hold.set_meta("is_top_edge_hold", true)
 	top_hold.collision_layer = 2
 	top_hold.collision_mask  = 0
-	top_hold.monitoring    = false
-	top_hold.monitorable   = true
-	top_hold.name          = "TopEdgeHold"
+	top_hold.monitoring      = false
+	top_hold.monitorable     = true
+	top_hold.name            = "TopEdgeHold"
 
-	var shape     = RectangleShape2D.new()
-	shape.size    = Vector2(width, 50)
-	var collision = CollisionShape2D.new()
+	var shape      = RectangleShape2D.new()
+	shape.size     = Vector2(width, 50)
+	var collision  = CollisionShape2D.new()
 	collision.shape = shape
 	top_hold.add_child(collision)
 
-	var hold_point          = Marker2D.new()
-	hold_point.name         = "HoldPoint"
-	hold_point.position     = Vector2.ZERO
+	var hold_point      = Marker2D.new()
+	hold_point.name     = "HoldPoint"
+	hold_point.position = Vector2.ZERO
 	top_hold.add_child(hold_point)
 
 	top_hold.global_position = hold_position
 	add_child(top_hold)
 	top_hold.add_to_group("holds")
 
-	_assign_top_hold_script(top_hold)
 
-func _assign_top_hold_script(top_hold):
-	if not is_instance_valid(top_hold):
-		return
+class _TopEdgeHold extends Area2D:
+	var claimed_left_hand:  Node2D = null
+	var claimed_right_hand: Node2D = null
+	var left_hand_x:  float = 0.0
+	var right_hand_x: float = 0.0
 
-	var script_code = """
-extends Area2D
-var claimed_left_hand: Node2D = null
-var claimed_right_hand: Node2D = null
-var left_hand_x: float = 0.0
-var right_hand_x: float = 0.0
-func is_start_hold() -> bool: return false
-func is_top_out() -> bool: return true
-func is_crimp() -> bool: return false
-func is_sloper() -> bool: return false
-func is_pocket() -> bool: return false
-func is_foothold() -> bool: return false
-func can_grab(limb: Node2D, is_foot: bool) -> bool:
-	if is_foot: return false
-	return true
-func try_claim(limb: Node2D, is_foot: bool, snap_pos: Vector2) -> bool:
-	if not can_grab(limb, is_foot): return false
-	if limb.name == 'LeftHand': claimed_left_hand = limb; left_hand_x = snap_pos.x
-	elif limb.name == 'RightHand': claimed_right_hand = limb; right_hand_x = snap_pos.x
-	return true
-func release(limb: Node2D) -> void:
-	if limb.name == 'LeftHand' and claimed_left_hand == limb: claimed_left_hand = null; left_hand_x = 0.0
-	elif limb.name == 'RightHand' and claimed_right_hand == limb: claimed_right_hand = null; right_hand_x = 0.0
-func get_limb_anchor(limb: Node2D) -> Vector2:
-	var x_pos = limb.global_position.x
-	if limb.name == 'LeftHand' and claimed_left_hand == limb: x_pos = left_hand_x
-	elif limb.name == 'RightHand' and claimed_right_hand == limb: x_pos = right_hand_x
-	return Vector2(x_pos, global_position.y)
-func get_state_pressure(delta: float, body_offset: float, static_time: float, foot_support: float, limb: Node2D) -> float:
-	return 0.5 * delta
-func get_recovery_rate(delta: float, body_balance: float, foot_support: float) -> float:
-	return 3.0 * delta * body_balance
-"""
-	var hold_script = GDScript.new()
-	hold_script.source_code = script_code
-	hold_script.reload()
-	top_hold.set_script(hold_script)
+	func is_start_hold() -> bool: return false
+	func is_top_out()    -> bool: return true
+	func is_crimp()      -> bool: return false
+	func is_sloper()     -> bool: return false
+	func is_pocket()     -> bool: return false
+	func is_foothold()   -> bool: return false
+
+	func can_grab(_limb: Node2D, is_foot: bool) -> bool:
+		return not is_foot
+
+	func try_claim(limb: Node2D, is_foot: bool, snap_pos: Vector2) -> bool:
+		if not can_grab(limb, is_foot): return false
+		if limb.name == "LeftHand":
+			claimed_left_hand = limb
+			left_hand_x = snap_pos.x
+		elif limb.name == "RightHand":
+			claimed_right_hand = limb
+			right_hand_x = snap_pos.x
+		return true
+
+	func release(limb: Node2D) -> void:
+		if limb.name == "LeftHand" and claimed_left_hand == limb:
+			claimed_left_hand = null
+			left_hand_x = 0.0
+		elif limb.name == "RightHand" and claimed_right_hand == limb:
+			claimed_right_hand = null
+			right_hand_x = 0.0
+
+	func get_limb_anchor(limb: Node2D) -> Vector2:
+		var x = left_hand_x if (limb.name == "LeftHand" and claimed_left_hand == limb) \
+				else right_hand_x if (limb.name == "RightHand" and claimed_right_hand == limb) \
+				else limb.global_position.x
+		return Vector2(x, global_position.y)
+
+	func get_state_pressure(delta: float, _bo: float, _st: float, _fs: float, _limb: Node2D) -> float:
+		return 0.5 * delta
+
+	func get_recovery_rate(delta: float, body_balance: float, _fs: float) -> float:
+		return 3.0 * delta * body_balance
 
 func get_bounds() -> Dictionary:
 	return {"min": wall_min, "max": wall_max, "valid": wall_valid}
