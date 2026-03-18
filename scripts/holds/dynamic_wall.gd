@@ -676,6 +676,8 @@ func _draw_mountains():
 
 func _draw_hill_layer(left: float, right: float, base_y: float,
 					  min_h: float, max_h: float, segs: int, color: Color, hill_seed: int):
+	if segs < 1 or right <= left:
+		return
 	var step = (right - left) / float(segs)
 	var pts: PackedVector2Array = []
 	pts.append(Vector2(left, base_y + 500.0))
@@ -685,7 +687,7 @@ func _draw_hill_layer(left: float, right: float, base_y: float,
 		var h2 = _hf(hill_seed + (i + 1) * 7) * (max_h - min_h) + min_h
 		pts.append(Vector2(left + i * step, base_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2)))
 	pts.append(Vector2(right, base_y + 500.0))
-	if pts.size() >= 3:
+	if _polygon_valid(pts):
 		draw_colored_polygon(pts, color)
 
 # ─── City silhouette — clean, minimal, natural ────────────────────────────────
@@ -815,12 +817,14 @@ func _draw_cloud_shape(cx: float, cy: float, sx: float, sy: float,
 				   sx * sizes[pi], sy * (sizes[pi] + 0.1) * ry_mult, color)
 
 func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color):
+	if rx < 0.5 or ry < 0.5:
+		return
 	var steps = 18
 	var pts: PackedVector2Array = []
 	for i in range(steps):
 		var angle = (float(i) / float(steps)) * TAU
 		pts.append(Vector2(cx + cos(angle) * rx, cy + sin(angle) * ry))
-	if pts.size() >= 3:
+	if _polygon_valid(pts):
 		draw_colored_polygon(pts, color)
 
 func _draw_fog():
@@ -987,7 +991,8 @@ func _draw_gym_interior():
 			mpts.append(Vector2(wx, mbase))
 			for rp in ridge: mpts.append(rp)
 			mpts.append(Vector2(wx2, mbase))
-			if mpts.size() >= 4: draw_colored_polygon(mpts, mcol)
+			if _polygon_valid(mpts):
+				draw_colored_polygon(mpts, mcol)
 
 		var gnd_h   = win_h * 0.09
 		var gsegs   = 40
@@ -1000,7 +1005,7 @@ func _draw_gym_interior():
 			var gh    = gnd_h * (0.6 + _hf(gseed) * 0.4)
 			gpts.append(Vector2(gx2, win_bot - gh))
 		gpts.append(Vector2(wx2, win_bot + 4.0))
-		if gpts.size() >= 3:
+		if _polygon_valid(gpts):
 			draw_colored_polygon(gpts, gym_grass_color)
 		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
 				  gym_grass_color.darkened(0.18), true)
@@ -1125,7 +1130,7 @@ func _draw_rectangle_wall():
 
 func _draw_polygon_wall():
 	var pp = PackedVector2Array(control_points)
-	if pp.size() < 3: return
+	if not _polygon_valid(pp): return
 	draw_colored_polygon(pp, current_wall_color)
 	if wall_texture_enabled:
 		var p2: PackedVector2Array = PackedVector2Array()
@@ -1134,7 +1139,7 @@ func _draw_polygon_wall():
 			p2.append(pp[i])
 			var t = clamp((pp[i].y - wall_min.y) / max(wall_max.y - wall_min.y, 1.0), 0.0, 1.0)
 			cols.append(Color(0.0, 0.0, 0.0, t * 0.09))
-		if p2.size() >= 3:
+		if _polygon_valid(p2):
 			draw_polygon(p2, cols)
 
 # ─── Building facade wall — clean concrete, no texture patches ───────────────
@@ -1390,7 +1395,7 @@ func _draw_ground_grass():
 			var h2 = _hf(pass_seed + (i + 1) * 11) * amp
 			pts.append(Vector2(gx, ground_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2) + oy))
 		pts.append(Vector2(right, ground_y + 26.0))
-		if pts.size() >= 3:
+		if _polygon_valid(pts):
 			draw_colored_polygon(pts, gc[pass_i])
 
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), ct.lightened(0.35), 2.0, true)
@@ -1414,7 +1419,7 @@ func _draw_ground_puddles(left: float, right: float, blend: float):
 		for si in range(steps):
 			var a := (float(si) / float(steps)) * TAU
 			pts.append(Vector2(px + cos(a) * pw, ground_y + 2.0 + sin(a) * ph))
-		if pts.size() >= 3:
+		if _polygon_valid(pts):
 			draw_colored_polygon(pts, water_col)
 		draw_line(Vector2(px - pw * 0.3, ground_y + 1.0),
 				  Vector2(px + pw * 0.3, ground_y + 1.0), reflect, 1.5, true)
@@ -1530,7 +1535,7 @@ func _draw_water_surface():
 					 - sin(x * freq * 3.14 + phase * 1.3) * amp * 0.14
 			pts.append(Vector2(x, y))
 		pts.append(Vector2(br, ground_y + 300.0))
-		if pts.size() >= 3:
+		if _polygon_valid(pts):
 			draw_colored_polygon(pts, wcol)
 
 	var spec_segs := 80
@@ -1688,7 +1693,8 @@ func _draw_ground_water():
 		var cdep=200.0+_hf(cseed+3)*300.0
 		var pts=PackedVector2Array([Vector2(cx-cw*0.5,ground_y),Vector2(cx+cw*0.5,ground_y),
 								   Vector2(cx+cw*0.8,ground_y+cdep),Vector2(cx-cw*0.8,ground_y+cdep)])
-		draw_colored_polygon(pts,Color(0.30,0.65,0.90,calp))
+		if _polygon_valid(pts):
+			draw_colored_polygon(pts,Color(0.30,0.65,0.90,calp))
 
 func draw_textured_wall(start_pos: Vector2, size: Vector2):
 	var tile:=128.0; var cols:=int(ceil(size.x/tile))+1; var rows:=int(ceil(size.y/tile))+1
@@ -1990,25 +1996,20 @@ func get_wall_height() -> float: return ground_y-get_top_edge_y()
 func get_wall_width() -> float: return wall_max.x-wall_min.x
 
 # ─── Rope anchor API ──────────────────────────────────────────────────────────
-## Returns the point on the drawn wall geometry directly above world_x.
-## Prefers top_edge_indices (the orange-marked edges), falls back to all
-## non-ground edges, and finally falls back to the bounding-box top.
 
 func get_anchor_position_for_x(world_x: float) -> Vector2:
 	if use_polygon_mode and control_points.size() >= 3:
 		var edges_to_check: Array[int] = []
 
-		# Prefer explicitly marked top edges first
 		if not top_edge_indices.is_empty():
 			edges_to_check = top_edge_indices.duplicate()
 		else:
-			# Fall back to every non-ground, non-vertical edge
 			for i in range(control_points.size()):
 				if not _is_ground_edge(i):
 					edges_to_check.append(i)
 
 		var best_pos   := Vector2.ZERO
-		var best_score := INF   # lowest Y (highest on screen) wins; ties broken by X proximity
+		var best_score := INF
 
 		for ei in edges_to_check:
 			if ei >= control_points.size():
@@ -2016,20 +2017,16 @@ func get_anchor_position_for_x(world_x: float) -> Vector2:
 			var p1 := control_points[ei]
 			var p2 := control_points[(ei + 1) % control_points.size()]
 
-			# Skip edges that are effectively vertical — no sensible X-interpolation
 			var x_min := minf(p1.x, p2.x)
 			var x_max := maxf(p1.x, p2.x)
 			if x_max - x_min < 1.0:
 				continue
 
-			# Interpolate Y at the clamped X position along this edge
 			var clamped_x := clampf(world_x, x_min, x_max)
 			var t         := (clamped_x - p1.x) / (p2.x - p1.x)
 			t              = clampf(t, 0.0, 1.0)
 			var on_edge   := p1.lerp(p2, t)
 
-			# Score: prefer higher points (lower Y), penalise horizontal distance
-			# when the player is outside this edge's span
 			var x_penalty := absf(world_x - clamped_x) * 0.5
 			var score     := on_edge.y + x_penalty
 			if score < best_score:
@@ -2039,10 +2036,23 @@ func get_anchor_position_for_x(world_x: float) -> Vector2:
 		if best_score < INF:
 			return best_pos
 
-	# Rectangle / no-polygon fallback
 	return Vector2(clampf(world_x, wall_min.x, wall_max.x), wall_min.y)
 
 # ─────────────────────────────────────────────────────────────────────────────
+
+## Returns true only if the polygon has enough non-collinear points to survive
+## Godot's triangulator. Guards every draw_colored_polygon / draw_polygon call.
+func _polygon_valid(pts: PackedVector2Array) -> bool:
+	if pts.size() < 3:
+		return false
+	# Require at least one triplet with a non-zero cross-product (not all collinear)
+	for i in range(pts.size()):
+		var a := pts[i]
+		var b := pts[(i + 1) % pts.size()]
+		var c := pts[(i + 2) % pts.size()]
+		if abs((b - a).cross(c - a)) > 0.01:
+			return true
+	return false
 
 func _hf(v: int) -> float:
 	return float(hash(v)%10000)/10000.0
@@ -2057,19 +2067,27 @@ func get_polygon_data() -> Dictionary:
 			"ground_right_index":ground_right_index,"top_edge_indices":top_edge_indices.duplicate()}
 
 func set_polygon_data(data: Dictionary):
-	if not data or data.is_empty() or not data.get("enabled",false): return
-	use_polygon_mode=true; control_points.clear()
-	for pd in data.get("points",[]): control_points.append(Vector2(pd.get("x",0),pd.get("y",0)))
-	ground_left_index=data.get("ground_left_index",-1)
-	ground_right_index=data.get("ground_right_index",-1)
+	if not data or data.is_empty() or not data.get("enabled", false): return
+	use_polygon_mode = true
+	control_points.clear()
+	for pd in data.get("points", []):
+		control_points.append(Vector2(pd.get("x", 0), pd.get("y", 0)))
+	# Need at least a triangle before doing anything further
+	if control_points.size() < 3:
+		push_warning("DynamicWall.set_polygon_data: fewer than 3 points, ignoring polygon")
+		control_points.clear()
+		use_polygon_mode = false
+		return
+	ground_left_index  = data.get("ground_left_index",  -1)
+	ground_right_index = data.get("ground_right_index", -1)
 	top_edge_indices.clear()
-	for ei in data.get("top_edge_indices",[]):
+	for ei in data.get("top_edge_indices", []):
 		if ei is float or ei is int: top_edge_indices.append(int(ei))
-	if ground_left_index>=0 and ground_left_index<control_points.size():
-		ground_y=control_points[ground_left_index].y
+	if ground_left_index >= 0 and ground_left_index < control_points.size():
+		ground_y = control_points[ground_left_index].y
 	_update_bounds_from_polygon()
 	if not top_edge_indices.is_empty(): _create_top_edge_holds()
-	if weather_modifier: weather_modifier._wall_ref=self
+	if weather_modifier: weather_modifier._wall_ref = self
 	_init_clouds()
 	queue_redraw()
-	print("  Polygon loaded: "+str(control_points.size())+" points, "+str(top_edge_indices.size())+" top edges")
+	print("  Polygon loaded: " + str(control_points.size()) + " points, " + str(top_edge_indices.size()) + " top edges")
