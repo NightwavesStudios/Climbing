@@ -29,11 +29,11 @@ var fall_vel      : float = 0.0
 
 signal player_caught
 
-# ── Belayer body constants ─────────────────────────────────────────────────
-const LEG_UPPER_LENGTH      := 30.0
-const LEG_LOWER_LENGTH      := 28.0
-const HIP_DOWN              := 18.0
-const HEAD_OFFSET           := -18.0
+# ── Belayer body constants (scaled up ~25%) ───────────────────────────────
+const LEG_UPPER_LENGTH      := 38.0
+const LEG_LOWER_LENGTH      := 35.0
+const HIP_DOWN              := 22.0
+const HEAD_OFFSET           := -24.0
 const LEG_NATURAL_SPLAY_DEG := 12.0
 
 var b_left_hand_joint  := Vector2.ZERO
@@ -45,12 +45,24 @@ var b_right_hand       := Vector2.ZERO
 var b_left_foot        := Vector2.ZERO
 var b_right_foot       := Vector2.ZERO
 
-var belayer_facing_right := true
-var belayer_lean         : float = 0.0
+# belayer_facing: smoothed float (+1 = right, -1 = left).
+# All joint and draw math uses this value so facing flips are interpolated.
+var belayer_facing_right := true          # canonical bool, updated each frame
+var belayer_facing       : float = 1.0   # lerped, used for all positional math
+const FACING_LERP_SPEED  := 5.0
+
+var belayer_lean : float = 0.0
 const LEAN_ATTACK := 10.0
 const LEAN_DECAY  := 2.5
 
-# ── Slack burst system ─────────────────────────────────────────────────────
+# ── Lowering animation ─────────────────────────────────────────────────────
+# Phase 0→1 drives one full pull-feed cycle of the guide hand.
+# Brake hand mirrors with a half-cycle offset for a natural alternating feel.
+var lower_anim_phase : float = 0.0
+const LOWER_ANIM_SPEED := 1.8   # cycles per second while lowering
+var _is_lowering       : bool  = false
+
+# ── Idle slack burst system ────────────────────────────────────────────────
 var guide_hand_pull      : float = 0.0
 var slack_burst_timer    : float = 0.0
 var slack_burst_active   : bool  = false
@@ -73,9 +85,7 @@ var player               : Node2D = null
 var player_attach_offset : Vector2 = Vector2(0, -10)
 var rope_line            : Line2D = null
 
-# ── Hold accessors — insulated from climber's internal layout ─────────────
-# These are the only two places in this file that know about lh/rh.
-# If climber.gd ever changes its structure again, only these need updating.
+# ── Hold accessors ────────────────────────────────────────────────────────
 
 func _left_hand_hold() -> Area2D:
 	return player.lh.hold if player else null
@@ -108,10 +118,10 @@ func _process(delta):
 	if not is_setup or not player:
 		return
 	_update_catch(delta)
+	update_belayer_animation(delta)   # facing + lowering phase before joints
 	update_belayer_joints()
 	simulate_rope_physics(delta)
 	update_rope_visual()
-	update_belayer_animation(delta)
 	queue_redraw()
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -124,6 +134,7 @@ func setup_rope(belayer_pos: Vector2, player_node: Node2D, anchor_pos: Vector2 =
 	anchor_position  = anchor_pos if anchor_pos != Vector2.ZERO else find_top_anchor()
 
 	belayer_facing_right = get_player_chest_position().x > anchor_position.x
+	belayer_facing       = 1.0 if belayer_facing_right else -1.0
 	update_belayer_joints()
 	_init_rope_points(get_belayer_guide_hand_world(), anchor_position, get_player_chest_position())
 
@@ -192,47 +203,17 @@ func _update_catch(delta: float):
 			player.global_position = player.com_position + Vector2(0, -player.COM_OFFSET_Y)
 
 # ═══════════════════════════════════════════════════════════════════════════
-## Belayer joints
-# ═══════════════════════════════════════════════════════════════════════════
-
-func update_belayer_joints():
-	var sm     := 1.0 if belayer_facing_right else -1.0
-	var lean_y := -belayer_lean * 8.0
-	var b      := belayer_position + Vector2(0, lean_y)
-	var b_base := belayer_position
-
-	var near_shoulder := b      + Vector2( sm * 8.0,  0.0)
-	var far_shoulder  := b      + Vector2(-sm * 8.0,  0.0)
-	var near_hip      := b_base + Vector2( sm * 6.0,  HIP_DOWN)
-	var far_hip       := b_base + Vector2(-sm * 6.0,  HIP_DOWN)
-
-	var pull_offset    := Vector2(0.0, guide_hand_pull)
-	b_right_hand_joint  = near_shoulder + Vector2( sm * 8.0,  -8.0)  + pull_offset * 0.4
-	b_right_hand        = near_shoulder + Vector2( sm * 12.0, -22.0) + pull_offset
-
-	var brake_pull    := belayer_lean * 18.0
-	b_left_hand_joint  = far_shoulder + Vector2(-sm * 5.0, 14.0 + brake_pull * 0.4)
-	b_left_hand        = far_shoulder + Vector2(-sm * 7.0, 26.0 + brake_pull)
-
-	var lr := deg_to_rad(LEG_NATURAL_SPLAY_DEG)
-	b_right_foot_joint = near_hip + Vector2( sm * LEG_UPPER_LENGTH * sin(lr),       LEG_UPPER_LENGTH * cos(lr))
-	b_right_foot       = b_right_foot_joint + Vector2(0, LEG_LOWER_LENGTH)
-	b_left_foot_joint  = far_hip  + Vector2(-sm * LEG_UPPER_LENGTH * sin(lr) * 0.7, LEG_UPPER_LENGTH * cos(lr))
-	b_left_foot        = b_left_foot_joint  + Vector2(0, LEG_LOWER_LENGTH)
-
-
-func get_belayer_guide_hand_world() -> Vector2:
-	return b_right_hand
-
-# ═══════════════════════════════════════════════════════════════════════════
-## Belayer animation
+## Belayer animation — lean, facing, lowering phase
+## Called before update_belayer_joints so joints always use fresh values.
 # ═══════════════════════════════════════════════════════════════════════════
 
 func update_belayer_animation(delta: float):
+	# ── Lean ──────────────────────────────────────────────────────────────────
 	var lean_target := 1.0 if catch_state in [CatchState.STRETCHING, CatchState.HELD] else 0.0
 	belayer_lean = move_toward(belayer_lean, lean_target,
 		(LEAN_ATTACK if lean_target > belayer_lean else LEAN_DECAY) * delta)
 
+	# ── Idle slack bursts ─────────────────────────────────────────────────────
 	if catch_state == CatchState.IDLE:
 		if not slack_burst_active:
 			slack_between_bursts -= delta
@@ -251,8 +232,68 @@ func update_belayer_animation(delta: float):
 	else:
 		guide_hand_pull = lerp(guide_hand_pull, -BURST_MAGNITUDE * 1.8, 10.0 * delta)
 
+	# ── Smooth facing ─────────────────────────────────────────────────────────
 	if player:
 		belayer_facing_right = get_player_chest_position().x > anchor_position.x
+		var target := 1.0 if belayer_facing_right else -1.0
+		belayer_facing = lerp(belayer_facing, target, FACING_LERP_SPEED * delta)
+
+	# ── Lowering animation phase ───────────────────────────────────────────────
+	_is_lowering = (catch_state == CatchState.HELD
+		and Input.is_action_pressed("ui_accept"))
+	if _is_lowering:
+		lower_anim_phase = fmod(lower_anim_phase + LOWER_ANIM_SPEED * delta, 1.0)
+	else:
+		lower_anim_phase = lerp(lower_anim_phase, 0.0, 5.0 * delta)
+
+# ═══════════════════════════════════════════════════════════════════════════
+## Belayer joints
+## Uses belayer_facing (float) throughout — smooth across facing flips.
+# ═══════════════════════════════════════════════════════════════════════════
+
+func update_belayer_joints():
+	var sm     := belayer_facing          # smooth signed direction
+	var lean_y := -belayer_lean * 8.0
+	var b      := belayer_position + Vector2(0, lean_y)
+	var b_base := belayer_position
+
+	var near_shoulder := b      + Vector2( sm * 10.0, 0.0)
+	var far_shoulder  := b      + Vector2(-sm * 10.0, 0.0)
+	var near_hip      := b_base + Vector2( sm *  8.0, HIP_DOWN)
+	var far_hip       := b_base + Vector2(-sm *  8.0, HIP_DOWN)
+
+	# ── Guide hand — lowering cycle applied on top of idle pull ───────────────
+	var lower_guide_y := 0.0
+	var lower_guide_x := 0.0
+	if lower_anim_phase > 0.005:
+		var cycle     := sin(lower_anim_phase * TAU)      # -1..1 per cycle
+		lower_guide_y  = cycle * 20.0                     # vertical pull travel
+		lower_guide_x  = abs(cycle) * sm * 5.0           # slight outward reach
+
+	var pull_offset    := Vector2(lower_guide_x, guide_hand_pull + lower_guide_y)
+	b_right_hand_joint  = near_shoulder + Vector2( sm * 10.0, -10.0) + pull_offset * 0.4
+	b_right_hand        = near_shoulder + Vector2( sm * 14.0, -26.0) + pull_offset
+
+	# ── Brake hand — half-cycle offset so hands alternate ─────────────────────
+	var lower_brake_y := 0.0
+	if lower_anim_phase > 0.005:
+		var brake_cycle := sin(lower_anim_phase * TAU + PI)
+		lower_brake_y    = brake_cycle * 11.0
+
+	var brake_pull := belayer_lean * 18.0 + lower_brake_y
+	b_left_hand_joint  = far_shoulder + Vector2(-sm * 6.0, 14.0 + brake_pull * 0.4)
+	b_left_hand        = far_shoulder + Vector2(-sm * 8.0, 28.0 + brake_pull)
+
+	# ── Feet ──────────────────────────────────────────────────────────────────
+	var lr := deg_to_rad(LEG_NATURAL_SPLAY_DEG)
+	b_right_foot_joint = near_hip + Vector2( sm * LEG_UPPER_LENGTH * sin(lr),        LEG_UPPER_LENGTH * cos(lr))
+	b_right_foot       = b_right_foot_joint + Vector2(0, LEG_LOWER_LENGTH)
+	b_left_foot_joint  = far_hip  + Vector2(-sm * LEG_UPPER_LENGTH * sin(lr) * 0.7,  LEG_UPPER_LENGTH * cos(lr))
+	b_left_foot        = b_left_foot_joint  + Vector2(0, LEG_LOWER_LENGTH)
+
+
+func get_belayer_guide_hand_world() -> Vector2:
+	return b_right_hand
 
 # ═══════════════════════════════════════════════════════════════════════════
 ## Rope physics
@@ -328,7 +369,7 @@ func _smooth_rope():
 							+ rope_points[i + 1]   * 0.2)
 
 # ═══════════════════════════════════════════════════════════════════════════
-## Visual
+## Rope visual
 # ═══════════════════════════════════════════════════════════════════════════
 
 func update_rope_visual():
@@ -350,20 +391,51 @@ func update_rope_visual():
 		rope_line.width         = rope_thickness
 		rope_line.default_color = rope_color
 
+# ═══════════════════════════════════════════════════════════════════════════
+## Draw
+# ═══════════════════════════════════════════════════════════════════════════
 
 func _draw():
 	if not is_setup:
 		return
+	_draw_anchor()
+	_draw_belayer_figure()
 
-	var black := Color.BLACK
-	var lw    := 4.0
 
-	var lean_y := -belayer_lean * 8.0
-	var b      := to_local(belayer_position + Vector2(0, lean_y))
-	var b_base := to_local(belayer_position)
+func _draw_anchor():
+	var al := to_local(anchor_position)
+	draw_circle(al, 10, Color(0.18, 0.18, 0.18))
+	draw_circle(al,  8, Color(0.72, 0.72, 0.72))
+	draw_circle(al,  5, Color(0.18, 0.18, 0.18))
+	draw_circle(al,  3, Color(0.85, 0.85, 0.85))
 
-	var neck := b      + Vector2(0, HEAD_OFFSET + 12)
-	var hips := b_base + Vector2(0, HIP_DOWN)
+
+func _draw_belayer_figure():
+	# ── Palette ───────────────────────────────────────────────────────────────
+	var skin_color    := Color("#C68642")
+	var shirt_color   := Color("#3A5F8A")
+	var pants_color   := Color("#1E2D45")
+	var shoe_color    := Color("#2E1F14")
+	var outline_color := Color(0, 0, 0, 1)
+	const OW := 6.0
+
+	# ── Smooth facing scalar ──────────────────────────────────────────────────
+	var sm := belayer_facing   # lerped -1..+1; all joint math uses this
+
+	# ── Local body landmarks ──────────────────────────────────────────────────
+	var lean_y      := -belayer_lean * 8.0
+	var b           := to_local(belayer_position + Vector2(0, lean_y))
+	var b_base      := to_local(belayer_position)
+
+	var head_center := b      + Vector2(0, HEAD_OFFSET)
+	var neck        := b      + Vector2(0, HEAD_OFFSET + 16)
+	var chest       := b      + Vector2(0, HEAD_OFFSET + 26)
+	var hips        := b_base + Vector2(0, HIP_DOWN)
+
+	var near_shoulder := neck + Vector2( sm * 12.0, 4.0)
+	var far_shoulder  := neck + Vector2(-sm * 12.0, 4.0)
+	var near_hip      := hips + Vector2( sm *  9.0, 0.0)
+	var far_hip       := hips + Vector2(-sm *  9.0, 0.0)
 
 	var lhj := to_local(b_left_hand_joint)
 	var lh  := to_local(b_left_hand)
@@ -374,32 +446,103 @@ func _draw():
 	var rfj := to_local(b_right_foot_joint)
 	var rf  := to_local(b_right_foot)
 
-	var sm            := 1.0 if belayer_facing_right else -1.0
-	var near_shoulder := neck + Vector2( sm * 8.0, 0.0)
-	var far_shoulder  := neck + Vector2(-sm * 8.0, 0.0)
-	var near_hip      := hips + Vector2( sm * 6.0, 0.0)
-	var far_hip       := hips + Vector2(-sm * 6.0, 0.0)
+	# Sleeve seam — shirt ends, bare forearm begins
+	var near_sl := near_shoulder.lerp(rhj, 0.40)
+	var far_sl  := far_shoulder.lerp(lhj, 0.40)
 
-	draw_line(far_shoulder, lhj, black, lw)
-	draw_line(lhj, lh, black, lw - 1)
-	draw_circle(lh, 5, black)
-	draw_line(far_hip, lfj, black, lw)
-	draw_line(lfj, lf, black, lw - 1)
-	draw_circle(lf, 5, black)
-	draw_line(neck, hips, black, lw)
-	draw_line(near_shoulder, far_shoulder, black, lw)
-	draw_circle(b + Vector2(0, HEAD_OFFSET), 16, black)
-	draw_line(near_shoulder, rhj, black, lw)
-	draw_line(rhj, rh, black, lw - 1)
-	draw_circle(rh, 5, black)
-	draw_line(near_hip, rfj, black, lw)
-	draw_line(rfj, rf, black, lw - 1)
-	draw_circle(rf, 5, black)
+	# ── Lowering: highlight the active hand with a warm tint ──────────────────
+	# guide_phase  0..1 drives a sine; peak brightness = hand pulling up
+	# brake_phase  half-cycle offset so the two hands alternate
+	var guide_bright := 0.0
+	var brake_bright := 0.0
+	if lower_anim_phase > 0.005:
+		guide_bright = clamp( sin(lower_anim_phase * TAU),       0.0, 1.0)
+		brake_bright = clamp( sin(lower_anim_phase * TAU + PI),  0.0, 1.0)
 
-	var al := to_local(anchor_position)
-	draw_circle(al, 8, black)
-	draw_circle(al, 6, Color.WHITE)
-	draw_circle(al, 4, black)
+	var rope_hand_color  := skin_color.lerp(Color("#E8A020"), guide_bright * 0.55)
+	var brake_hand_color := skin_color.lerp(Color("#E8A020"), brake_bright * 0.55)
+
+	# ══════════════════════════════════════════════════════════════════════════
+	# PASS 1 — outline
+	# ══════════════════════════════════════════════════════════════════════════
+
+	# Far leg
+	draw_line(far_hip,  lfj, outline_color, 11.0 + OW)
+	draw_line(lfj,      lf,  outline_color, 10.0 + OW)
+	draw_circle(lfj, 5.5 + OW * 0.5, outline_color)
+	draw_circle(lf,  7.5 + OW * 0.5, outline_color)
+
+	# Near leg
+	draw_line(near_hip, rfj, outline_color, 11.0 + OW)
+	draw_line(rfj,      rf,  outline_color, 10.0 + OW)
+	draw_circle(rfj, 5.5 + OW * 0.5, outline_color)
+	draw_circle(rf,  7.5 + OW * 0.5, outline_color)
+
+	# Torso
+	draw_line(far_hip,  near_hip, outline_color, 17.0 + OW)
+	draw_line(hips,     chest,    outline_color, 19.0 + OW)
+	draw_line(chest,    neck,     outline_color, 17.0 + OW)
+
+	# Far arm
+	draw_line(far_shoulder, lhj, outline_color, 11.0 + OW)
+	draw_line(lhj,          lh,  outline_color,  9.0 + OW)
+	draw_circle(lhj, 5.5 + OW * 0.5, outline_color)
+	draw_circle(lh,  6.5 + OW * 0.5, outline_color)
+
+	# Near arm
+	draw_line(near_shoulder, rhj, outline_color, 11.0 + OW)
+	draw_line(rhj,           rh,  outline_color,  9.0 + OW)
+	draw_circle(rhj, 5.5 + OW * 0.5, outline_color)
+	draw_circle(rh,  6.5 + OW * 0.5, outline_color)
+
+	# Head
+	draw_circle(head_center, 19.0 + OW * 0.5, outline_color)
+
+	# ══════════════════════════════════════════════════════════════════════════
+	# PASS 2 — color fill
+	# ══════════════════════════════════════════════════════════════════════════
+
+	# Far leg
+	draw_line(far_hip, lfj, pants_color, 11.0)
+	draw_circle(lfj,   5.5, pants_color)
+	draw_line(lfj,     lf,  pants_color, 10.0)
+	draw_circle(lf,    7.5, shoe_color)
+
+	# Near leg
+	draw_line(near_hip, rfj, pants_color, 11.0)
+	draw_circle(rfj,    5.5, pants_color)
+	draw_line(rfj,      rf,  pants_color, 10.0)
+	draw_circle(rf,     7.5, shoe_color)
+
+	# Torso
+	draw_line(far_hip, near_hip, pants_color, 17.0)   # waistband
+	draw_line(hips,    chest,    shirt_color, 19.0)
+	draw_line(chest,   neck,     shirt_color, 17.0)
+
+	# Far arm  (brake hand)
+	draw_circle(far_shoulder, 6, shirt_color)
+	draw_line(far_shoulder, far_sl, shirt_color, 11.0)
+	draw_line(far_sl,       lhj,    skin_color,  10.0)
+	draw_circle(lhj, 5.5, skin_color)
+	draw_line(lhj,   lh,  skin_color, 9.0)
+	draw_circle(lh,  6.5, brake_hand_color)
+
+	# Near arm  (rope/guide hand)
+	draw_circle(near_shoulder, 6, shirt_color)
+	draw_line(near_shoulder, near_sl, shirt_color, 11.0)
+	draw_line(near_sl,       rhj,     skin_color,  10.0)
+	draw_circle(rhj, 5.5, skin_color)
+	draw_line(rhj,   rh,  skin_color, 9.0)
+	draw_circle(rh,  6.5, rope_hand_color)
+
+	# Shoulder yoke
+	draw_line(far_shoulder, near_shoulder, shirt_color, 14.0)
+
+	# Head — plain skin circle, no hair, no face details
+	draw_circle(head_center, 18, skin_color)
+
+	# Neck connector
+	draw_line(head_center + Vector2(0, 16), neck, skin_color, 8.0)
 
 # ═══════════════════════════════════════════════════════════════════════════
 ## Anchor lookup

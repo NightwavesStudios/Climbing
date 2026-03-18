@@ -564,38 +564,21 @@ func load_crashpads(level_data: Dictionary) -> void:
 	var crashpad_scene = load(CRASHPAD_SCENE)
 	var crashpad_count = 0
 
-	# Only exclude crashpads near belayer if:
-	# 1. Discipline is roped (speed doesn't have a belayer)
-	# 2. A belayer_position was actually saved in the JSON (not just defaulted to zero)
-	var belayer_exclusion_radius = 40.0
-	var has_belayer = (current_level_discipline == "roped"
-					   and rope_belayer_position != Vector2.ZERO
-					   and level_data.get("belayer_position", null) != null)
-
 	print("\n=== SPAWNING CRASHPADS ===")
-	if has_belayer:
-		print("  Roped mode — excluding crashpads within ", belayer_exclusion_radius,
-			  "px of belayer at: ", rope_belayer_position)
 
 	for crashpad_data in level_data.crashpads:
 		var crashpad_pos = Vector2(crashpad_data.get("x", 0),
 								   crashpad_data.get("y", 0))
-		if has_belayer and crashpad_pos.distance_to(rope_belayer_position) \
-				< belayer_exclusion_radius:
-			print("  Skipped crashpad at: ", crashpad_pos,
-				  " (too close to belayer)")
-			continue
-
 		var crashpad = crashpad_scene.instantiate()
-		crashpad.global_position = crashpad_pos
 		crashpads_container.add_child(crashpad)
+		crashpad.global_position = crashpad_pos
 		crashpad.add_to_group("crashpads")
 		crashpad_count += 1
 		print("  Spawned crashpad at: " + str(crashpad.global_position))
 
 	await get_tree().process_frame
 
-	for crashpad in get_tree().get_nodes_in_group("crashpads"):
+	for crashpad in crashpads_container.get_children():
 		if crashpad.has_method("_update_sprite_for_environment"):
 			crashpad._update_sprite_for_environment()
 
