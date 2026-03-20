@@ -85,10 +85,22 @@ var rope_line            : Line2D = null
 # ── Hold accessors ────────────────────────────────────────────────────────
 
 func _left_hand_hold() -> Area2D:
-	return player.lh.hold if player else null
+	if not is_instance_valid(player):
+		return null
+	var h = player.lh.hold
+	if h != null and not is_instance_valid(h):
+		player.lh.hold = null
+		return null
+	return h
 
 func _right_hand_hold() -> Area2D:
-	return player.rh.hold if player else null
+	if not is_instance_valid(player):
+		return null
+	var h = player.rh.hold
+	if h != null and not is_instance_valid(h):
+		player.rh.hold = null
+		return null
+	return h
 
 func _has_hand_hold() -> bool:
 	return _left_hand_hold() != null or _right_hand_hold() != null
@@ -113,6 +125,7 @@ func _ready():
 
 func _process(delta):
 	if not is_setup or not is_instance_valid(player):
+		is_setup = false
 		return
 	_update_catch(delta)
 	update_belayer_animation(delta)
@@ -146,6 +159,8 @@ func setup_rope(belayer_pos: Vector2, player_node: Node2D, anchor_pos: Vector2 =
 # ═══════════════════════════════════════════════════════════════════════════
 
 func _update_catch(delta: float):
+	if not is_instance_valid(player):
+		return
 	if not "com_velocity" in player or not "com_position" in player:
 		return
 
@@ -593,9 +608,12 @@ func _init_rope_points(from: Vector2, mid: Vector2, to: Vector2):
 
 
 func cleanup():
-	is_setup = false                         # stop _process logic immediately
-	set_process(false)                       # stop _process from firing at all
+	is_setup = false
+	set_process(false)
+	set_physics_process(false)
+	# Free the Line2D child we own — but do NOT free ourselves.
+	# The parent (main_scene) is responsible for removing us from the tree
+	# and calling .free() directly, which avoids the deferred-free race.
 	if is_instance_valid(rope_line):
 		rope_line.queue_free()
 		rope_line = null
-	queue_free()

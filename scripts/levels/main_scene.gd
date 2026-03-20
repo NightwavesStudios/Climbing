@@ -233,18 +233,13 @@ func setup_roped_climbing(loader, plyr):
 		else:
 			belayer_pos = plyr.global_position + Vector2(0, 200)
 
-	# ── Always create a fresh RopeSystem — never reuse a stale one ───────────
-	# cleanup_discipline_systems() calls queue_free() which is deferred,
-	# so is_instance_valid() can still return true in the same frame.
-	# We null-check the variable instead and always construct a new instance.
+	# ── Defensive guard: rope_system should always be null here because
+	#    cleanup_discipline_systems() immediately nulls it and calls .free()
+	#    directly (not queue_free). If it's somehow non-null, force-clean it.
 	if rope_system != null:
 		push_warning("setup_roped_climbing: rope_system was not null — forcing cleanup")
-		if is_instance_valid(rope_system):
-			rope_system.set_process(false)
-			rope_system.queue_free()
+		_force_free_node(rope_system)
 		rope_system = null
-		# Wait one frame so queue_free actually lands before we add the new node
-		await get_tree().process_frame
 
 	var RopeSystemScript = load("res://scripts/systems/rope_system.gd")
 	if not RopeSystemScript:
@@ -461,14 +456,16 @@ func _on_next_level_requested(next_level_path: String) -> void:
 
 	await LevelTransition.fade_out_only()
 
-	# ── Tear down discipline systems and wait for queue_free to land ──────────
-	# cleanup_discipline_systems() calls queue_free() on rope_system, which is
-	# deferred. Without the extra frame here, setup_roped_climbing() would see
-	# is_instance_valid(rope_system) == true and skip creating a new one, then
-	# call setup_rope() on a node that's mid-free → "freed instance" crash.
-	cleanup_discipline_systems()
-	await get_tree().process_frame   # let queue_free land before loading next
+	# Release all limb hold references BEFORE unloading holds.
+	# clear_holds() uses queue_free() — if any limb still holds a reference to
+	# one of those Area2D nodes, rope_system._left_hand_hold() will crash on the
+	# very next _process frame with "freed instance". reset_climb() nulls every
+	# s.hold so the limbs let go before the nodes are freed.
+	if player and player.has_method("reset_climb"):
+		player.reset_climb()
+	await get_tree().process_frame   # let reset_climb's deferred initial_grab fire and settle
 
+	cleanup_discipline_systems()
 	level_loader.unload_level()
 
 	await _load_initial_level(next_level_path)
@@ -501,9 +498,12 @@ func _on_level_complete_restart_requested() -> void:
 
 	await LevelTransition.fade_out_only()
 
-	cleanup_discipline_systems()
-	await get_tree().process_frame   # same fix — let queue_free land
+	# Release limb hold references before holds are freed (same reason as next-level path)
+	if player and player.has_method("reset_climb"):
+		player.reset_climb()
+	await get_tree().process_frame
 
+	cleanup_discipline_systems()
 	level_loader.unload_level()
 
 	await _load_initial_level(_current_level_path)
@@ -521,20 +521,40 @@ func _on_level_complete_restart_requested() -> void:
 # DISCIPLINE CLEANUP
 # =============================================================================
 
-func cleanup_discipline_systems():
-	if rope_system and is_instance_valid(rope_system):
-		if rope_system.has_method("cleanup"):
-			rope_system.cleanup()   # sets is_setup=false, set_process(false), queue_free()
-		else:
-			rope_system.queue_free()
-	rope_system = null   # null immediately — don't wait for queue_free
+## Free a node immediately and synchronously.
+## Uses remove_child + free() instead of queue_free() so callers can rely on
+## the node being gone in the same frame — no deferred-free race conditions.
+func _force_free_node(node: Node) -> void:
+	if not is_instance_valid(node):
+		return
+	# Disable processing first so no callbacks fire during removal
+	node.set_process(false)
+	node.set_physics_process(false)
+	if node.get_parent():
+		node.get_parent().remove_child(node)
+	node.free()
 
-	if speed_timer and is_instance_valid(speed_timer):
-		if speed_timer.has_method("cleanup"):
-			speed_timer.cleanup()
-		else:
-			speed_timer.queue_free()
-	speed_timer = null
+
+func cleanup_discipline_systems():
+	# ── Rope system ───────────────────────────────────────────────────────────
+	if rope_system != null:
+		if is_instance_valid(rope_system):
+			# Let cleanup() stop processing and release its own children
+			if rope_system.has_method("cleanup"):
+				rope_system.cleanup()
+			_force_free_node(rope_system)
+		rope_system = null   # null immediately — never wait on queue_free
+		# Clear the player's reference too — it holds a second pointer to the same node
+		if is_instance_valid(player) and player.has_method("set_rope_system"):
+			player.set_rope_system(null)
+
+	# ── Speed timer ───────────────────────────────────────────────────────────
+	if speed_timer != null:
+		if is_instance_valid(speed_timer):
+			if speed_timer.has_method("cleanup"):
+				speed_timer.cleanup()
+			_force_free_node(speed_timer)
+		speed_timer = null
 
 	current_discipline = 0
 

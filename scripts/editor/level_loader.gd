@@ -65,12 +65,34 @@ func _get_hold_scene(type_name: String) -> PackedScene:
 # DYNAMIC WALL
 # =============================================================================
 func _create_dynamic_wall():
+	# Guard: if a valid wall already exists, don't create a second one.
+	# This can happen if load_level() is called without unload_level() first.
+	if is_instance_valid(dynamic_wall):
+		print("LevelLoader: dynamic_wall already exists — skipping creation")
+		return
+
 	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
 	dynamic_wall = wall_script.new()
 	assert(dynamic_wall != null, "dynamic_wall.gd must extend Node2D")
 	dynamic_wall.name    = "DynamicWall"
 	dynamic_wall.z_index = -10
 	get_parent().add_child(dynamic_wall)
+
+func _free_dynamic_wall() -> void:
+	if dynamic_wall == null:
+		return
+	if not is_instance_valid(dynamic_wall):
+		dynamic_wall = null
+		return
+	# Notify main_scene so it doesn't hold a stale reference
+	var ms = get_parent()
+	if is_instance_valid(ms) and "dynamic_wall" in ms:
+		ms.dynamic_wall = null
+	# Synchronous removal so load_level() never sees the old node
+	if dynamic_wall.get_parent():
+		dynamic_wall.get_parent().remove_child(dynamic_wall)
+	dynamic_wall.free()
+	dynamic_wall = null
 
 func update_wall_bounds():
 	if dynamic_wall:
@@ -90,6 +112,16 @@ func get_dynamic_wall() -> Node2D:
 func load_level(path: String) -> bool:
 	clear_holds()
 	clear_crashpads()
+
+	# ── Tear down old wall and create a fresh one ─────────────────────────────
+	# Must happen synchronously before any awaits so nothing touches the old
+	# wall reference during the async hold-spawning phase.
+	_free_dynamic_wall()
+	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
+	dynamic_wall = wall_script.new()
+	dynamic_wall.name    = "DynamicWall"
+	dynamic_wall.z_index = -10
+	get_parent().add_child(dynamic_wall)
 
 	if not FileAccess.file_exists(path):
 		print("ERROR: Level file not found: " + path)
@@ -332,7 +364,6 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 	hold.add_to_group("holds")
 
 	# ── Custom spawn flag ─────────────────────────────────────────────────────
-	# Save the node reference. World position is resolved after scene settles.
 	if hold_data.get("custom_spawn", false):
 		custom_spawn_hold = hold
 		print("  [spawn_hold] custom_spawn flag found on %s hold — node stored." % type_name)
@@ -443,14 +474,12 @@ func get_player_spawn_position() -> Vector2:
 
 	# ── Custom spawn takes absolute priority ──────────────────────────────────
 	if is_instance_valid(custom_spawn_hold):
-		# Primary: use the pre-resolved cached position
 		if _custom_spawn_position != Vector2.ZERO:
 			var spawn_pos = _custom_spawn_position + Vector2(0, 80)
 			print("  → Custom spawn (cached): ", spawn_pos)
 			print("================================\n")
 			return spawn_pos
 
-		# Fallback: resolve right now in case load_level() hasn't finished yet
 		print("  [custom_spawn] Cache is zero — resolving on-the-fly now...")
 		_resolve_custom_spawn_position()
 
@@ -460,7 +489,6 @@ func get_player_spawn_position() -> Vector2:
 			print("================================\n")
 			return spawn_pos
 
-		# Last resort: direct node read (HoldPoint or root)
 		var hold_point = custom_spawn_hold.get_node_or_null("HoldPoint")
 		var raw: Vector2 = hold_point.global_position if hold_point else custom_spawn_hold.global_position
 		print("  [custom_spawn] Last-resort direct read: ", raw)
@@ -615,10 +643,19 @@ func is_speed() -> bool:
 	return current_level_discipline == "speed"
 
 func unload_level() -> void:
+	# Free holds and crashpads
 	var holds = get_node_or_null("Holds")
 	if holds:
 		for child in holds.get_children():
 			child.queue_free()
+	clear_crashpads()
 	custom_spawn_hold      = null
 	_custom_spawn_position = Vector2.ZERO
+
+	# ── Free the dynamic wall synchronously ───────────────────────────────────
+	# The old unload_level() left the wall alive, which meant load_level() would
+	# call _create_dynamic_wall() and add a SECOND wall to the scene. main_scene
+	# then held a stale reference to the first wall → freed-instance crash.
+	_free_dynamic_wall()
+
 	print("LevelLoader: level unloaded")

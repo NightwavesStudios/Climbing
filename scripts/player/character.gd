@@ -750,9 +750,11 @@ func simulate_physics(delta: float) -> void:
             for s in _feet:
                 if s.hold: release_limb(s)
 
-    if current_discipline == 1 and rope_system:
-        if rope_system.has_method("apply_rope_force_to_player"):
-            com_velocity = rope_system.apply_rope_force_to_player(com_velocity)
+    if rope_system != null and not is_instance_valid(rope_system):
+        rope_system = null   # self-heal stale reference
+        if current_discipline == 1 and rope_system != null:
+            if rope_system.has_method("apply_rope_force_to_player"):
+                com_velocity = rope_system.apply_rope_force_to_player(com_velocity)
 
     _apply_hip_shift(delta, held_hand_count, held_foot_count)
     _pin_held_limbs()
@@ -1252,10 +1254,13 @@ func reset_climb() -> void:
         if s.hold: s.hold.release(s.node)
         s.reset_all()
     _set_default_local_positions(); _reset_ghost_targets()
-    if rope_system and is_instance_valid(rope_system) and rope_system.has_method("setup_rope"):
+    if not is_instance_valid(rope_system):
+        rope_system = null
+    elif rope_system.has_method("setup_rope"):
         var loader = get_tree().current_scene.get_node_or_null("LevelLoader")
         if loader and loader.has_method("get_belayer_position"):
             rope_system.setup_rope(loader.get_belayer_position(), self)
+
     if speed_timer and is_instance_valid(speed_timer) and speed_timer.has_method("stop_timer"):
         speed_timer.stop_timer()
     _weather_modifier = get_tree().get_first_node_in_group("weather_modifier")
@@ -1707,6 +1712,10 @@ func set_climbing_discipline(discipline: int) -> void:
     current_discipline = discipline
     if discipline == 2: speed_climb_active = true
 
-func set_rope_system(rope: Node2D) -> void:   rope_system = rope
+func set_rope_system(rope: Node2D) -> void:
+    if rope == null or not is_instance_valid(rope):
+        rope_system = null
+    else:
+        rope_system = rope
 func set_speed_timer(timer: Node) -> void:    speed_timer = timer
 func get_climbing_discipline() -> int:        return current_discipline
