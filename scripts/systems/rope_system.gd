@@ -46,9 +46,8 @@ var b_left_foot        := Vector2.ZERO
 var b_right_foot       := Vector2.ZERO
 
 # belayer_facing: smoothed float (+1 = right, -1 = left).
-# All joint and draw math uses this value so facing flips are interpolated.
-var belayer_facing_right := true          # canonical bool, updated each frame
-var belayer_facing       : float = 1.0   # lerped, used for all positional math
+var belayer_facing_right := true
+var belayer_facing       : float = 1.0
 const FACING_LERP_SPEED  := 5.0
 
 var belayer_lean : float = 0.0
@@ -56,10 +55,8 @@ const LEAN_ATTACK := 10.0
 const LEAN_DECAY  := 2.5
 
 # ── Lowering animation ─────────────────────────────────────────────────────
-# Phase 0→1 drives one full pull-feed cycle of the guide hand.
-# Brake hand mirrors with a half-cycle offset for a natural alternating feel.
 var lower_anim_phase : float = 0.0
-const LOWER_ANIM_SPEED := 1.8   # cycles per second while lowering
+const LOWER_ANIM_SPEED := 1.8
 var _is_lowering       : bool  = false
 
 # ── Idle slack burst system ────────────────────────────────────────────────
@@ -115,10 +112,10 @@ func _ready():
 
 
 func _process(delta):
-	if not is_setup or not player:
+	if not is_setup or not is_instance_valid(player):
 		return
 	_update_catch(delta)
-	update_belayer_animation(delta)   # facing + lowering phase before joints
+	update_belayer_animation(delta)
 	update_belayer_joints()
 	simulate_rope_physics(delta)
 	update_rope_visual()
@@ -140,7 +137,8 @@ func setup_rope(belayer_pos: Vector2, player_node: Node2D, anchor_pos: Vector2 =
 
 	is_setup          = true
 	visible           = true
-	rope_line.visible = true
+	if is_instance_valid(rope_line):
+		rope_line.visible = true
 	catch_state       = CatchState.IDLE
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -204,7 +202,6 @@ func _update_catch(delta: float):
 
 # ═══════════════════════════════════════════════════════════════════════════
 ## Belayer animation — lean, facing, lowering phase
-## Called before update_belayer_joints so joints always use fresh values.
 # ═══════════════════════════════════════════════════════════════════════════
 
 func update_belayer_animation(delta: float):
@@ -233,7 +230,7 @@ func update_belayer_animation(delta: float):
 		guide_hand_pull = lerp(guide_hand_pull, -BURST_MAGNITUDE * 1.8, 10.0 * delta)
 
 	# ── Smooth facing ─────────────────────────────────────────────────────────
-	if player:
+	if is_instance_valid(player):
 		belayer_facing_right = get_player_chest_position().x > anchor_position.x
 		var target := 1.0 if belayer_facing_right else -1.0
 		belayer_facing = lerp(belayer_facing, target, FACING_LERP_SPEED * delta)
@@ -248,11 +245,10 @@ func update_belayer_animation(delta: float):
 
 # ═══════════════════════════════════════════════════════════════════════════
 ## Belayer joints
-## Uses belayer_facing (float) throughout — smooth across facing flips.
 # ═══════════════════════════════════════════════════════════════════════════
 
 func update_belayer_joints():
-	var sm     := belayer_facing          # smooth signed direction
+	var sm     := belayer_facing
 	var lean_y := -belayer_lean * 8.0
 	var b      := belayer_position + Vector2(0, lean_y)
 	var b_base := belayer_position
@@ -262,19 +258,19 @@ func update_belayer_joints():
 	var near_hip      := b_base + Vector2( sm *  8.0, HIP_DOWN)
 	var far_hip       := b_base + Vector2(-sm *  8.0, HIP_DOWN)
 
-	# ── Guide hand — lowering cycle applied on top of idle pull ───────────────
+	# ── Guide hand ───────────────────────────────────────────────────────────
 	var lower_guide_y := 0.0
 	var lower_guide_x := 0.0
 	if lower_anim_phase > 0.005:
-		var cycle     := sin(lower_anim_phase * TAU)      # -1..1 per cycle
-		lower_guide_y  = cycle * 20.0                     # vertical pull travel
-		lower_guide_x  = abs(cycle) * sm * 5.0           # slight outward reach
+		var cycle     := sin(lower_anim_phase * TAU)
+		lower_guide_y  = cycle * 20.0
+		lower_guide_x  = abs(cycle) * sm * 5.0
 
 	var pull_offset    := Vector2(lower_guide_x, guide_hand_pull + lower_guide_y)
 	b_right_hand_joint  = near_shoulder + Vector2( sm * 10.0, -10.0) + pull_offset * 0.4
 	b_right_hand        = near_shoulder + Vector2( sm * 14.0, -26.0) + pull_offset
 
-	# ── Brake hand — half-cycle offset so hands alternate ─────────────────────
+	# ── Brake hand ───────────────────────────────────────────────────────────
 	var lower_brake_y := 0.0
 	if lower_anim_phase > 0.005:
 		var brake_cycle := sin(lower_anim_phase * TAU + PI)
@@ -300,7 +296,7 @@ func get_belayer_guide_hand_world() -> Vector2:
 # ═══════════════════════════════════════════════════════════════════════════
 
 func simulate_rope_physics(delta: float):
-	if rope_points.size() < 3 or not player:
+	if rope_points.size() < 3 or not is_instance_valid(player):
 		return
 
 	var belayer_hand := get_belayer_guide_hand_world()
@@ -373,7 +369,7 @@ func _smooth_rope():
 # ═══════════════════════════════════════════════════════════════════════════
 
 func update_rope_visual():
-	if not rope_line or rope_points.size() < 2:
+	if not is_instance_valid(rope_line) or rope_points.size() < 2:
 		return
 	var pts := PackedVector2Array()
 	for p in rope_points:
@@ -419,8 +415,7 @@ func _draw_belayer_figure():
 	var outline_color := Color(0, 0, 0, 1)
 	const OW := 6.0
 
-	# ── Smooth facing scalar ──────────────────────────────────────────────────
-	var sm := belayer_facing   # lerped -1..+1; all joint math uses this
+	var sm := belayer_facing
 
 	# ── Local body landmarks ──────────────────────────────────────────────────
 	var lean_y      := -belayer_lean * 8.0
@@ -446,13 +441,10 @@ func _draw_belayer_figure():
 	var rfj := to_local(b_right_foot_joint)
 	var rf  := to_local(b_right_foot)
 
-	# Sleeve seam — shirt ends, bare forearm begins
 	var near_sl := near_shoulder.lerp(rhj, 0.40)
 	var far_sl  := far_shoulder.lerp(lhj, 0.40)
 
-	# ── Lowering: highlight the active hand with a warm tint ──────────────────
-	# guide_phase  0..1 drives a sine; peak brightness = hand pulling up
-	# brake_phase  half-cycle offset so the two hands alternate
+	# ── Lowering hand highlights ──────────────────────────────────────────────
 	var guide_bright := 0.0
 	var brake_bright := 0.0
 	if lower_anim_phase > 0.005:
@@ -515,7 +507,7 @@ func _draw_belayer_figure():
 	draw_circle(rf,     7.5, shoe_color)
 
 	# Torso
-	draw_line(far_hip, near_hip, pants_color, 17.0)   # waistband
+	draw_line(far_hip, near_hip, pants_color, 17.0)
 	draw_line(hips,    chest,    shirt_color, 19.0)
 	draw_line(chest,   neck,     shirt_color, 17.0)
 
@@ -538,7 +530,7 @@ func _draw_belayer_figure():
 	# Shoulder yoke
 	draw_line(far_shoulder, near_shoulder, shirt_color, 14.0)
 
-	# Head — plain skin circle, no hair, no face details
+	# Head
 	draw_circle(head_center, 18, skin_color)
 
 	# Neck connector
@@ -549,7 +541,7 @@ func _draw_belayer_figure():
 # ═══════════════════════════════════════════════════════════════════════════
 
 func find_top_anchor() -> Vector2:
-	var anchor_x := player.global_position.x if player else 0.0
+	var anchor_x := player.global_position.x if is_instance_valid(player) else 0.0
 	for wall in get_tree().get_nodes_in_group("environment_walls"):
 		if wall.has_method("get_anchor_position_for_x"):
 			return wall.get_anchor_position_for_x(anchor_x)
@@ -569,7 +561,7 @@ func _find_highest_hold_anchor() -> Vector2:
 # ═══════════════════════════════════════════════════════════════════════════
 
 func get_player_chest_position() -> Vector2:
-	if player:
+	if is_instance_valid(player):
 		return player.global_position + player_attach_offset
 	return belayer_position + Vector2(0, 100)
 
@@ -601,6 +593,9 @@ func _init_rope_points(from: Vector2, mid: Vector2, to: Vector2):
 
 
 func cleanup():
-	if rope_line:
+	is_setup = false                         # stop _process logic immediately
+	set_process(false)                       # stop _process from firing at all
+	if is_instance_valid(rope_line):
 		rope_line.queue_free()
+		rope_line = null
 	queue_free()

@@ -1,18 +1,10 @@
-[gd_scene load_steps=7 format=3 uid="uid://cvh05ua3mejf8"]
+[gd_scene load_steps=4 format=3 uid="uid://cvh05ua3mejf8"]
 
 [ext_resource type="Script" uid="uid://cvjpqvmksm6r5" path="res://scripts/holds/crashpad.gd" id="1_otgl3"]
-[ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_hwxua"]
-[ext_resource type="Texture2D" uid="uid://dhsrgaidqxku0" path="res://assets/images/crashpad.png" id="2_otgl3"]
-[ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_v7m37"]
+[ext_resource type="Texture2D" uid="uid://cuymrppqugkk4" path="res://assets/images/crashpad.png" id="2_otgl3"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_fajlm"]
 size = Vector2(476, 119.41632)
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_bvhi4"]
-shader = ExtResource("2_hwxua")
-shader_parameter/grunge_mask = ExtResource("3_v7m37")
-shader_parameter/wear_strength = 0.30000001425
-shader_parameter/grunge_scale = 1.00000004424012
 
 [node name="Crashpad" type="Node2D"]
 
@@ -25,6 +17,5 @@ position = Vector2(8, 0.70819503)
 shape = SubResource("RectangleShape2D_fajlm")
 
 [node name="Sprite2D" type="Sprite2D" parent="Crashpad"]
-material = SubResource("ShaderMaterial_bvhi4")
 scale = Vector2(0.35999954, 0.35999954)
 texture = ExtResource("2_otgl3")

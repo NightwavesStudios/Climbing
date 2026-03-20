@@ -29,7 +29,6 @@ func _ready():
 	add_to_group("main_scene")
 
 	# TEMPORARY: Reset instructions so they always show for testing
-	# Remove these 4 lines once confirmed working
 	var cfg_reset := ConfigFile.new()
 	cfg_reset.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, false)
 	cfg_reset.save(INSTRUCTIONS_SAVE_PATH)
@@ -179,10 +178,6 @@ func _load_initial_level(path: String) -> void:
 
 	await setup_discipline_systems()
 
-	# ── Position the player at the correct spawn point ────────────────────────
-	# Must happen AFTER load_level() has fully awaited (so custom_spawn_hold
-	# and _custom_spawn_position are resolved) and AFTER discipline systems are
-	# set up (so the player's discipline is configured before initial_grab runs).
 	position_player_at_spawn()
 
 	await get_tree().process_frame
@@ -238,16 +233,28 @@ func setup_roped_climbing(loader, plyr):
 		else:
 			belayer_pos = plyr.global_position + Vector2(0, 200)
 
-	if not rope_system or not is_instance_valid(rope_system):
-		var RopeSystemScript = load("res://scripts/systems/rope_system.gd")
-		if not RopeSystemScript:
-			print("  ERROR: Could not load rope_system.gd!")
-			return
-
-		rope_system = RopeSystemScript.new()
-		rope_system.name = "RopeSystem"
-		add_child(rope_system)
+	# ── Always create a fresh RopeSystem — never reuse a stale one ───────────
+	# cleanup_discipline_systems() calls queue_free() which is deferred,
+	# so is_instance_valid() can still return true in the same frame.
+	# We null-check the variable instead and always construct a new instance.
+	if rope_system != null:
+		push_warning("setup_roped_climbing: rope_system was not null — forcing cleanup")
+		if is_instance_valid(rope_system):
+			rope_system.set_process(false)
+			rope_system.queue_free()
+		rope_system = null
+		# Wait one frame so queue_free actually lands before we add the new node
 		await get_tree().process_frame
+
+	var RopeSystemScript = load("res://scripts/systems/rope_system.gd")
+	if not RopeSystemScript:
+		print("  ERROR: Could not load rope_system.gd!")
+		return
+
+	rope_system = RopeSystemScript.new()
+	rope_system.name = "RopeSystem"
+	add_child(rope_system)
+	await get_tree().process_frame   # let _ready() run
 
 	if rope_system.has_method("setup_rope"):
 		rope_system.setup_rope(belayer_pos, plyr)
@@ -454,13 +461,18 @@ func _on_next_level_requested(next_level_path: String) -> void:
 
 	await LevelTransition.fade_out_only()
 
+	# ── Tear down discipline systems and wait for queue_free to land ──────────
+	# cleanup_discipline_systems() calls queue_free() on rope_system, which is
+	# deferred. Without the extra frame here, setup_roped_climbing() would see
+	# is_instance_valid(rope_system) == true and skip creating a new one, then
+	# call setup_rope() on a node that's mid-free → "freed instance" crash.
 	cleanup_discipline_systems()
+	await get_tree().process_frame   # let queue_free land before loading next
+
 	level_loader.unload_level()
 
 	await _load_initial_level(next_level_path)
 
-	# Give the scene tree extra frames to fully settle holds/spawn position,
-	# then force a clean reset so initial_grab() re-runs with correct data.
 	await get_tree().process_frame
 	await get_tree().process_frame
 	if player and player.has_method("reset_climb"):
@@ -490,6 +502,8 @@ func _on_level_complete_restart_requested() -> void:
 	await LevelTransition.fade_out_only()
 
 	cleanup_discipline_systems()
+	await get_tree().process_frame   # same fix — let queue_free land
+
 	level_loader.unload_level()
 
 	await _load_initial_level(_current_level_path)
@@ -510,17 +524,17 @@ func _on_level_complete_restart_requested() -> void:
 func cleanup_discipline_systems():
 	if rope_system and is_instance_valid(rope_system):
 		if rope_system.has_method("cleanup"):
-			rope_system.cleanup()
+			rope_system.cleanup()   # sets is_setup=false, set_process(false), queue_free()
 		else:
 			rope_system.queue_free()
-		rope_system = null
+	rope_system = null   # null immediately — don't wait for queue_free
 
 	if speed_timer and is_instance_valid(speed_timer):
 		if speed_timer.has_method("cleanup"):
 			speed_timer.cleanup()
 		else:
 			speed_timer.queue_free()
-		speed_timer = null
+	speed_timer = null
 
 	current_discipline = 0
 

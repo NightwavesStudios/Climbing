@@ -32,7 +32,6 @@ position = Vector2(0, -5)
 scale = Vector2(0.99999994, 0.99999994)
 
 [node name="GymHold" type="Sprite2D" parent="."]
-material = SubResource("ShaderMaterial_aaidd")
 position = Vector2(30.000004, 20)
 scale = Vector2(0.2195833, 0.2195833)
 texture = ExtResource("2_3ech5")

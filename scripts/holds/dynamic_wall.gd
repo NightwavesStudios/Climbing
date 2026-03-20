@@ -1,21 +1,17 @@
 extends Node2D
 class_name DynamicWall
 
-var wall_texture_enabled := true
-var texture_variation := 0.05
+var wall_texture_enabled = true
+var texture_variation = 0.03
 
-var hole_spacing := Vector2(64, 64)
-var hole_radius := 2.5
-var hole_color := Color(0.15, 0.15, 0.15)
-var hole_jitter := 4.0
+var hole_spacing = Vector2(64, 64)
+var hole_radius = 2.5
+var hole_color = Color(0.15, 0.15, 0.15)
+var hole_jitter = 4.0
 
-var edge_color := Color(0.2, 0.2, 0.25)
-var edge_thickness := 8.0
-var top_edge_color := Color(0.9, 0.4, 0.2)
-
-var wall_min := Vector2.ZERO
-var wall_max := Vector2.ZERO
-var wall_valid := false
+var wall_min = Vector2.ZERO
+var wall_max = Vector2.ZERO
+var wall_valid = false
 
 const WALL_PADDING_TOP = 100.0
 const WALL_PADDING_BOTTOM = 150.0
@@ -24,6 +20,19 @@ const BACKGROUND_EXPANSION = 2000.0
 
 @export var use_polygon_mode: bool = false
 @export var edit_mode: bool = false
+
+# =============================================================================
+#  OUTLINE EXPORTS  (wall + ground tonal outlines)
+# =============================================================================
+@export_group("Outline")
+## Width of the tonal outline stroke on the wall edges and ground horizon lines (px).
+## 1.0–3.0 is subtle; matches figure_outline_width on the character for consistency.
+@export var wall_outline_width: float = 5.5
+## How much darker the outline is versus the surface color it borders.
+## 0.0 = same color, 1.0 = black. Match figure_outline_darken on the character.
+@export_range(0.0, 1.0, 0.01) var wall_outline_darken: float = 0.25
+@export_group("")
+
 var control_points: Array[Vector2] = []
 
 var ground_y: float = 0.0
@@ -31,12 +40,13 @@ var ground_left_index: int = -1
 var ground_right_index: int = -1
 var top_edge_indices: Array[int] = []
 
-var point_color := Color(0.7, 0.7, 0.7, 0.6)
-var point_hover_color := Color(1, 0.7, 0, 1.0)
-var point_drag_color := Color(1, 1, 0, 1.0)
-var ground_point_color := Color(0.3, 0.8, 0.3, 0.8)
-var line_color := Color(0.4, 0.7, 1.0, 0.6)
-var edge_hover_color := Color(0.6, 0.9, 1.0, 0.8)
+var point_color = Color(0.7, 0.7, 0.7, 0.6)
+var point_hover_color = Color(1, 0.7, 0, 1.0)
+var point_drag_color = Color(1, 1, 0, 1.0)
+var ground_point_color = Color(0.3, 0.8, 0.3, 0.8)
+var line_color = Color(0.4, 0.7, 1.0, 0.6)
+var edge_hover_color = Color(0.6, 0.9, 1.0, 0.8)
+var top_edge_color = Color(0.9, 0.4, 0.2)
 
 const POINT_RADIUS = 10.0
 const POINT_GRAB_RADIUS = 20.0
@@ -49,14 +59,14 @@ var hovered_edge: int = -1
 
 var current_wall_color: Color = Color(0.82, 0.75, 0.62)
 var background_color: Color = Color(0.53, 0.81, 0.92)
-var show_bolt_holes: bool = true
+var show_bolt_holes: bool = false
 var is_granite: bool = false
 var current_environment: String = "gym"
 var is_in_editor: bool = false
 
-var ground_enabled := true
-var ground_height := 1000.0
-var ground_color := Color(0.298, 0.298, 0.298, 1.0)
+var ground_enabled = true
+var ground_height = 1000.0
+var ground_color = Color(0.298, 0.298, 0.298, 1.0)
 
 var _clouds: Array[Dictionary] = []
 var _cloud_time: float = 0.0
@@ -71,12 +81,10 @@ var _player_in_water: bool = false
 signal player_entered_water(depth: float)
 signal player_exited_water
 
-# ─── Splash particles ─────────────────────────────────────────────────────────
 var _splashes: Array[Dictionary] = []
-const SPLASH_DURATION := 1.4
-const SPLASH_DROPLET_COUNT := 22
+const SPLASH_DURATION = 1.4
+const SPLASH_DROPLET_COUNT = 22
 
-# ─── Weather ──────────────────────────────────────────────────────────────────
 var weather_modifier: Node2D = null
 
 func _ready():
@@ -96,7 +104,7 @@ func _process(delta: float):
 		return
 	_redraw_timer = 0.0
 
-	var rain_blend := _get_weather_blend()
+	var rain_blend = _get_weather_blend()
 	var has_animation = _env.get("has_stars", false) \
 		or (_env.get("cloud_color", Color(1,1,1)).a > 0.02) \
 		or _env.get("has_gym_interior", false) \
@@ -146,12 +154,12 @@ func _get_rain_override() -> Dictionary:
 	return {}
 
 func _rain_lerp_color(base: Color, key: String, blend: float) -> Color:
-	var ov := _get_rain_override()
+	var ov = _get_rain_override()
 	if ov.is_empty() or not key in ov or blend < 0.01:
 		return base
 	return base.lerp(ov[key], blend)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Cloud system ─────────────────────────────────────────────────────────────
 
 func _init_clouds():
 	_clouds.clear()
@@ -171,7 +179,7 @@ func _make_cloud(rng: RandomNumberGenerator, initial_spread: bool) -> Dictionary
 	var sx    = 60.0 + rng.randf() * 220.0 + float(layer) * 50.0
 	var sy    = 22.0 + rng.randf() * 38.0  + float(layer) * 8.0
 	var speed = (0.18 + rng.randf() * 0.25) * (1.0 + float(layer) * 0.6) * 40.0
-	var alpha = 0.4 + rng.randf() * 0.45
+	var alpha = 0.35 + rng.randf() * 0.35
 	var y     = sky_top + 40.0 + rng.randf() * max(sky_bottom - sky_top - 100.0, 100.0)
 	var x: float
 	if initial_spread:
@@ -188,11 +196,11 @@ func _update_clouds(delta: float):
 	var rng = RandomNumberGenerator.new()
 	rng.seed = int(_cloud_time * 100.0) ^ 0xDEADBEEF
 
-	var rain_blend := _get_weather_blend()
+	var rain_blend = _get_weather_blend()
 
 	for i in range(_clouds.size()):
 		var c = _clouds[i]
-		var speed_mult := 1.0 + rain_blend * 0.5
+		var speed_mult = 1.0 + rain_blend * 0.5
 		c["x"] -= c["speed"] * delta * speed_mult
 		if c["x"] + c["sx"] < bg_left - 100.0:
 			_clouds[i] = _make_cloud(rng, false)
@@ -205,22 +213,22 @@ func _update_clouds(delta: float):
 # ─── Splash system ────────────────────────────────────────────────────────────
 
 func spawn_splash(world_pos: Vector2, entry_velocity: float):
-	var rng := RandomNumberGenerator.new()
+	var rng = RandomNumberGenerator.new()
 	rng.seed = int(world_pos.x * 7.0 + _water_time * 1000.0) ^ 0xBEEF
 	var splash_speed = clamp(abs(entry_velocity) * 0.55, 120.0, 600.0)
 	var droplets: Array = []
 	for i in range(SPLASH_DROPLET_COUNT):
-		var side := 1.0 if (i % 2 == 0) else -1.0
-		var spread_frac := float(i) / float(SPLASH_DROPLET_COUNT)
-		var angle_deg := 30.0 + spread_frac * 70.0
-		var angle_rad := deg_to_rad(angle_deg) * side
-		var speed_frac := 0.5 + rng.randf() * 0.5
+		var side = 1.0 if (i % 2 == 0) else -1.0
+		var spread_frac = float(i) / float(SPLASH_DROPLET_COUNT)
+		var angle_deg = 30.0 + spread_frac * 70.0
+		var angle_rad = deg_to_rad(angle_deg) * side
+		var speed_frac = 0.5 + rng.randf() * 0.5
 		var vx = sin(angle_rad) * splash_speed * speed_frac
 		var vy = -cos(angle_rad) * splash_speed * speed_frac * (0.6 + rng.randf() * 0.4)
-		var drop_size := 2.5 + rng.randf() * 4.5
+		var drop_size = 2.5 + rng.randf() * 4.5
 		if spread_frac < 0.15:
 			drop_size *= 1.6
-		var max_life := 0.4 + rng.randf() * 0.6
+		var max_life = 0.4 + rng.randf() * 0.6
 		droplets.append({
 			"x": world_pos.x + rng.randf_range(-8.0, 8.0),
 			"y": world_pos.y,
@@ -238,13 +246,13 @@ func spawn_splash(world_pos: Vector2, entry_velocity: float):
 	})
 
 func _update_splashes(delta: float):
-	var gravity := 800.0
+	var gravity = 800.0
 	var to_remove: Array = []
 	for i in range(_splashes.size()):
 		var s = _splashes[i]
 		s["time"] += delta
 		s["ring_radius"] += delta * 120.0
-		var all_dead := true
+		var all_dead = true
 		for d in s["droplets"]:
 			d["life"] -= delta
 			if d["life"] > 0.0:
@@ -261,14 +269,14 @@ func _update_splashes(delta: float):
 	for i in range(to_remove.size() - 1, -1, -1):
 		_splashes.remove_at(to_remove[i])
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Editor ───────────────────────────────────────────────────────────────────
 
 func set_editor_mode(enabled: bool):
 	is_in_editor = enabled
 	queue_redraw()
 
 func update_environment_settings():
-	var env_config := get_node_or_null("/root/EnvironmentConfig")
+	var env_config = get_node_or_null("/root/EnvironmentConfig")
 	if env_config == null:
 		call_deferred("update_environment_settings")
 		return
@@ -428,7 +436,7 @@ func _apply_environment_theme():
 		"building":
 			var bld_tod = (abs((_scenery_seed ^ 0x3F7A2B1C) * 1664525 + 1013904223) >> 7) % 3
 			match bld_tod:
-				1:  # Dusk
+				1:
 					_env = {
 						"sky_top":      Color(0.06, 0.05, 0.14),
 						"sky_horizon":  Color(0.72, 0.28, 0.10),
@@ -445,7 +453,7 @@ func _apply_environment_theme():
 						"ground_deep":  Color(0.11, 0.09, 0.07),
 						"fog_color":    Color(0.60, 0.25, 0.08, 0.08),
 					}
-				2:  # Night
+				2:
 					_env = {
 						"sky_top":      Color(0.02, 0.02, 0.07),
 						"sky_horizon":  Color(0.05, 0.06, 0.14),
@@ -463,7 +471,7 @@ func _apply_environment_theme():
 						"ground_deep":  Color(0.06, 0.06, 0.08),
 						"fog_color":    Color(0.04, 0.05, 0.12, 0.10),
 					}
-				_:  # Day
+				_:
 					_env = {
 						"sky_top":      Color(0.16, 0.38, 0.70),
 						"sky_horizon":  Color(0.62, 0.78, 0.94),
@@ -495,6 +503,8 @@ func _apply_environment_theme():
 				"ground_detail": "rocks",
 				"fog_color": Color(0.0, 0.0, 0.0, 0.0),
 			}
+
+# ─── Input (editor) ───────────────────────────────────────────────────────────
 
 func _input(event: InputEvent):
 	if not is_in_editor or not edit_mode: return
@@ -574,6 +584,10 @@ func _is_ground_edge(edge_index: int) -> bool:
 	return (edge_index == ground_left_index and ni == ground_right_index) or \
 		   (edge_index == ground_right_index and ni == ground_left_index)
 
+# =============================================================================
+# MAIN DRAW DISPATCH
+# =============================================================================
+
 func _draw():
 	if not wall_valid: return
 	_draw_sky()
@@ -588,7 +602,8 @@ func _draw():
 	if _env.get("has_scaffold", false): _draw_scaffold()
 	if use_polygon_mode and control_points.size() >= 3: _draw_polygon_wall()
 	else: _draw_rectangle_wall()
-	_draw_wall_base_shadow()
+	_draw_wall_depth_shading()
+	_draw_wall_tonal_outline()        # tonal outlines: darker shade of each surface
 	if _env.get("has_water", false): _draw_underwater_wall_depth()
 	if show_bolt_holes:
 		if use_polygon_mode and control_points.size() >= 3: draw_bolt_holes_on_polygon()
@@ -598,84 +613,103 @@ func _draw():
 	if _env.get("has_water", false):
 		_draw_water_surface()
 		_draw_splashes()
-	draw_edges()
+	# Editor overlays only — no game-visible outlines
 	if is_in_editor and use_polygon_mode and control_points.size() > 0: _draw_control_points()
 	if is_in_editor and edit_mode and use_polygon_mode: _draw_edge_highlights()
 
-func _draw_sky():
+# =============================================================================
+# SKY — smooth multi-stop gradient, no banding
+# =============================================================================
+
+func _draw_sky() -> void:
 	var bl  = wall_min.x - BACKGROUND_EXPANSION
 	var br  = wall_max.x + BACKGROUND_EXPANSION
 	var st  = wall_min.y - BACKGROUND_EXPANSION
 	var sw  = br - bl
-	var rb  := _get_weather_blend()
+	var rb  = _get_weather_blend()
 
-	var col_top   := _rain_lerp_color(_env.get("sky_top",    background_color),              "sky_top",     rb)
-	var col_horiz := _rain_lerp_color(_env.get("sky_horizon", background_color.lightened(0.15)), "sky_horizon", rb)
+	var col_top   = _rain_lerp_color(_env.get("sky_top",    background_color),               "sky_top",     rb)
+	var col_horiz = _rain_lerp_color(_env.get("sky_horizon", background_color.lightened(0.15)), "sky_horizon", rb)
 
-	var bands = 6
+	# 16 gradient bands with eased curve for smooth transition
+	var bands = 16
+	var total_h = ground_y - st
 	for i in range(bands):
-		var t  = float(i) / float(bands)
-		var y0 = st + t * (ground_y - st)
-		var h  = (ground_y - st) / float(bands) + 1.0
-		draw_rect(Rect2(Vector2(bl, y0), Vector2(sw, h)), col_top.lerp(col_horiz, t), true)
+		var t0 = float(i)     / float(bands)
+		var t1 = float(i + 1) / float(bands)
+		var c0 = col_top.lerp(col_horiz, t0 * t0)
+		var c1 = col_top.lerp(col_horiz, t1 * t1)
+		var y0 = st + t0 * total_h
+		var y1 = st + t1 * total_h
+		_draw_grad_quad(bl, y0, sw, y1, c0, c1)
+
 	draw_rect(Rect2(Vector2(bl, ground_y), Vector2(sw, 99999.0)), col_horiz, true)
 
-func _draw_stars():
+# =============================================================================
+# CELESTIAL — stars, sun, moon (unchanged logic, cleaner glow)
+# =============================================================================
+
+func _draw_stars() -> void:
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var st = wall_min.y - BACKGROUND_EXPANSION
 	var sw = br - bl
-	var rb := _get_weather_blend()
+	var rb = _get_weather_blend()
 	for i in range(80):
 		var star_seed = (_scenery_seed ^ 0xBEEF) + i * 17
 		var sx = bl + _hf(star_seed) * sw
 		var sy = st + _hf(star_seed + 1) * (ground_y - st - 80.0)
 		var bright  = (0.5 + _hf(star_seed + 2) * 0.5) * (1.0 - rb)
-		var size    = 1.0 + _hf(star_seed + 3) * 2.0
+		var sz      = 1.0 + _hf(star_seed + 3) * 1.8
 		var twinkle = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(star_seed + 4) * 3.0) + float(i))
-		draw_circle(Vector2(sx, sy), size, Color(1.0, 1.0, 1.0, bright * twinkle * 0.9))
+		draw_circle(Vector2(sx, sy), sz, Color(1.0, 1.0, 1.0, bright * twinkle * 0.85))
 
-func _draw_sun():
+func _draw_sun() -> void:
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var sx = bl + (br - bl) * 0.78
 	var sy = wall_min.y - BACKGROUND_EXPANSION * 0.5 + 180.0
 	var sc: Color = _env.get("sun_color", Color(1.0, 0.95, 0.70))
-	var fade := 1.0 - _get_weather_blend()
-	for gi in range(6):
-		draw_circle(Vector2(sx, sy), 52.0 + float(gi) * 30.0,
-					Color(sc.r, sc.g, sc.b, (0.07 - float(gi) * 0.01) * fade))
-	draw_circle(Vector2(sx, sy), 52.0, Color(sc.r, sc.g, sc.b, sc.a * fade))
-	draw_circle(Vector2(sx, sy), 38.0, Color(1.0, 1.0, 0.96, fade))
+	var fade = 1.0 - _get_weather_blend()
+	# Soft radial glow — more passes, lower alpha per pass
+	for gi in range(8):
+		draw_circle(Vector2(sx, sy), 45.0 + float(gi) * 28.0,
+					Color(sc.r, sc.g, sc.b, (0.05 - float(gi) * 0.005) * fade))
+	draw_circle(Vector2(sx, sy), 45.0, Color(sc.r, sc.g, sc.b, sc.a * fade))
+	draw_circle(Vector2(sx, sy), 32.0, Color(1.0, 1.0, 0.97, fade * 0.9))
 
-func _draw_moon():
+func _draw_moon() -> void:
 	var bl = wall_min.x - BACKGROUND_EXPANSION
 	var br = wall_max.x + BACKGROUND_EXPANSION
 	var mx = bl + (br - bl) * 0.72
 	var my = wall_min.y - BACKGROUND_EXPANSION * 0.4 + 220.0
 	var mr = 36.0
-	for gi in range(4):
-		draw_circle(Vector2(mx, my), mr + float(gi) * 22.0, Color(0.7, 0.75, 0.9, 0.06))
+	for gi in range(5):
+		draw_circle(Vector2(mx, my), mr + float(gi) * 20.0, Color(0.7, 0.75, 0.9, 0.04))
 	draw_circle(Vector2(mx, my), mr, Color(0.88, 0.90, 0.95, 1.0))
 	draw_circle(Vector2(mx + mr * 0.35, my - mr * 0.1), mr * 0.82, _env.get("sky_top", Color(0.02, 0.02, 0.08)))
 	for ci in range(4):
 		var cs = 6000 + ci * 37
 		draw_circle(Vector2(mx - mr * 0.3 + _hf(cs) * mr * 0.5, my - mr * 0.2 + _hf(cs + 1) * mr * 0.4),
-					2.0 + _hf(cs + 2) * 4.0, Color(0.70, 0.72, 0.78, 0.4))
+					2.0 + _hf(cs + 2) * 4.0, Color(0.70, 0.72, 0.78, 0.35))
 
-func _draw_mountains():
+# =============================================================================
+# MOUNTAINS — layered silhouettes, no outlines
+# =============================================================================
+
+func _draw_mountains() -> void:
 	var bl  = wall_min.x - BACKGROUND_EXPANSION
 	var br  = wall_max.x + BACKGROUND_EXPANSION
-	var rb  := _get_weather_blend()
+	var rb  = _get_weather_blend()
 	var hs: Color = _rain_lerp_color(_env.get("sky_horizon", background_color), "sky_horizon", rb)
 	var ht: Color = _rain_lerp_color(_env.get("sky_top",     background_color), "sky_top",     rb)
-	_draw_hill_layer(bl, br, ground_y - 60.0, 240.0, 600.0, 90, hs.lerp(ht, 0.6).darkened(0.06), _scenery_seed ^ 0x0A1B2C)
-	_draw_hill_layer(bl, br, ground_y - 20.0, 160.0, 420.0, 80, hs.lerp(ht, 0.4).darkened(0.10), _scenery_seed ^ 0x1A2B3C)
-	_draw_hill_layer(bl, br, ground_y - 5.0,   90.0, 230.0, 55, hs.darkened(0.25),               _scenery_seed ^ 0x4D5E6F)
-	_draw_hill_layer(bl, br, ground_y,          40.0, 110.0, 45, hs.darkened(0.42),               _scenery_seed ^ 0x7F8A9B)
+	_draw_hill_layer(bl, br, ground_y - 60.0, 240.0, 600.0, 90, hs.lerp(ht, 0.6).darkened(0.05), _scenery_seed ^ 0x0A1B2C)
+	_draw_hill_layer(bl, br, ground_y - 20.0, 160.0, 420.0, 80, hs.lerp(ht, 0.4).darkened(0.09), _scenery_seed ^ 0x1A2B3C)
+	_draw_hill_layer(bl, br, ground_y - 5.0,   90.0, 230.0, 55, hs.darkened(0.22),               _scenery_seed ^ 0x4D5E6F)
+	_draw_hill_layer(bl, br, ground_y,          40.0, 110.0, 45, hs.darkened(0.38),               _scenery_seed ^ 0x7F8A9B)
 
 func _draw_hill_layer(left: float, right: float, base_y: float,
-					  min_h: float, max_h: float, segs: int, color: Color, hill_seed: int):
+					  min_h: float, max_h: float, segs: int, color: Color, hill_seed: int) -> void:
 	if segs < 1 or right <= left:
 		return
 	var step = (right - left) / float(segs)
@@ -690,31 +724,31 @@ func _draw_hill_layer(left: float, right: float, base_y: float,
 	if _polygon_valid(pts):
 		draw_colored_polygon(pts, color)
 
-# ─── City silhouette — clean, minimal, natural ────────────────────────────────
+# =============================================================================
+# CITY SILHOUETTE
+# =============================================================================
 
 func _draw_city_silhouette() -> void:
-	var bl  := wall_min.x - BACKGROUND_EXPANSION
-	var br  := wall_max.x + BACKGROUND_EXPANSION
-	var rb  := _get_weather_blend()
+	var bl  = wall_min.x - BACKGROUND_EXPANSION
+	var br  = wall_max.x + BACKGROUND_EXPANSION
+	var rb  = _get_weather_blend()
 	var tod : int = _env.get("city_time", 0)
 
-	# Four depth layers of silhouette colours, back→front
 	var sil_colors: Array = []
 	match tod:
-		1:  # Dusk — purple/mauve fade
+		1:
 			sil_colors = [Color(0.10, 0.08, 0.16), Color(0.16, 0.12, 0.22),
 						   Color(0.24, 0.16, 0.24), Color(0.34, 0.20, 0.22)]
-		2:  # Night — near-black
+		2:
 			sil_colors = [Color(0.04, 0.04, 0.09), Color(0.06, 0.06, 0.13),
 						   Color(0.09, 0.09, 0.17), Color(0.13, 0.13, 0.20)]
-		_:  # Day — cool blue-grey
+		_:
 			sil_colors = [Color(0.50, 0.54, 0.60), Color(0.40, 0.44, 0.52),
 						   Color(0.30, 0.34, 0.42), Color(0.20, 0.24, 0.32)]
 
 	for i in range(sil_colors.size()):
 		sil_colors[i] = (sil_colors[i] as Color).lerp(Color(0.18, 0.20, 0.24), rb * 0.4)
 
-	# Layer geometry: [base_y_frac, h_min, h_max, w_min, w_max, seed_xor]
 	var layer_configs: Array = [
 		[0.72, 100.0, 280.0,  55.0,  95.0, 0xA1B2C3],
 		[0.62, 150.0, 360.0,  65.0, 120.0, 0xD4E5F6],
@@ -724,42 +758,42 @@ func _draw_city_silhouette() -> void:
 
 	for li in range(layer_configs.size()):
 		var lc        = layer_configs[li]
-		var h_min     := float(lc[1]); var h_max := float(lc[2])
-		var w_min     := float(lc[3]); var w_max := float(lc[4])
-		var seed_base := int(lc[5]) ^ _scenery_seed
+		var h_min     = float(lc[1]); var h_max = float(lc[2])
+		var w_min     = float(lc[3]); var w_max = float(lc[4])
+		var seed_base = int(lc[5]) ^ _scenery_seed
 		var col       : Color = sil_colors[li]
-		var x := bl; var bldg_idx := 0
+		var x = bl; var bldg_idx = 0
 		while x < br + w_max:
-			var bldg_seed := seed_base + bldg_idx * 31
-			var bw   := w_min + _hf(bldg_seed)     * (w_max - w_min)
-			var bh   := h_min + _hf(bldg_seed + 1) * (h_max - h_min)
-			var bx   := x + (_hf(bldg_seed + 2) - 0.5) * 20.0
+			var bldg_seed = seed_base + bldg_idx * 31
+			var bw   = w_min + _hf(bldg_seed)     * (w_max - w_min)
+			var bh   = h_min + _hf(bldg_seed + 1) * (h_max - h_min)
+			var bx   = x + (_hf(bldg_seed + 2) - 0.5) * 20.0
 			draw_rect(Rect2(bx, ground_y - bh, bw, bh), col, true)
-			# Occasional thin antenna — nothing else on the rooftop
 			if _hf(bldg_seed + 5) > 0.72:
-				var ah := 10.0 + _hf(bldg_seed + 6) * 18.0
-				var ax := bx + bw * (0.4 + _hf(bldg_seed + 7) * 0.2)
+				var ah = 10.0 + _hf(bldg_seed + 6) * 18.0
+				var ax = bx + bw * (0.4 + _hf(bldg_seed + 7) * 0.2)
 				draw_line(Vector2(ax, ground_y - bh), Vector2(ax, ground_y - bh - ah),
-						  col.darkened(0.15), 1.5)
+						  col.darkened(0.12), 1.2)
 			x = bx + bw + _hf(bldg_seed + 8) * 25.0
 			bldg_idx += 1
 
-	# Night: barely-there warm street glow at the very bottom only
 	if tod == 2:
-		var sw := br - bl
+		var sw = br - bl
 		for gi in range(3):
 			draw_rect(Rect2(bl, ground_y - float(gi) * 12.0 - 6.0, sw, 14.0),
-					  Color(0.55, 0.60, 0.90, 0.025 * (1.0 - float(gi) / 3.0)), true)
+					  Color(0.55, 0.60, 0.90, 0.020 * (1.0 - float(gi) / 3.0)), true)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# CLOUDS — softened alpha, no hard edges
+# =============================================================================
 
-func _draw_clouds():
-	var rb := _get_weather_blend()
+func _draw_clouds() -> void:
+	var rb = _get_weather_blend()
 	var base_cc: Color = _env.get("cloud_color", Color(1, 1, 1))
 	var base_sc: Color = _env.get("cloud_shadow", Color(0.78, 0.84, 0.92))
 
-	var cc := _rain_lerp_color(base_cc, "cloud_color",  rb)
-	var sc := _rain_lerp_color(base_sc, "cloud_shadow", rb)
+	var cc = _rain_lerp_color(base_cc, "cloud_color",  rb)
+	var sc = _rain_lerp_color(base_sc, "cloud_shadow", rb)
 
 	if cc.a < 0.02: return
 
@@ -769,39 +803,33 @@ func _draw_clouds():
 	for layer in range(CLOUD_LAYERS):
 		for c in _clouds:
 			if c["layer"] != layer: continue
-			var alpha_boost := 1.0 + rb * 0.5
+			var alpha_boost = 1.0 + rb * 0.4
 			var ba = c["alpha"] * cc.a * alpha_boost
-			ba = min(ba, 1.0)
+			ba = min(ba, 0.92)
 			_draw_cloud_shape(c["x"], c["y"], c["sx"], c["sy"],
 				Color(cc.r, cc.g, cc.b, ba),
-				Color(sc.r, sc.g, sc.b, ba * 0.55),
+				Color(sc.r, sc.g, sc.b, ba * 0.45),
 				c["seed"], rb)
 
-func _draw_overcast_layer(blend: float, cc: Color, _sc: Color):
+func _draw_overcast_layer(blend: float, cc: Color, _sc: Color) -> void:
 	var bl   = wall_min.x - BACKGROUND_EXPANSION
 	var br   = wall_max.x + BACKGROUND_EXPANSION
 	var _sw  = br - bl
 	var h    = blend * BACKGROUND_EXPANSION * 0.55
 	var base = wall_min.y - BACKGROUND_EXPANSION * 0.25
-
-	var steps := 8
+	var steps = 10
 	for i in range(steps):
-		var t0 := float(i)     / float(steps)
-		var t1 := float(i + 1) / float(steps)
-		var a0 = lerp(blend * 0.72, 0.0, t0)
-		var a1 = lerp(blend * 0.72, 0.0, t1)
-		var y0 = base + t0 * h
-		var y1 = base + t1 * h
-		var tl2 := Vector2(bl, y0); var tr2 := Vector2(br, y0)
-		var br2 := Vector2(br, y1); var bl2 := Vector2(bl, y1)
-		var c0  := Color(cc.r, cc.g, cc.b, a0)
-		var c1  := Color(cc.r, cc.g, cc.b, a1)
-		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		var t0 = float(i)     / float(steps)
+		var t1 = float(i + 1) / float(steps)
+		var a0 = lerp(blend * 0.65, 0.0, t0 * t0)
+		var a1 = lerp(blend * 0.65, 0.0, t1 * t1)
+		_draw_grad_quad(bl, base + t0 * h, _sw, base + t1 * h,
+			Color(cc.r, cc.g, cc.b, a0),
+			Color(cc.r, cc.g, cc.b, a1))
 
 func _draw_cloud_shape(cx: float, cy: float, sx: float, sy: float,
-					   color: Color, shadow: Color, cloud_seed: int, rain_blend: float = 0.0):
-	var ry_mult := 1.0 + rain_blend * 0.35
+					   color: Color, shadow: Color, cloud_seed: int, rain_blend: float = 0.0) -> void:
+	var ry_mult = 1.0 + rain_blend * 0.30
 	_draw_oval(cx, cy + sy * 0.38, sx * 0.85, sy * 0.52 * ry_mult, shadow)
 	_draw_oval(cx, cy, sx, sy * ry_mult, color)
 	var offsets = [
@@ -811,15 +839,14 @@ func _draw_cloud_shape(cx: float, cy: float, sx: float, sy: float,
 	]
 	var sizes = [0.50, 0.44, 0.48, 0.38, 0.36]
 	for pi in range(offsets.size()):
-		var wobble = Vector2((_hf(cloud_seed + pi * 3) - 0.5) * sx * 0.10,
-							 (_hf(cloud_seed + pi * 3 + 1) - 0.5) * sy * 0.12)
+		var wobble = Vector2((_hf(cloud_seed + pi * 3) - 0.5) * sx * 0.08,
+							  (_hf(cloud_seed + pi * 3 + 1) - 0.5) * sy * 0.10)
 		_draw_oval(cx + offsets[pi].x + wobble.x, cy + offsets[pi].y + wobble.y,
 				   sx * sizes[pi], sy * (sizes[pi] + 0.1) * ry_mult, color)
 
-func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color):
-	if rx < 0.5 or ry < 0.5:
-		return
-	var steps = 18
+func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color) -> void:
+	if rx < 0.5 or ry < 0.5: return
+	var steps = 20
 	var pts: PackedVector2Array = []
 	for i in range(steps):
 		var angle = (float(i) / float(steps)) * TAU
@@ -827,45 +854,48 @@ func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color):
 	if _polygon_valid(pts):
 		draw_colored_polygon(pts, color)
 
-func _draw_fog():
-	var rb := _get_weather_blend()
+# =============================================================================
+# FOG LAYER
+# =============================================================================
+
+func _draw_fog() -> void:
+	var rb = _get_weather_blend()
 	var base_fc: Color = _env.get("fog_color", Color(0, 0, 0, 0))
-	var fc := _rain_lerp_color(base_fc, "fog_color", rb)
+	var fc = _rain_lerp_color(base_fc, "fog_color", rb)
 	if fc.a < 0.01: return
-	var bl := wall_min.x - BACKGROUND_EXPANSION
-	var br := wall_max.x + BACKGROUND_EXPANSION
-	var bt := wall_min.y - BACKGROUND_EXPANSION
-	var total_h := (ground_y + 99999.0) - bt
-
-	var steps := 8
+	var bl     = wall_min.x - BACKGROUND_EXPANSION
+	var br     = wall_max.x + BACKGROUND_EXPANSION
+	var bt     = wall_min.y - BACKGROUND_EXPANSION
+	var total_h = (ground_y + 99999.0) - bt
+	var steps = 10
 	for i in range(steps):
-		var t0 := float(i)     / float(steps)
-		var t1 := float(i + 1) / float(steps)
-		var a0 := fc.a * (1.0 - t0 * 0.65)
-		var a1 := fc.a * (1.0 - t1 * 0.65)
-		var y0 := bt + t0 * total_h
-		var y1 := bt + t1 * total_h
-		var c0 := Color(fc.r, fc.g, fc.b, a0)
-		var c1 := Color(fc.r, fc.g, fc.b, a1)
-		var tl2 := Vector2(bl, y0); var tr2 := Vector2(br, y0)
-		var br2 := Vector2(br, y1); var bl2 := Vector2(bl, y1)
-		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		var t0 = float(i)     / float(steps)
+		var t1 = float(i + 1) / float(steps)
+		var a0 = fc.a * (1.0 - t0 * 0.65)
+		var a1 = fc.a * (1.0 - t1 * 0.65)
+		_draw_grad_quad(bl, bt + t0 * total_h, br - bl, bt + t1 * total_h,
+			Color(fc.r, fc.g, fc.b, a0),
+			Color(fc.r, fc.g, fc.b, a1))
 
-func _draw_gym_interior():
-	var bl = wall_min.x - BACKGROUND_EXPANSION
-	var br = wall_max.x + BACKGROUND_EXPANSION
-	var width = br - bl
+# =============================================================================
+# GYM INTERIOR
+# =============================================================================
+
+func _draw_gym_interior() -> void:
+	var bl      = wall_min.x - BACKGROUND_EXPANSION
+	var br      = wall_max.x + BACKGROUND_EXPANSION
+	var width   = br - bl
 	var vis_top = wall_min.y
 	var vis_bot = ground_y if ground_y > vis_top + 10.0 else vis_top + (wall_max.y - wall_min.y)
 	var vis_h   = vis_bot - vis_top
-	if width < 1.0 or vis_h < 10.0:
-		return
+	if width < 1.0 or vis_h < 10.0: return
 
-	for i in range(8):
-		var t = float(i) / 8.0
-		draw_rect(Rect2(Vector2(bl, vis_top + t*vis_h), Vector2(width, vis_h/8.0+2.0)),
-				  Color(0.93-t*0.03, 0.93-t*0.025, 0.94-t*0.02), true)
+	# Smooth ceiling-to-floor interior gradient
+	var steps = 12
+	for i in range(steps):
+		var t = float(i) / float(steps)
+		draw_rect(Rect2(Vector2(bl, vis_top + t * vis_h), Vector2(width, vis_h / float(steps) + 2.0)),
+				  Color(0.93 - t * 0.025, 0.93 - t * 0.022, 0.94 - t * 0.018), true)
 
 	var win_top    = vis_top + vis_h * 0.10
 	var win_h      = vis_h * 0.78
@@ -880,7 +910,7 @@ func _draw_gym_interior():
 	var zoom  = ct.x.x
 	var cam_x = -ct.origin.x / zoom
 
-	var rb      := _get_weather_blend()
+	var rb      = _get_weather_blend()
 	var gym_tod = _env.get("gym_time_of_day", 0)
 
 	var sky_top_c  : Color = _env.get("gym_sky_top",  Color(0.20, 0.44, 0.84))
@@ -888,16 +918,14 @@ func _draw_gym_interior():
 	var sky_haze_c : Color = _env.get("gym_sky_haze", Color(0.70, 0.86, 0.97))
 
 	var rain_sky = Color(0.18, 0.20, 0.26)
-	sky_top_c  = sky_top_c.lerp(rain_sky,                       rb)
-	sky_mid_c  = sky_mid_c.lerp(rain_sky.lightened(0.06),       rb)
-	sky_haze_c = sky_haze_c.lerp(rain_sky.lightened(0.12),      rb)
+	sky_top_c  = sky_top_c.lerp(rain_sky,                  rb)
+	sky_mid_c  = sky_mid_c.lerp(rain_sky.lightened(0.06),  rb)
+	sky_haze_c = sky_haze_c.lerp(rain_sky.lightened(0.12), rb)
 
-	var sun_wx = wall_min.x + (wall_max.x - wall_min.x) * 0.68 + cam_x * 0.03
+	var sun_wx        = wall_min.x + (wall_max.x - wall_min.x) * 0.68 + cam_x * 0.03
 	var gym_sun_color : Color = _env.get("gym_sun_color", Color(1.0, 0.96, 0.78))
-
-	var sun_y_frac := 0.15
-	if gym_tod == 1:
-		sun_y_frac = 0.72
+	var sun_y_frac    = 0.15
+	if gym_tod == 1: sun_y_frac = 0.72
 
 	var gym_mtn_colors: Array = _env.get("gym_mtn_colors", [
 		Color(0.72, 0.82, 0.91), Color(0.54, 0.67, 0.80),
@@ -910,22 +938,23 @@ func _draw_gym_interior():
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		var wx2 = wx + win_w
 
-		for gi in range(10):
-			var gt = float(gi) / 10.0
+		# Sky gradient inside window
+		for gi in range(12):
+			var gt = float(gi) / 12.0
 			var sky_c: Color
 			if gt < 0.5:
 				sky_c = sky_top_c.lerp(sky_mid_c, gt * 2.0)
 			else:
 				sky_c = sky_mid_c.lerp(sky_haze_c, (gt - 0.5) * 2.0)
-			draw_rect(Rect2(Vector2(wx, win_top + gt*win_h), Vector2(win_w, win_h/10.0+1.0)), sky_c, true)
+			draw_rect(Rect2(Vector2(wx, win_top + gt * win_h), Vector2(win_w, win_h / 12.0 + 1.0)), sky_c, true)
 
 		if _env.get("has_gym_stars", false):
 			for si in range(30):
 				var sseed = (_scenery_seed ^ 0xCAFE) + wi * 97 + si * 13
 				var sx2   = wx + _hf(sseed) * win_w
 				var sy2   = win_top + _hf(sseed + 1) * win_h * 0.6
-				var salp  = 0.4 + _hf(sseed + 2) * 0.55
-				var ssize = 1.0 + _hf(sseed + 3) * 1.8
+				var salp  = 0.35 + _hf(sseed + 2) * 0.50
+				var ssize = 1.0 + _hf(sseed + 3) * 1.6
 				var twinkle = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(sseed + 4) * 3.0) + float(si))
 				draw_circle(Vector2(sx2, sy2), ssize, Color(1.0, 1.0, 1.0, salp * twinkle * (1.0 - rb)))
 
@@ -936,27 +965,27 @@ func _draw_gym_interior():
 			var my2   = win_top + win_h * (0.12 + _hf(mseed + 1) * 0.22)
 			var mr    = 20.0 + _hf(mseed + 2) * 10.0
 			for gi in range(3):
-				draw_circle(Vector2(mx2, my2), mr + float(gi) * 14.0, Color(0.7, 0.75, 0.9, 0.05))
+				draw_circle(Vector2(mx2, my2), mr + float(gi) * 14.0, Color(0.7, 0.75, 0.9, 0.04))
 			draw_circle(Vector2(mx2, my2), mr, Color(0.88, 0.90, 0.95, 0.92 * (1.0 - rb)))
 			draw_circle(Vector2(mx2 + mr * 0.35, my2 - mr * 0.1), mr * 0.82, sky_top_c)
 
-		var show_sun = gym_tod != 2 and gym_sun_color.r + gym_sun_color.g + gym_sun_color.b > 0.05
+		var show_sun: bool = (gym_tod != 2) and (gym_sun_color.r + gym_sun_color.g + gym_sun_color.b > 0.05)
 		if show_sun and rb < 0.85 and sun_wx >= wx + 20.0 and sun_wx <= wx2 - 20.0:
 			var sun_y = win_top + win_h * sun_y_frac
-			var sfade := 1.0 - rb
-			for ri in range(6):
-				draw_circle(Vector2(sun_wx, sun_y), 8.0 + ri * 20.0,
+			var sfade = 1.0 - rb
+			for ri in range(7):
+				draw_circle(Vector2(sun_wx, sun_y), 7.0 + ri * 18.0,
 							Color(gym_sun_color.r, gym_sun_color.g, gym_sun_color.b,
-								  (0.048 - ri * 0.007) * sfade))
+								  (0.042 - ri * 0.005) * sfade))
 			draw_circle(Vector2(sun_wx, sun_y), 10.0,
 						Color(gym_sun_color.r + 0.05, gym_sun_color.g + 0.02, gym_sun_color.b * 0.8,
-							  0.72 * sfade))
+							  0.70 * sfade))
 			if gym_tod == 1:
-				var glow_y = sun_y - 4.0
-				var glow_steps := 8
+				var glow_y   = sun_y - 4.0
+				var glow_steps = 8
 				for gsi in range(glow_steps):
 					var gt = float(gsi) / float(glow_steps)
-					var ga = lerp(0.22, 0.0, gt) * sfade
+					var ga = lerp(0.18, 0.0, gt) * sfade
 					draw_rect(Rect2(Vector2(wx, glow_y + gt * 40.0), Vector2(win_w, 40.0 / float(glow_steps) + 1.0)),
 							  Color(gym_sun_color.r, gym_sun_color.g * 0.6, 0.05, ga), true)
 
@@ -994,10 +1023,10 @@ func _draw_gym_interior():
 			if _polygon_valid(mpts):
 				draw_colored_polygon(mpts, mcol)
 
-		var gnd_h   = win_h * 0.09
-		var gsegs   = 40
-		var gstep   = win_w / float(gsegs)
-		var gpts    = PackedVector2Array()
+		var gnd_h  = win_h * 0.09
+		var gsegs  = 40
+		var gstep  = win_w / float(gsegs)
+		var gpts   = PackedVector2Array()
 		gpts.append(Vector2(wx, win_bot + 4.0))
 		for gi2 in range(gsegs + 1):
 			var gseed = (_scenery_seed ^ 0x9F01) + wi*37 + gi2*5
@@ -1008,91 +1037,71 @@ func _draw_gym_interior():
 		if _polygon_valid(gpts):
 			draw_colored_polygon(gpts, gym_grass_color)
 		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
-				  gym_grass_color.darkened(0.18), true)
+				  gym_grass_color.darkened(0.16), true)
 
-		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w, win_h)), Color(1.0, 1.0, 1.0, 0.10), true)
-		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.10, win_h)), Color(1.0, 1.0, 1.0, 0.07), true)
-		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w*0.04, win_h)), Color(1.0, 1.0, 1.0, 0.05), true)
+		# Subtle glass sheen — no hard frame lines
+		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w, win_h)), Color(1.0, 1.0, 1.0, 0.06), true)
+		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w * 0.08, win_h)), Color(1.0, 1.0, 1.0, 0.05), true)
 
+	# Wall between windows — clean flat panels, no hard lines
 	for wi in range(win_count + 1):
 		var gx = bl + float(wi) * win_stride + win_gap * 0.5 - win_gap
 		draw_rect(Rect2(Vector2(gx, vis_top), Vector2(win_gap + 4.0, vis_h)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, vis_top), Vector2(width, win_top - vis_top + 1.0)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, win_bot - 1.0), Vector2(width, vis_bot - win_bot + 2.0)), wall_col, true)
 
+	# Minimal window frames — thin, low-alpha
 	for wi in range(win_count):
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
-		var fc  = Color(0.15, 0.16, 0.19)
-		var ft  = 10.0
-		draw_rect(Rect2(Vector2(wx-ft, win_top-ft), Vector2(win_w+ft*2.0, ft)), fc, true)
-		draw_rect(Rect2(Vector2(wx-ft, win_bot),    Vector2(win_w+ft*2.0, ft)), fc, true)
-		draw_rect(Rect2(Vector2(wx-ft, win_top-ft), Vector2(ft, win_h+ft*2.0)), fc, true)
-		draw_rect(Rect2(Vector2(wx+win_w, win_top-ft), Vector2(ft, win_h+ft*2.0)), fc, true)
-		draw_line(Vector2(wx, win_top), Vector2(wx+win_w, win_top), Color(0.55,0.57,0.62), 2.0, true)
-		draw_line(Vector2(wx, win_top), Vector2(wx, win_bot),       Color(0.55,0.57,0.62), 2.0, true)
-		draw_line(Vector2(wx+12.0, win_top+14.0), Vector2(wx+62.0, win_top+14.0), Color(1.0,1.0,1.0,0.24), 3.0, true)
-		draw_line(Vector2(wx+14.0, win_top+25.0), Vector2(wx+40.0, win_top+25.0), Color(1.0,1.0,1.0,0.11), 2.0, true)
+		draw_line(Vector2(wx, win_top), Vector2(wx + win_w, win_top), Color(0.55, 0.57, 0.62, 0.35), 1.5, true)
+		draw_line(Vector2(wx, win_top), Vector2(wx, win_bot),         Color(0.55, 0.57, 0.62, 0.35), 1.5, true)
 
-	draw_rect(Rect2(Vector2(bl, vis_bot-28.0), Vector2(width, 28.0)), Color(0.22, 0.22, 0.24), true)
-	for mi in range(int(ceil(width/900.0))+1):
-		draw_line(Vector2(bl+mi*900.0, vis_bot-28.0), Vector2(bl+mi*900.0, vis_bot),
-				  Color(0.17, 0.17, 0.19), 2.0, true)
+	draw_rect(Rect2(Vector2(bl, vis_bot - 28.0), Vector2(width, 28.0)), Color(0.22, 0.22, 0.24), true)
 
-func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: float, blend: float):
-	var win_h := win_bot - win_top
-	var win_w := wx2 - wx
+func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: float, blend: float) -> void:
+	var win_h = win_bot - win_top
+	var win_w = wx2 - wx
 
-	var haze_steps := 8
-	var haze_max_a := blend * 0.28
+	var haze_steps = 8
+	var haze_max_a = blend * 0.24
 	for i in range(haze_steps):
-		var t0 := float(i)     / float(haze_steps)
-		var t1 := float(i + 1) / float(haze_steps)
-		var a0 := haze_max_a * (t0 * t0)
-		var a1 := haze_max_a * (t1 * t1)
-		var y0 := win_top + t0 * win_h
-		var y1 := win_top + t1 * win_h
-		var c0 := Color(0.08, 0.11, 0.18, a0)
-		var c1 := Color(0.10, 0.14, 0.22, a1)
-		var tl2 := Vector2(wx, y0);  var tr2 := Vector2(wx2, y0)
-		var br2 := Vector2(wx2, y1); var bl2 := Vector2(wx, y1)
-		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		var t0 = float(i)     / float(haze_steps)
+		var t1 = float(i + 1) / float(haze_steps)
+		_draw_grad_quad(wx, win_top + t0 * win_h, win_w, win_top + t1 * win_h,
+			Color(0.08, 0.11, 0.18, haze_max_a * (t0 * t0)),
+			Color(0.10, 0.14, 0.22, haze_max_a * (t1 * t1)))
 
-	var mist_col   := Color(0.55, 0.64, 0.78)
-	var mist_h     := win_h * 0.16 * blend
-	var mist_steps := 6
+	var mist_col   = Color(0.55, 0.64, 0.78)
+	var mist_h     = win_h * 0.14 * blend
+	var mist_steps = 6
 	for i in range(mist_steps):
-		var t0 := float(i)     / float(mist_steps)
-		var t1 := float(i + 1) / float(mist_steps)
-		var a0 := blend * 0.12 * (1.0 - t0)
-		var a1 := blend * 0.12 * (1.0 - t1)
-		var y0 := win_bot - t0 * mist_h
-		var y1 := win_bot - t1 * mist_h
-		var c0 := Color(mist_col.r, mist_col.g, mist_col.b, a0)
-		var c1 := Color(mist_col.r, mist_col.g, mist_col.b, a1)
-		var tl2 := Vector2(wx, y0);  var tr2 := Vector2(wx2, y0)
-		var br2 := Vector2(wx2, y1); var bl2 := Vector2(wx, y1)
-		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		var t0 = float(i)     / float(mist_steps)
+		var t1 = float(i + 1) / float(mist_steps)
+		var a0 = blend * 0.10 * (1.0 - t0)
+		var a1 = blend * 0.10 * (1.0 - t1)
+		_draw_grad_quad(wx, win_bot - t0 * mist_h, win_w, win_bot - t1 * mist_h,
+			Color(mist_col.r, mist_col.g, mist_col.b, a0),
+			Color(mist_col.r, mist_col.g, mist_col.b, a1))
 
-	var streak_count := int(14.0 * blend)
+	var streak_count = int(12.0 * blend)
 	for si in range(streak_count):
-		var sseed := (_scenery_seed ^ 0xF00D) + si * 41
-		var sx    := wx + _hf(sseed) * win_w
-		var slen  := 18.0 + _hf(sseed + 2) * 28.0
-		var salp  := (0.07 + _hf(sseed + 3) * 0.13) * blend
-		var period   := win_h / (40.0 + _hf(sseed + 4) * 30.0)
-		var anim_y   := fmod(_cloud_time / period + _hf(sseed + 1), 1.0) * win_h
-		var draw_y   := win_top + anim_y
+		var sseed  = (_scenery_seed ^ 0xF00D) + si * 41
+		var sx    = wx + _hf(sseed) * win_w
+		var slen  = 16.0 + _hf(sseed + 2) * 26.0
+		var salp  = (0.06 + _hf(sseed + 3) * 0.11) * blend
+		var period   = win_h / (40.0 + _hf(sseed + 4) * 30.0)
+		var anim_y   = fmod(_cloud_time / period + _hf(sseed + 1), 1.0) * win_h
+		var draw_y   = win_top + anim_y
 		if draw_y + slen > win_bot: continue
-		draw_line(Vector2(sx, draw_y), Vector2(sx + 1.5, draw_y + slen),
+		draw_line(Vector2(sx, draw_y), Vector2(sx + 1.2, draw_y + slen),
 				  Color(0.65, 0.75, 0.92, salp), 1.0, true)
-		if salp > 0.08:
-			draw_circle(Vector2(sx + 0.75, draw_y + slen), 1.5,
-						Color(0.75, 0.88, 1.0, salp * 0.7))
 
-func _draw_scaffold():
-	var post_inset = 28.0; var post_w = 18.0
+# =============================================================================
+# SCAFFOLD
+# =============================================================================
+
+func _draw_scaffold() -> void:
+	var post_inset  = 28.0; var post_w = 18.0
 	var post_col    = Color(0.42, 0.32, 0.20)
 	var post_hi     = Color(0.55, 0.44, 0.28)
 	var post_shadow = Color(0.28, 0.20, 0.12)
@@ -1105,10 +1114,10 @@ func _draw_scaffold():
 		draw_rect(Rect2(Vector2(px + post_w * 0.5 - 4, top_y), Vector2(4, bot_y - top_y)), post_hi, true)
 	var beam_h = 14.0
 	draw_rect(Rect2(Vector2(lx - post_w, top_y - beam_h), Vector2(rx - lx + post_w * 2.0, beam_h)), beam_col, true)
-	draw_line(Vector2(lx - post_w, top_y - beam_h), Vector2(rx + post_w, top_y - beam_h), post_hi, 2.0, true)
+	draw_line(Vector2(lx - post_w, top_y - beam_h), Vector2(rx + post_w, top_y - beam_h), post_hi, 1.5, true)
 	var mid_y = top_y + (ground_y - top_y) * 0.5
 	draw_rect(Rect2(Vector2(lx - post_w * 0.5, mid_y - 7.0), Vector2(rx - lx + post_w, 14.0)), beam_col, true)
-	draw_line(Vector2(lx - post_w * 0.5, mid_y - 7.0), Vector2(rx + post_w * 0.5, mid_y - 7.0), post_hi, 1.5, true)
+	draw_line(Vector2(lx - post_w * 0.5, mid_y - 7.0), Vector2(rx + post_w * 0.5, mid_y - 7.0), post_hi, 1.0, true)
 	var brace_col = Color(0.35, 0.26, 0.15, 0.9)
 	draw_line(Vector2(lx, top_y + 60.0), Vector2(lx - 70.0, mid_y),    brace_col, 9.0, true)
 	draw_line(Vector2(lx, mid_y + 30.0), Vector2(lx - 70.0, ground_y), brace_col, 9.0, true)
@@ -1116,33 +1125,107 @@ func _draw_scaffold():
 	draw_line(Vector2(rx, mid_y + 30.0), Vector2(rx + 70.0, ground_y), brace_col, 9.0, true)
 	for px in [lx, rx]:
 		draw_rect(Rect2(Vector2(px - 22.0, ground_y - 8.0), Vector2(44.0, 22.0)), Color(0.50, 0.50, 0.52), true)
-		draw_line(Vector2(px - 22.0, ground_y - 8.0), Vector2(px + 22.0, ground_y - 8.0), Color(0.65, 0.65, 0.67), 2.0, true)
 
-# ─── Wall rendering ───────────────────────────────────────────────────────────
+# =============================================================================
+# WALL RENDERING — flat fills, soft depth, NO outlines
+# =============================================================================
 
-func _draw_rectangle_wall():
+func _draw_rectangle_wall() -> void:
 	if current_environment == "building":
 		_draw_building_facade_wall()
 		return
-	var ws = wall_max - wall_min
-	if wall_texture_enabled: draw_textured_wall(wall_min, ws)
-	else: draw_rect(Rect2(wall_min, ws), current_wall_color, true)
 
-func _draw_polygon_wall():
+	var ws = wall_max - wall_min
+
+	# 1. Flat base
+	draw_rect(Rect2(wall_min, ws), current_wall_color, true)
+
+	# 2. Top sheen — catches light from above
+	var sheen_h   = ws.y * 0.15
+	var sheen_top = current_wall_color.lightened(0.09)
+	_draw_grad_quad(wall_min.x, wall_min.y, ws.x, wall_min.y + sheen_h,
+		sheen_top, Color(sheen_top.r, sheen_top.g, sheen_top.b, 0.0))
+
+	# 3. Bottom depth — very gentle darkening
+	var depth_h = ws.y * 0.30
+	_draw_grad_quad(wall_min.x, wall_max.y - depth_h, ws.x, wall_max.y,
+		Color(0.0, 0.0, 0.0, 0.0), Color(0.0, 0.0, 0.0, 0.06))
+
+	# 4. Left ambient occlusion strip
+	var ao_w = minf(ws.x * 0.035, 16.0)
+	_draw_grad_quad_h(wall_min.x, wall_min.y, wall_min.x + ao_w, wall_max.y,
+		Color(0.0, 0.0, 0.0, 0.09), Color(0.0, 0.0, 0.0, 0.0))
+
+	if wall_texture_enabled:
+		draw_textured_wall(wall_min, ws)
+
+func _draw_polygon_wall() -> void:
 	var pp = PackedVector2Array(control_points)
 	if not _polygon_valid(pp): return
+
 	draw_colored_polygon(pp, current_wall_color)
+
+	# Subtle depth overlay — bottom-weighted, max 6% dark
 	if wall_texture_enabled:
-		var p2: PackedVector2Array = PackedVector2Array()
-		var cols: PackedColorArray = PackedColorArray()
+		var p2:   PackedVector2Array = PackedVector2Array()
+		var cols: PackedColorArray   = PackedColorArray()
 		for i in range(pp.size()):
 			p2.append(pp[i])
 			var t = clamp((pp[i].y - wall_min.y) / max(wall_max.y - wall_min.y, 1.0), 0.0, 1.0)
-			cols.append(Color(0.0, 0.0, 0.0, t * 0.09))
+			cols.append(Color(0.0, 0.0, 0.0, t * t * 0.06))
 		if _polygon_valid(p2):
 			draw_polygon(p2, cols)
 
-# ─── Building facade wall — clean concrete, no texture patches ───────────────
+# Wall depth shading — replaces the old hard draw_edges() outlines
+func _draw_wall_depth_shading() -> void:
+	if not wall_valid: return
+
+	# Soft base contact shadow below the wall
+	var w = wall_max.x - wall_min.x
+	_draw_grad_quad(wall_min.x, ground_y, w, ground_y + 16.0,
+		Color(0.0, 0.0, 0.0, 0.16),
+		Color(0.0, 0.0, 0.0, 0.0))
+
+	# Very faint top edge brightening — marks the top of the wall surface
+	if not use_polygon_mode:
+		_draw_grad_quad(wall_min.x, wall_min.y - 3.0, w, wall_min.y + 6.0,
+			Color(1.0, 1.0, 1.0, 0.08),
+			Color(1.0, 1.0, 1.0, 0.0))
+
+
+# ─── Tonal outlines ───────────────────────────────────────────────────────────
+# Replaces hard black outlines with a darker shade of each surface's own color.
+# Thickness 2 px — reads as depth/form, not a cartoon border.
+
+func _draw_wall_tonal_outline() -> void:
+	if not wall_valid: return
+
+	# Wall outline — darkened by wall_outline_darken, alpha driven by wall_outline_alpha
+	var wc = current_wall_color.darkened(wall_outline_darken)
+	wc.a    = wall_outline_darken * 2.8   # darken=0.25 → alpha≈0.70; darken=0.5 → alpha≈1.0
+
+	if use_polygon_mode and control_points.size() >= 3:
+		for i in range(control_points.size()):
+			if _is_ground_edge(i): continue
+			var p1 = control_points[i]
+			var p2 = control_points[(i + 1) % control_points.size()]
+			draw_line(p1, p2, wc, wall_outline_width, true)
+	else:
+		var tl  = wall_min
+		var tr2 = Vector2(wall_max.x, wall_min.y)
+		var bl  = Vector2(wall_min.x, wall_max.y)
+		var br  = wall_max
+		draw_line(tl,  tr2, wc, wall_outline_width, true)   # top
+		draw_line(tl,  bl,  wc, wall_outline_width, true)   # left
+		draw_line(tr2, br,  wc, wall_outline_width, true)   # right
+		# Bottom edge blends with ground
+		var gc = (_env.get("ground_top", Color(0.22, 0.52, 0.14)) as Color).darkened(wall_outline_darken)
+		gc.a    = wc.a * 0.80
+		draw_line(bl, br, gc, wall_outline_width, true)
+
+# =============================================================================
+# BUILDING FACADE — concrete panels, windows, no hard borders
+# =============================================================================
 
 func _draw_building_facade_wall() -> void:
 	var tod : int   = _env.get("city_time", 0)
@@ -1150,60 +1233,58 @@ func _draw_building_facade_wall() -> void:
 
 	var base_col : Color; var dark_col : Color; var lite_col : Color
 	match tod:
-		1:  # Dusk
+		1:
 			base_col = Color(0.42, 0.36, 0.30)
 			dark_col = Color(0.28, 0.23, 0.18)
 			lite_col = Color(0.54, 0.46, 0.36)
-		2:  # Night
+		2:
 			base_col = Color(0.22, 0.22, 0.26)
 			dark_col = Color(0.14, 0.14, 0.18)
 			lite_col = Color(0.28, 0.28, 0.34)
-		_:  # Day
+		_:
 			base_col = Color(0.52, 0.52, 0.54)
 			dark_col = Color(0.38, 0.38, 0.40)
 			lite_col = Color(0.64, 0.64, 0.66)
 
-	var _base_col_ref = base_col
-
 	base_col = base_col.lerp(Color(0.34, 0.36, 0.40), rb * 0.4)
 	lite_col = lite_col.lerp(Color(0.40, 0.42, 0.46), rb * 0.3)
 
-	var w := wall_max.x - wall_min.x
-	var h := wall_max.y - wall_min.y
+	var w = wall_max.x - wall_min.x
+	var h = wall_max.y - wall_min.y
 
-	var v_bands := 8
+	# Smooth vertical gradient
+	var v_bands = 10
 	for vi in range(v_bands):
-		var t0 := float(vi) / float(v_bands)
-		var t1 := float(vi + 1) / float(v_bands)
-		var y0 := wall_min.y + t0 * h
-		var y1 := wall_min.y + t1 * h
-		var c0 := lite_col.lerp(dark_col, t0 * 0.5)
-		var c1 := lite_col.lerp(dark_col, t1 * 0.5)
-		var tl2 := Vector2(wall_min.x, y0);  var tr2 := Vector2(wall_max.x, y0)
-		var br2 := Vector2(wall_max.x, y1);  var bl2 := Vector2(wall_min.x, y1)
-		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		var t0 = float(vi)     / float(v_bands)
+		var t1 = float(vi + 1) / float(v_bands)
+		var y0 = wall_min.y + t0 * h
+		var y1 = wall_min.y + t1 * h
+		var c0 = lite_col.lerp(dark_col, t0 * 0.5)
+		var c1 = lite_col.lerp(dark_col, t1 * 0.5)
+		_draw_grad_quad(wall_min.x, y0, w, y1, c0, c1)
 
-	var panel_w := 220.0
-	var panel_h := 160.0
-	var groove  := Color(dark_col.r, dark_col.g, dark_col.b, 0.45)
+	# Panel grooves — thin, low alpha
+	var panel_w = 220.0
+	var panel_h = 160.0
+	var groove   = Color(dark_col.r, dark_col.g, dark_col.b, 0.30)
 
 	var vg_x = floor(wall_min.x / panel_w) * panel_w
 	while vg_x <= wall_max.x:
 		if vg_x >= wall_min.x:
-			draw_line(Vector2(vg_x, wall_min.y), Vector2(vg_x, wall_max.y), groove, 2.0, true)
+			draw_line(Vector2(vg_x, wall_min.y), Vector2(vg_x, wall_max.y), groove, 1.5, true)
 		vg_x += panel_w
 
 	var hg_y = floor(wall_min.y / panel_h) * panel_h
 	while hg_y <= wall_max.y:
 		if hg_y >= wall_min.y:
-			draw_line(Vector2(wall_min.x, hg_y), Vector2(wall_max.x, hg_y), groove, 2.0, true)
+			draw_line(Vector2(wall_min.x, hg_y), Vector2(wall_max.x, hg_y), groove, 1.5, true)
 		hg_y += panel_h
 
-	var win_w  := panel_w * 0.42
-	var win_h2 := panel_h * 0.50
-	var wmx    := (panel_w - win_w) * 0.5
-	var wmy    := (panel_h - win_h2) * 0.5
+	# Windows
+	var win_w  = panel_w * 0.42
+	var win_h2 = panel_h * 0.50
+	var wmx    = (panel_w - win_w) * 0.5
+	var wmy    = (panel_h - win_h2) * 0.5
 
 	var lit_prob  : float
 	var win_glass : Color
@@ -1224,445 +1305,345 @@ func _draw_building_facade_wall() -> void:
 
 	win_glass = win_glass.lerp(Color(0.38, 0.44, 0.52, win_glass.a), rb * 0.4)
 
-	var col_i := 0
+	var col_i = 0
 	var cpx   = floor(wall_min.x / panel_w) * panel_w
 	while cpx < wall_max.x:
-		var row_i := 0
+		var row_i = 0
 		var cpy   = floor(wall_min.y / panel_h) * panel_h
 		while cpy < wall_max.y:
-			var wr2 := Rect2(cpx + wmx, cpy + wmy, win_w, win_h2)
-			var cl  := wr2.intersection(Rect2(wall_min, wall_max - wall_min))
+			var wr2 = Rect2(cpx + wmx, cpy + wmy, win_w, win_h2)
+			var cl  = wr2.intersection(Rect2(wall_min, wall_max - wall_min))
 			if cl.has_area():
-				var wseed := (col_i * 1117 + row_i * 337) ^ _scenery_seed
-				var lit   := _hf(wseed) < lit_prob
-				draw_rect(Rect2(cl.position - Vector2(2, 2), cl.size + Vector2(4, 4)),
-						  win_frame, true)
+				var wseed = (col_i * 1117 + row_i * 337) ^ _scenery_seed
+				var lit   = _hf(wseed) < lit_prob
+				# Thin frame — no hard rect border, just inset shadow
+				_draw_grad_quad(cl.position.x - 2.0, cl.position.y - 2.0,
+					cl.size.x + 4.0, cl.position.y + 2.0,
+					Color(win_frame.r, win_frame.g, win_frame.b, 0.5),
+					Color(win_frame.r, win_frame.g, win_frame.b, 0.0))
 				if lit:
 					draw_rect(cl, win_glass, true)
 				else:
 					draw_rect(cl, Color(dark_col.r, dark_col.g, dark_col.b, 0.50), true)
 				if tod == 0 and rb < 0.5:
-					draw_rect(Rect2(cl.position, Vector2(cl.size.x * 0.28, cl.size.y * 0.20)),
-							  Color(0.75, 0.86, 0.96, 0.16 * (1.0 - rb * 2.0)), true)
+					draw_rect(Rect2(cl.position, Vector2(cl.size.x * 0.25, cl.size.y * 0.18)),
+							  Color(0.75, 0.86, 0.96, 0.12 * (1.0 - rb * 2.0)), true)
 			row_i += 1
 			cpy   += panel_h
 		col_i += 1
 		cpx   += panel_w
 
-	var rib_w := 12.0
+	# Side rims (structural ribs)
+	var rib_w = 10.0
 	draw_rect(Rect2(wall_min.x,         wall_min.y, rib_w, h), dark_col, true)
 	draw_rect(Rect2(wall_max.x - rib_w, wall_min.y, rib_w, h), dark_col, true)
 
+	# Rain streaks
 	if rb > 0.2:
 		for si in range(int(10.0 * rb)):
-			var sseed  := (_scenery_seed ^ 0xC0DE) + si * 43
-			var sx     := wall_min.x + _hf(sseed) * w
-			var slen   := 18.0 + _hf(sseed + 1) * 30.0
-			var salp   := (0.04 + _hf(sseed + 2) * 0.07) * rb
-			var period := h / (35.0 + _hf(sseed + 3) * 25.0)
-			var anim_y := fmod(_cloud_time / period + _hf(sseed + 4), 1.0) * h
-			var draw_y := wall_min.y + anim_y
+			var sseed  = (_scenery_seed ^ 0xC0DE) + si * 43
+			var sx     = wall_min.x + _hf(sseed) * w
+			var slen   = 18.0 + _hf(sseed + 1) * 30.0
+			var salp   = (0.04 + _hf(sseed + 2) * 0.07) * rb
+			var period = h / (35.0 + _hf(sseed + 3) * 25.0)
+			var anim_y = fmod(_cloud_time / period + _hf(sseed + 4), 1.0) * h
+			var draw_y = wall_min.y + anim_y
 			if draw_y + slen > wall_max.y: continue
 			draw_line(Vector2(sx, draw_y), Vector2(sx + 1.0, draw_y + slen),
 					  Color(0.60, 0.70, 0.88, salp), 1.0, true)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# GROUND
+# =============================================================================
 
-func _draw_wall_base_shadow():
-	if not wall_valid: return
-	for i in range(6):
-		draw_line(Vector2(wall_min.x, ground_y + i * 3.0),
-				  Vector2(wall_max.x, ground_y + i * 3.0),
-				  Color(0.0, 0.0, 0.0, 0.16 * (1.0 - float(i) / 6.0)), 4.0)
-
-func _draw_underwater_wall_depth():
-	if not wall_valid: return
-	var base_l: Vector2; var base_r: Vector2
-	if use_polygon_mode and ground_left_index >= 0 and ground_right_index >= 0:
-		base_l = control_points[ground_left_index]; base_r = control_points[ground_right_index]
-	else:
-		base_l = Vector2(wall_min.x, ground_y); base_r = Vector2(wall_max.x, ground_y)
-	var water_y = ground_y; var sub_top = water_y
-	var sub_bot = (base_l.y + base_r.y) * 0.5
-	if sub_bot > sub_top:
-		var sub_h = sub_bot - sub_top; var water_tint = Color(0.04, 0.28, 0.60)
-		for li in range(10):
-			var t0=float(li)/10.0; var t1=float(li+1)/10.0
-			var y0=sub_top+t0*sub_h; var y1=sub_top+t1*sub_h
-			var shimmer=sin(_water_time*1.4+t0*8.0)*0.018
-			var a0=lerp(0.04,0.48,t0); var a1=lerp(0.04,0.48,t1)
-			var tl2=Vector2(base_l.x,y0); var tr2=Vector2(base_r.x,y0)
-			var br2=Vector2(base_r.x,y1); var bl2=Vector2(base_l.x,y1)
-			var c0=Color(water_tint.r,water_tint.g+shimmer,water_tint.b,a0)
-			var c1=Color(water_tint.r,water_tint.g,water_tint.b,a1)
-			draw_polygon(PackedVector2Array([tl2,tr2,br2]),PackedColorArray([c0,c0,c1]))
-			draw_polygon(PackedVector2Array([tl2,br2,bl2]),PackedColorArray([c0,c1,c1]))
-	var depth_amount=600.0; var edge_vec=base_r-base_l; var edge_len=edge_vec.length()
-	if edge_len<1.0: return
-	var edge_dir=edge_vec/edge_len; var perp=Vector2(-edge_dir.y,edge_dir.x)
-	if perp.y<0.0: perp=-perp
-	var segs=32; var rock_col_top=Color(0.22,0.28,0.30); var rock_col_deep=Color(0.04,0.06,0.08)
-	var bot_pts: Array[Vector2]=[]
-	for si in range(segs+1):
-		var frac=float(si)/float(segs); var base_pt=base_l.lerp(base_r,frac)
-		var rseed=(_scenery_seed^0xB0B0)+si*19
-		var depth_var=depth_amount*(0.75+_hf(rseed)*0.50)
-		var side_jit=(_hf(rseed+1)-0.5)*18.0
-		bot_pts.append(base_pt+perp*depth_var+edge_dir*side_jit)
-	var slices=12; var wc=Color(0.03,0.18,0.45)
-	for pi in range(segs):
-		var frac0=float(pi)/float(segs); var frac1=float(pi+1)/float(segs)
-		var top0=base_l.lerp(base_r,frac0); var top1=base_l.lerp(base_r,frac1)
-		var bot0=bot_pts[pi]; var bot1=bot_pts[pi+1]
-		for si in range(slices):
-			var t0=float(si)/float(slices); var t1=float(si+1)/float(slices)
-			var c0=rock_col_top.lerp(rock_col_deep,t0); var c1=rock_col_top.lerp(rock_col_deep,t1)
-			var tl2=top0.lerp(bot0,t0); var tr2=top1.lerp(bot1,t0)
-			var br2=top1.lerp(bot1,t1); var bl2=top0.lerp(bot0,t1)
-			draw_polygon(PackedVector2Array([tl2,tr2,br2]),PackedColorArray([c0,c0,c1]))
-			draw_polygon(PackedVector2Array([tl2,br2,bl2]),PackedColorArray([c0,c1,c1]))
-			var ha0=lerp(0.08,0.58,t0); var ha1=lerp(0.08,0.58,t1)
-			var wc0=Color(wc.r,wc.g,wc.b,ha0); var wc1=Color(wc.r,wc.g,wc.b,ha1)
-			draw_polygon(PackedVector2Array([tl2,tr2,br2]),PackedColorArray([wc0,wc0,wc1]))
-			draw_polygon(PackedVector2Array([tl2,br2,bl2]),PackedColorArray([wc0,wc1,wc1]))
-	for li in range(5):
-		var t=float(li+1)/6.0; var alp=lerp(0.22,0.04,t)
-		var p_l=base_l.lerp(bot_pts[0],t); var p_r=base_r.lerp(bot_pts[segs],t)
-		draw_line(p_l,p_r,Color(0.0,0.0,0.0,alp),2.0,true)
-	draw_line(Vector2(base_l.x,ground_y),Vector2(base_r.x,ground_y),Color(0.55,0.85,1.0,0.40),2.5,true)
-
-func draw_edges():
-	if use_polygon_mode and control_points.size() >= 3:
-		for i in range(control_points.size()):
-			var p1 = control_points[i]; var p2 = control_points[(i + 1) % control_points.size()]
-			var color = edge_color; var thickness = edge_thickness
-			if is_in_editor and i in top_edge_indices:
-				color = top_edge_color; thickness = edge_thickness + 2.0
-			draw_line(p1, p2, color, thickness, true)
-			draw_circle(p1, thickness * 0.5, color)
-		draw_circle(control_points[control_points.size() - 1], edge_thickness * 0.5, edge_color)
-	else:
-		var tl = wall_min; var tr2 = Vector2(wall_max.x, wall_min.y)
-		var bl = Vector2(wall_min.x, wall_max.y); var br = wall_max
-		var sc = edge_color.darkened(0.3); var r = edge_thickness * 0.5
-		draw_line(tl, bl, sc, edge_thickness, true); draw_line(tr2, br, sc, edge_thickness, true)
-		draw_line(tl, tr2, edge_color, 4.0, true);   draw_line(bl, br, sc, 6.0, true)
-		for pt in [tl, tr2, bl, br]: draw_circle(pt, r, sc)
-
-func _draw_ground():
+func _draw_ground() -> void:
 	if not wall_valid: return
 	match _env.get("ground_type", "grass"):
 		"grass", "grass_dusk", "grass_night": _draw_ground_grass()
-		"gym_floor": _draw_ground_gym()
-		"water": _draw_ground_water()
+		"gym_floor":  _draw_ground_gym()
+		"water":      _draw_ground_water()
 		"city_street": _draw_ground_city()
-		_: _draw_ground_grass()
+		_:            _draw_ground_grass()
 
-func _draw_ground_grass():
-	var left = wall_min.x - BACKGROUND_EXPANSION
+func _draw_ground_grass() -> void:
+	var left  = wall_min.x - BACKGROUND_EXPANSION
 	var right = wall_max.x + BACKGROUND_EXPANSION
 	var width = right - left
-	var rb := _get_weather_blend()
-	var cd: Color = _env.get("ground_deep", Color(0.20, 0.14, 0.08))
-	var cm: Color = _env.get("ground_mid",  Color(0.32, 0.22, 0.12))
+	var rb    = _get_weather_blend()
+
 	var ct: Color = _env.get("ground_top",  Color(0.22, 0.52, 0.14))
+	var cm: Color = _env.get("ground_mid",  Color(0.32, 0.22, 0.12))
+	var cd: Color = _env.get("ground_deep", Color(0.20, 0.14, 0.08))
 	ct = ct.lerp(Color(0.14, 0.28, 0.10), rb * 0.55)
-	cm = cm.lerp(Color(0.20, 0.16, 0.10), rb * 0.4)
-	cd = cd.lerp(Color(0.14, 0.12, 0.08), rb * 0.3)
+	cm = cm.lerp(Color(0.20, 0.16, 0.10), rb * 0.40)
+	cd = cd.lerp(Color(0.14, 0.12, 0.08), rb * 0.30)
 
-	draw_rect(Rect2(Vector2(left, ground_y + 32.0), Vector2(width, 99999.0)), cd, true)
-	draw_rect(Rect2(Vector2(left, ground_y + 4.0),  Vector2(width, 30.0)), cm, true)
-	for si in range(8):
-		var stripe_seed = (_scenery_seed ^ 0x57AA) + si * 31
-		var sy = ground_y + 7.0 + _hf(stripe_seed) * 22.0
-		var sx_s = left + _hf(stripe_seed + 1) * width * 0.4
-		var sx_e = sx_s + 80.0 + _hf(stripe_seed + 2) * 320.0
-		draw_line(Vector2(sx_s, sy), Vector2(min(sx_e, right), sy),
-				  Color(cd.r, cd.g, cd.b, 0.25 + _hf(stripe_seed + 3) * 0.20), 2.0, true)
+	# Deep fill
+	draw_rect(Rect2(Vector2(left, ground_y + 10.0), Vector2(width, 99999.0)), cd, true)
 
-	var gc = [ct.darkened(0.28), ct, ct.lightened(0.18)]
-	var segs = 80; var step = width / float(segs)
-	for pass_i in range(3):
-		var pass_seed = (_scenery_seed ^ 0x6A55) + pass_i * 200
-		var amp = 10.0 - float(pass_i) * 2.5
-		var oy  = float(pass_i) * 2.0
-		var pts: PackedVector2Array = []
-		pts.append(Vector2(left, ground_y + 26.0))
-		for i in range(segs + 1):
-			var gx = left + float(i) * step
-			var h0 = _hf(pass_seed + (i - 1) * 11) * amp
-			var h1 = _hf(pass_seed + i * 11) * amp
-			var h2 = _hf(pass_seed + (i + 1) * 11) * amp
-			pts.append(Vector2(gx, ground_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2) + oy))
-		pts.append(Vector2(right, ground_y + 26.0))
-		if _polygon_valid(pts):
-			draw_colored_polygon(pts, gc[pass_i])
+	# Mid-ground gradient
+	_draw_grad_quad(left, ground_y, width, ground_y + 36.0, cm, cd)
 
-	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), ct.lightened(0.35), 2.0, true)
+	# Single smooth hill silhouette — one clean pass
+	var segs      = 80
+	var step      = width / float(segs)
+	var hill_seed = _scenery_seed ^ 0x6A55
+	var pts       = PackedVector2Array()
+	pts.append(Vector2(left, ground_y + 40.0))
+	for i in range(segs + 1):
+		var gx = left + float(i) * step
+		var h0 = _hf(hill_seed + (i - 1) * 11) * 10.0
+		var h1 = _hf(hill_seed + i       * 11) * 10.0
+		var h2 = _hf(hill_seed + (i + 1) * 11) * 10.0
+		pts.append(Vector2(gx, ground_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2)))
+	pts.append(Vector2(right, ground_y + 40.0))
+	if _polygon_valid(pts):
+		draw_colored_polygon(pts, ct)
+
+	# Tonal horizon line — darker shade of grass
+	var hc = ct.darkened(wall_outline_darken)
+	hc.a = minf(wall_outline_darken * 2.6, 1.0)
+	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), hc, wall_outline_width, true)
 
 	if rb > 0.1:
 		_draw_ground_puddles(left, right, rb)
 
-func _draw_ground_puddles(left: float, right: float, blend: float):
-	var puddle_count := int(6.0 * blend)
+func _draw_ground_puddles(left: float, right: float, blend: float) -> void:
+	var puddle_count = int(6.0 * blend)
 	for pi in range(puddle_count):
-		var pseed := (_scenery_seed ^ 0xAB12) + pi * 53
-		var px    := left + _hf(pseed) * (right - left)
-		var pw    := 60.0 + _hf(pseed + 1) * 140.0 * blend
-		var ph    := 6.0 + _hf(pseed + 2) * 10.0
-		var palp  := 0.22 * blend
-		var shimmer := sin(_cloud_time * 1.8 + float(pi) * 2.1) * 0.06
-		var water_col := Color(0.38 + shimmer, 0.48 + shimmer, 0.62, palp)
-		var reflect   := Color(0.55, 0.65, 0.80, palp * 0.4)
-		var steps := 16
-		var pts: PackedVector2Array = []
+		var pseed   = (_scenery_seed ^ 0xAB12) + pi * 53
+		var px      = left + _hf(pseed) * (right - left)
+		var pw      = 60.0 + _hf(pseed + 1) * 140.0 * blend
+		var ph      = 6.0 + _hf(pseed + 2) * 10.0
+		var palp    = 0.20 * blend
+		var shimmer = sin(_cloud_time * 1.8 + float(pi) * 2.1) * 0.05
+		var water_col = Color(0.38 + shimmer, 0.48 + shimmer, 0.62, palp)
+		var reflect   = Color(0.55, 0.65, 0.80, palp * 0.35)
+		var steps = 16
+		var ovals = PackedVector2Array()
 		for si in range(steps):
-			var a := (float(si) / float(steps)) * TAU
-			pts.append(Vector2(px + cos(a) * pw, ground_y + 2.0 + sin(a) * ph))
-		if _polygon_valid(pts):
-			draw_colored_polygon(pts, water_col)
+			var a = (float(si) / float(steps)) * TAU
+			ovals.append(Vector2(px + cos(a) * pw, ground_y + 2.0 + sin(a) * ph))
+		if _polygon_valid(ovals):
+			draw_colored_polygon(ovals, water_col)
 		draw_line(Vector2(px - pw * 0.3, ground_y + 1.0),
-				  Vector2(px + pw * 0.3, ground_y + 1.0), reflect, 1.5, true)
+				  Vector2(px + pw * 0.3, ground_y + 1.0), reflect, 1.2, true)
 
-func _draw_ground_gym():
+func _draw_ground_gym() -> void:
 	var left  = wall_min.x - BACKGROUND_EXPANSION
 	var right = wall_max.x + BACKGROUND_EXPANSION
 	var width = right - left
 	var ct: Color = _env.get("ground_top",  Color(0.22, 0.22, 0.24))
 	var cd: Color = _env.get("ground_deep", Color(0.11, 0.11, 0.12))
-	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), ct, true)
-	var tile_w = 200.0; var tile_count = int(ceil(width / tile_w)) + 1
-	for ti in range(tile_count):
-		var tx   = left + float(ti) * tile_w
-		var tile_seed = (_scenery_seed ^ 0xAABB) + ti * 7
-		var v    = (_hf(tile_seed) - 0.5) * 0.018
-		draw_rect(Rect2(Vector2(tx+2.0, ground_y+1.0), Vector2(tile_w-4.0, 40.0)),
-				  Color(ct.r+v, ct.g+v, ct.b+v+0.01), true)
-		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y+42.0),
-				  Color(cd.r, cd.g, cd.b, 0.8), 2.0, true)
-	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), Color(0.50, 0.50, 0.52, 0.9), 2.0, true)
 
-# ─── City ground — minimal, natural ──────────────────────────────────────────
+	# Flat base
+	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), ct, true)
+
+	# Soft sheen at the top of the floor
+	_draw_grad_quad(left, ground_y, width, ground_y + 24.0, ct.lightened(0.07), ct)
+
+	# Faint tile seams — very low alpha
+	var tile_w     = 200.0
+	var tile_count = int(ceil(width / tile_w)) + 1
+	for ti in range(tile_count):
+		var tx = left + float(ti) * tile_w
+		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y + 30.0),
+				  Color(cd.r, cd.g, cd.b, 0.25), 1.0, true)
+
+	# Tonal floor edge
+	var fc = ct.darkened(wall_outline_darken)
+	fc.a = minf(wall_outline_darken * 2.4, 1.0)
+	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), fc, wall_outline_width, true)
 
 func _draw_ground_city() -> void:
-	var left  := wall_min.x - BACKGROUND_EXPANSION
-	var right := wall_max.x + BACKGROUND_EXPANSION
-	var width := right - left
-	var rb    := _get_weather_blend()
+	var left  = wall_min.x - BACKGROUND_EXPANSION
+	var right = wall_max.x + BACKGROUND_EXPANSION
+	var width = right - left
+	var rb    = _get_weather_blend()
 	var tod   : int = _env.get("city_time", 0)
 
-	var ct : Color; var cm : Color; var cd : Color
+	var ct: Color; var cd: Color
 	match tod:
-		1:  ct = Color(0.20,0.17,0.13); cm = Color(0.15,0.12,0.09); cd = Color(0.10,0.08,0.06)
-		2:  ct = Color(0.12,0.12,0.14); cm = Color(0.09,0.09,0.11); cd = Color(0.06,0.06,0.08)
-		_:  ct = Color(0.26,0.26,0.28); cm = Color(0.19,0.19,0.21); cd = Color(0.13,0.13,0.14)
+		1:  ct = Color(0.20, 0.17, 0.13); cd = Color(0.10, 0.08, 0.06)
+		2:  ct = Color(0.12, 0.12, 0.14); cd = Color(0.06, 0.06, 0.08)
+		_:  ct = Color(0.26, 0.26, 0.28); cd = Color(0.13, 0.13, 0.14)
 	ct = ct.lerp(Color(0.16, 0.18, 0.20), rb * 0.45)
 
-	draw_rect(Rect2(Vector2(left, ground_y),      Vector2(width, 99999.0)), cd, true)
-	draw_rect(Rect2(Vector2(left, ground_y),      Vector2(width, 26.0)),    cm, true)
-	draw_rect(Rect2(Vector2(left, ground_y),      Vector2(width, 5.0)),     ct, true)
+	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
+	_draw_grad_quad(left, ground_y, width, ground_y + 28.0, ct, cd)
 
-	draw_rect(Rect2(Vector2(left, ground_y - 12.0), Vector2(width, 12.0)),
-			  ct.lightened(0.10), true)
-	draw_line(Vector2(left, ground_y - 12.0), Vector2(right, ground_y - 12.0),
-			  ct.lightened(0.20), 1.5, true)
+	# Tonal curb line
+	var cc = ct.darkened(wall_outline_darken)
+	cc.a = minf(wall_outline_darken * 2.4, 1.0)
+	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), cc, wall_outline_width, true)
 
-	var stripe_col  := Color(0.55, 0.52, 0.22, 0.30 if tod == 0 else 0.40)
+	# Faint lane dashes
+	var stripe_c = Color(0.55, 0.52, 0.22, 0.15 if tod == 0 else 0.24)
 	var ssx = floor(left / 150.0) * 150.0
 	while ssx < right:
-		draw_rect(Rect2(ssx, ground_y + 15.0, 28.0, 3.0), stripe_col, true)
+		draw_rect(Rect2(ssx, ground_y + 14.0, 22.0, 2.0), stripe_c, true)
 		ssx += 150.0
 
 	if rb > 0.1:
 		_draw_ground_puddles(left, right, rb)
 
-# ─────────────────────────────────────────────────────────────────────────────
+func _draw_ground_water() -> void:
+	var left  = wall_min.x - BACKGROUND_EXPANSION
+	var right = wall_max.x + BACKGROUND_EXPANSION
+	var width = right - left
+	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), Color(0.01, 0.06, 0.16), true)
+	var depth_bands = 16; var band_h = 90.0
+	for di in range(depth_bands):
+		var t   = float(di) / float(depth_bands - 1)
+		var dy  = ground_y + di * band_h
+		var col = Color(lerp(0.06, 0.01, t), lerp(0.32, 0.04, t), lerp(0.62, 0.10, t), 1.0)
+		draw_rect(Rect2(Vector2(left, dy), Vector2(width, band_h + 1.0)), col, true)
+	for ci in range(8):
+		var cseed = (_scenery_seed ^ 0x3C00) + ci * 17
+		var cx    = left + _hf(cseed) * width
+		var calp  = 0.04 + _hf(cseed + 1) * 0.04
+		var cw    = 30.0 + _hf(cseed + 2) * 60.0
+		var cdep  = 200.0 + _hf(cseed + 3) * 300.0
+		var pts   = PackedVector2Array([
+			Vector2(cx - cw * 0.5, ground_y), Vector2(cx + cw * 0.5, ground_y),
+			Vector2(cx + cw * 0.8, ground_y + cdep), Vector2(cx - cw * 0.8, ground_y + cdep)])
+		if _polygon_valid(pts):
+			draw_colored_polygon(pts, Color(0.30, 0.65, 0.90, calp))
 
-func _draw_water_surface():
+# =============================================================================
+# WATER SURFACE
+# =============================================================================
+
+func _draw_water_surface() -> void:
 	if not wall_valid: return
-	var bl := wall_min.x - BACKGROUND_EXPANSION
-	var br := wall_max.x + BACKGROUND_EXPANSION
-	var width := br - bl
-	var t := _water_time
+	var bl    = wall_min.x - BACKGROUND_EXPANSION
+	var br    = wall_max.x + BACKGROUND_EXPANSION
+	var width = br - bl
+	var t     = _water_time
 
-	var depth_layers := 8
+	# Depth gradient
+	var depth_layers = 8
 	for di in range(depth_layers):
-		var t0 := float(di) / float(depth_layers)
-		var t1 := float(di + 1) / float(depth_layers)
-		var y0 := ground_y + t0 * 160.0
-		var y1 := ground_y + t1 * 160.0
-		var a0 = lerp(0.55, 0.0, t0)
-		var a1 = lerp(0.55, 0.0, t1)
-		var c0 := Color(0.02, 0.22, 0.50, a0)
-		var c1 := Color(0.01, 0.10, 0.28, a1)
-		var tl2 := Vector2(bl, y0); var tr2 := Vector2(br, y0)
-		var br2 := Vector2(br, y1); var bl2 := Vector2(bl, y1)
-		draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
-		draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
+		var t0 = float(di)     / float(depth_layers)
+		var t1 = float(di + 1) / float(depth_layers)
+		_draw_grad_quad(bl, ground_y + t0 * 160.0, width, ground_y + t1 * 160.0,
+			Color(0.02, 0.22, 0.50, lerp(0.55, 0.0, t0)),
+			Color(0.01, 0.10, 0.28, lerp(0.55, 0.0, t1)))
 
-	var caustic_count := 6
-	for ci in range(caustic_count):
-		var cseed := (_scenery_seed ^ 0x4C00) + ci * 29
-		var cx := bl + _hf(cseed) * width
-		var cw := 35.0 + _hf(cseed + 1) * 80.0
-		var cy := ground_y + 18.0 + _hf(cseed + 2) * 80.0
-		var phase := t * (0.7 + _hf(cseed + 3) * 0.8) + _hf(cseed + 4) * TAU
-		var alpha := 0.04 + 0.04 * sin(phase)
-		alpha = max(0.0, alpha)
-		var drift := sin(t * (0.3 + _hf(cseed + 5) * 0.4) + float(ci)) * 20.0
-		_draw_oval(cx + drift, cy, cw, cw * 0.3, Color(0.4, 0.75, 1.0, alpha))
+	# Caustic glints
+	for ci in range(6):
+		var cseed = (_scenery_seed ^ 0x4C00) + ci * 29
+		var cx    = bl + _hf(cseed) * width
+		var cw2   = 35.0 + _hf(cseed + 1) * 80.0
+		var cy    = ground_y + 18.0 + _hf(cseed + 2) * 80.0
+		var phase = t * (0.7 + _hf(cseed + 3) * 0.8) + _hf(cseed + 4) * TAU
+		var alpha = maxf(0.0, 0.04 + 0.04 * sin(phase))
+		var drift = sin(t * (0.3 + _hf(cseed + 5) * 0.4) + float(ci)) * 20.0
+		_draw_oval(cx + drift, cy, cw2, cw2 * 0.3, Color(0.4, 0.75, 1.0, alpha))
 
-	var segs := 120
-	var step := width / float(segs)
+	# Wave polygons
+	var segs = 120
+	var step = width / float(segs)
 	for wi in range(4):
-		var freq  := 0.008 + wi * 0.003
-		var speed := 0.55 + wi * 0.30
-		var amp   := 11.0 - wi * 2.2
-		var yoff  := ground_y - 2.0 + wi * 3.0
-		var phase := t * speed + wi * 1.3
+		var freq  = 0.008 + wi * 0.003
+		var speed = 0.55  + wi * 0.30
+		var amp   = 11.0  - wi * 2.2
+		var yoff  = ground_y - 2.0 + wi * 3.0
+		var phase = t * speed + wi * 1.3
 		var wcol: Color
 		match wi:
 			0: wcol = Color(0.04, 0.24, 0.52, 0.80)
 			1: wcol = Color(0.06, 0.30, 0.60, 0.86)
 			2: wcol = Color(0.10, 0.38, 0.68, 0.90)
 			_: wcol = Color(0.14, 0.46, 0.72, 0.94)
-		var pts := PackedVector2Array()
+		var pts = PackedVector2Array()
 		pts.append(Vector2(bl, ground_y + 300.0))
 		for si in range(segs + 1):
-			var x := bl + si * step
-			var y := yoff - sin(x * freq + phase) * amp \
+			var x = bl + si * step
+			var y = yoff - sin(x * freq + phase) * amp \
 					 - sin(x * freq * 1.618 + phase * 0.7) * amp * 0.38 \
-					 - sin(x * freq * 3.14 + phase * 1.3) * amp * 0.14
+					 - sin(x * freq * 3.14  + phase * 1.3) * amp * 0.14
 			pts.append(Vector2(x, y))
 		pts.append(Vector2(br, ground_y + 300.0))
 		if _polygon_valid(pts):
 			draw_colored_polygon(pts, wcol)
 
-	var spec_segs := 80
-	var spec_step := width / float(spec_segs)
+	# Specular highlights
+	var spec_segs = 80
+	var spec_step = width / float(spec_segs)
 	for si in range(spec_segs):
-		var sx := bl + si * spec_step
-		var sy := ground_y - sin(sx * 0.011 + t * 0.9) * 9.0 \
+		var sx = bl + si * spec_step
+		var sy = ground_y - sin(sx * 0.011 + t * 0.9) * 9.0 \
 				  - sin(sx * 0.019 + t * 0.55) * 3.5
-		var spec_a = max(0.0, sin(sx * 0.011 + t * 0.9)) * 0.55
+		var spec_a = maxf(0.0, sin(sx * 0.011 + t * 0.9)) * 0.50
 		if spec_a > 0.06:
-			draw_circle(Vector2(sx, sy), 3.5 + sin(float(si) * 2.1) * 1.5,
+			draw_circle(Vector2(sx, sy), 3.0 + sin(float(si) * 2.1) * 1.4,
 						Color(0.92, 0.97, 1.0, spec_a))
 
-	var foam_segs := 70
-	var fstep := width / float(foam_segs)
+	# Foam
+	var foam_segs = 70
+	var fstep     = width / float(foam_segs)
 	for fi in range(foam_segs):
-		var fx := bl + fi * fstep
-		var fy := ground_y - sin(fx * 0.011 + t * 0.95) * 8.5 \
-				  - sin(fx * 0.018 + t * 0.6) * 3.5 + 5.0
-		var sub_alpha = max(0.0, sin(fx * 0.011 + t * 0.95)) * 0.18
-		if sub_alpha > 0.03:
-			draw_circle(Vector2(fx, fy), 3.0 + sin(float(fi) * 1.9) * 1.2,
-						Color(0.7, 0.85, 1.0, sub_alpha))
-	for fi in range(foam_segs):
-		var fx := bl + fi * fstep
-		var fy := ground_y - sin(fx * 0.011 + t * 0.95) * 9.5 \
-				  - sin(fx * 0.018 + t * 0.6) * 4.0 - 1.0
-		var foam_alpha = max(0.0, sin(fx * 0.011 + t * 0.95)) * 0.42
-		if foam_alpha > 0.05:
-			draw_circle(Vector2(fx, fy), 4.5 + sin(float(fi) * 2.3) * 2.2,
-						Color(1.0, 1.0, 1.0, foam_alpha))
+		var fx   = bl + fi * fstep
+		var fy_s = ground_y - sin(fx * 0.011 + t * 0.95) * 9.5 \
+					- sin(fx * 0.018 + t * 0.6) * 4.0 - 1.0
+		var fa   = maxf(0.0, sin(fx * 0.011 + t * 0.95)) * 0.38
+		if fa > 0.05:
+			draw_circle(Vector2(fx, fy_s), 4.0 + sin(float(fi) * 2.3) * 2.0,
+						Color(1.0, 1.0, 1.0, fa))
 
-	for gi in range(18):
-		var gseed := (_scenery_seed ^ 0x7E00) + gi * 23
-		var gx    := bl + _hf(gseed) * width
-		var gphase:= t * (0.8 + _hf(gseed + 1) * 0.6) + _hf(gseed + 2) * TAU
-		var gy    := ground_y - sin(gx * 0.009 + gphase) * 10.0 - 3.0
-		var galp  = max(0.0, sin(gphase * 2.1)) * 0.55
-		draw_circle(Vector2(gx, gy), 2.0 + _hf(gseed + 3) * 3.5,
-					Color(1.0, 1.0, 1.0, galp * 0.65))
-
-	for si in range(3):
-		for side in [-1, 1]:
-			var sx = (wall_min.x if side < 0 else wall_max.x) + side * 8.0
-			var sy := ground_y - 6.0 + sin(t * 1.2 + si * 0.9) * 3.0
-			draw_circle(Vector2(sx, sy), 3.0 + si * 2.0,
-						Color(1.0, 1.0, 1.0, 0.18 - si * 0.05))
-
-func _draw_splashes():
+func _draw_splashes() -> void:
 	for s in _splashes:
-		var _age = s["time"]
-
 		var ring_r = s["ring_radius"]
 		if ring_r < 250.0:
-			var ring_alpha = (1.0 - ring_r / 250.0) * 0.55
-			var ring_steps := 24
-			var last_pt := Vector2.ZERO
+			var ring_alpha = (1.0 - ring_r / 250.0) * 0.50
+			var ring_steps = 24
+			var last_pt    = Vector2.ZERO
 			for ri in range(ring_steps + 1):
-				var angle := (float(ri) / float(ring_steps)) * TAU
-				var pt := Vector2(
-					s["pos"].x + cos(angle) * ring_r,
-					s["pos"].y + sin(angle) * ring_r * 0.35
-				)
+				var angle = (float(ri) / float(ring_steps)) * TAU
+				var pt    = Vector2(s["pos"].x + cos(angle) * ring_r,
+									 s["pos"].y + sin(angle) * ring_r * 0.35)
 				if ri > 0:
-					draw_line(last_pt, pt, Color(0.7, 0.88, 1.0, ring_alpha), 1.5, true)
+					draw_line(last_pt, pt, Color(0.7, 0.88, 1.0, ring_alpha), 1.2, true)
 				last_pt = pt
-
-		var ring2_r = max(0.0, ring_r - 40.0)
-		if ring2_r > 0.0 and ring2_r < 180.0:
-			var ring2_alpha = (1.0 - ring2_r / 180.0) * 0.35
-			var ring_steps := 20
-			var last_pt := Vector2.ZERO
-			for ri in range(ring_steps + 1):
-				var angle := (float(ri) / float(ring_steps)) * TAU
-				var pt := Vector2(
-					s["pos"].x + cos(angle) * ring2_r,
-					s["pos"].y + sin(angle) * ring2_r * 0.3
-				)
-				if ri > 0:
-					draw_line(last_pt, pt, Color(0.85, 0.95, 1.0, ring2_alpha), 1.0, true)
-				last_pt = pt
-
 		for d in s["droplets"]:
-			if d["life"] <= 0.0:
-				continue
+			if d["life"] <= 0.0: continue
 			var life_frac = d["life"] / d["max_life"]
-			var alpha = life_frac * 0.85
-			var drop_pos := Vector2(d["x"], d["y"])
-			var spd := Vector2(d["vx"], d["vy"]).length()
+			var alpha     = life_frac * 0.80
+			var drop_pos  = Vector2(d["x"], d["y"])
+			var spd       = Vector2(d["vx"], d["vy"]).length()
 			if spd > 80.0:
 				var tail_len = min(spd * 0.04, 12.0)
-				var vel_dir := Vector2(d["vx"], d["vy"]).normalized()
+				var vel_dir  = Vector2(d["vx"], d["vy"]).normalized()
 				draw_line(drop_pos, drop_pos - vel_dir * tail_len,
-						  Color(0.7, 0.88, 1.0, alpha * 0.5), 1.2, true)
+						  Color(0.7, 0.88, 1.0, alpha * 0.45), 1.1, true)
 			draw_circle(drop_pos, d["size"] * life_frac, Color(0.82, 0.94, 1.0, alpha))
 			if d["size"] > 3.0:
 				draw_circle(drop_pos, d["size"] * life_frac * 0.4,
-							Color(1.0, 1.0, 1.0, alpha * 0.7))
+							Color(1.0, 1.0, 1.0, alpha * 0.65))
 
 func check_water_collision(player_pos: Vector2, player_velocity: Vector2) -> Dictionary:
 	if not _env.get("has_water", false) or not wall_valid or ground_y == 0.0:
 		return {"in_water": false, "depth": 0.0, "surface_y": 0.0,
 				"drag": Vector2(1.0, 1.0), "buoyancy": 0.0}
-
-	var t := _water_time
-	var surface_y := ground_y \
+	var t         = _water_time
+	var surface_y = ground_y \
 		- sin(player_pos.x * 0.011 + t * 0.95) * 9.5 \
-		- sin(player_pos.x * 0.018 + t * 0.6) * 4.0
-	var in_water := player_pos.y > surface_y
-	var depth = max(0.0, player_pos.y - surface_y)
-
+		- sin(player_pos.x * 0.018 + t * 0.6)  * 4.0
+	var in_water = player_pos.y > surface_y
+	var depth    = maxf(0.0, player_pos.y - surface_y)
 	if in_water:
 		var depth_norm = clamp(depth / 280.0, 0.0, 1.0)
-		var h_drag = lerp(0.82, 0.62, depth_norm)
-		var v_drag = lerp(0.78, 0.55, depth_norm)
-		var entry_speed := player_velocity.length()
-		var speed_drag = clamp(1.0 - entry_speed * 0.0003, 0.55, 1.0)
-
+		var h_drag     = lerp(0.82, 0.62, depth_norm)
+		var v_drag     = lerp(0.78, 0.55, depth_norm)
+		var entry_speed = player_velocity.length()
+		var speed_drag   = clamp(1.0 - entry_speed * 0.0003, 0.55, 1.0)
 		if not _player_in_water:
 			_player_in_water = true
 			spawn_splash(Vector2(player_pos.x, surface_y), player_velocity.y)
 			emit_signal("player_entered_water", depth)
-
 		return {
-			"in_water": true,
-			"depth": depth,
-			"surface_y": surface_y,
+			"in_water": true, "depth": depth, "surface_y": surface_y,
 			"drag": Vector2(h_drag * speed_drag, v_drag * speed_drag),
 			"buoyancy": lerp(0.0, 380.0, depth_norm),
 		}
@@ -1671,233 +1652,278 @@ func check_water_collision(player_pos: Vector2, player_velocity: Vector2) -> Dic
 			_player_in_water = false
 			emit_signal("player_exited_water")
 		return {
-			"in_water": false,
-			"depth": 0.0,
-			"surface_y": surface_y,
-			"drag": Vector2(1.0, 1.0),
-			"buoyancy": 0.0,
+			"in_water": false, "depth": 0.0, "surface_y": surface_y,
+			"drag": Vector2(1.0, 1.0), "buoyancy": 0.0,
 		}
 
-func _draw_ground_water():
-	var left=wall_min.x-BACKGROUND_EXPANSION; var right=wall_max.x+BACKGROUND_EXPANSION
-	var width=right-left
-	draw_rect(Rect2(Vector2(left,ground_y),Vector2(width,99999.0)),Color(0.01,0.06,0.16),true)
-	var depth_bands=16; var band_h=90.0
-	for di in range(depth_bands):
-		var t=float(di)/float(depth_bands-1); var dy=ground_y+di*band_h
-		var col=Color(lerp(0.06,0.01,t),lerp(0.32,0.04,t),lerp(0.62,0.10,t),1.0)
-		draw_rect(Rect2(Vector2(left,dy),Vector2(width,band_h+1.0)),col,true)
-	for ci in range(8):
-		var cseed=(_scenery_seed^0x3C00)+ci*17; var cx=left+_hf(cseed)*width
-		var calp=0.04+_hf(cseed+1)*0.04; var cw=30.0+_hf(cseed+2)*60.0
-		var cdep=200.0+_hf(cseed+3)*300.0
-		var pts=PackedVector2Array([Vector2(cx-cw*0.5,ground_y),Vector2(cx+cw*0.5,ground_y),
-								   Vector2(cx+cw*0.8,ground_y+cdep),Vector2(cx-cw*0.8,ground_y+cdep)])
-		if _polygon_valid(pts):
-			draw_colored_polygon(pts,Color(0.30,0.65,0.90,calp))
+func _draw_underwater_wall_depth() -> void:
+	if not wall_valid: return
+	var base_l: Vector2; var base_r: Vector2
+	if use_polygon_mode and ground_left_index >= 0 and ground_right_index >= 0:
+		base_l = control_points[ground_left_index]; base_r = control_points[ground_right_index]
+	else:
+		base_l = Vector2(wall_min.x, ground_y); base_r = Vector2(wall_max.x, ground_y)
+	var water_y = ground_y
+	var sub_top = water_y
+	var sub_bot = (base_l.y + base_r.y) * 0.5
+	if sub_bot > sub_top:
+		var sub_h      = sub_bot - sub_top
+		var water_tint = Color(0.04, 0.28, 0.60)
+		for li in range(10):
+			var t0      = float(li) / 10.0; var t1 = float(li + 1) / 10.0
+			var shimmer = sin(_water_time * 1.4 + t0 * 8.0) * 0.016
+			_draw_grad_quad(base_l.x, sub_top + t0 * sub_h, base_r.x - base_l.x, sub_top + t1 * sub_h,
+				Color(water_tint.r, water_tint.g + shimmer, water_tint.b, lerp(0.04, 0.48, t0)),
+				Color(water_tint.r, water_tint.g,           water_tint.b, lerp(0.04, 0.48, t1)))
+	var depth_amount = 600.0
+	var edge_vec     = base_r - base_l
+	var edge_len     = edge_vec.length()
+	if edge_len < 1.0: return
+	var edge_dir = edge_vec / edge_len
+	var perp     = Vector2(-edge_dir.y, edge_dir.x)
+	if perp.y < 0.0: perp = -perp
+	var segs          = 32
+	var rock_col_top  = Color(0.22, 0.28, 0.30)
+	var rock_col_deep = Color(0.04, 0.06, 0.08)
+	var bot_pts: Array[Vector2] = []
+	for si in range(segs + 1):
+		var frac      = float(si) / float(segs)
+		var base_pt   = base_l.lerp(base_r, frac)
+		var rseed     = (_scenery_seed ^ 0xB0B0) + si * 19
+		var depth_var = depth_amount * (0.75 + _hf(rseed) * 0.50)
+		var side_jit  = (_hf(rseed + 1) - 0.5) * 18.0
+		bot_pts.append(base_pt + perp * depth_var + edge_dir * side_jit)
+	var slices = 12
+	var wc     = Color(0.03, 0.18, 0.45)
+	for pi in range(segs):
+		var frac0 = float(pi)     / float(segs)
+		var frac1 = float(pi + 1) / float(segs)
+		var top0  = base_l.lerp(base_r, frac0); var top1 = base_l.lerp(base_r, frac1)
+		var bot0  = bot_pts[pi];                var bot1  = bot_pts[pi + 1]
+		for si in range(slices):
+			var t0 = float(si)     / float(slices)
+			var t1 = float(si + 1) / float(slices)
+			var c0 = rock_col_top.lerp(rock_col_deep, t0)
+			var c1 = rock_col_top.lerp(rock_col_deep, t1)
+			var tl2 = top0.lerp(bot0, t0); var tr2 = top1.lerp(bot1, t0)
+			var br2 = top1.lerp(bot1, t1); var bl2  = top0.lerp(bot0, t1)
+			draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([c0, c0, c1]))
+			draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([c0, c1, c1]))
+			var ha0 = lerp(0.08, 0.55, t0); var ha1 = lerp(0.08, 0.55, t1)
+			draw_polygon(PackedVector2Array([tl2, tr2, br2]), PackedColorArray([Color(wc,ha0), Color(wc,ha0), Color(wc,ha1)]))
+			draw_polygon(PackedVector2Array([tl2, br2, bl2]), PackedColorArray([Color(wc,ha0), Color(wc,ha1), Color(wc,ha1)]))
 
-func draw_textured_wall(start_pos: Vector2, size: Vector2):
-	var tile:=128.0; var cols:=int(ceil(size.x/tile))+1; var rows:=int(ceil(size.y/tile))+1
-	var gx=floor(start_pos.x/tile)*tile; var gy=floor(start_pos.y/tile)*tile
+# =============================================================================
+# WALL TEXTURE & GRANITE
+# =============================================================================
+
+func draw_textured_wall(start_pos: Vector2, size: Vector2) -> void:
+	var tile  = 128.0
+	var cols  = int(ceil(size.x / tile)) + 1
+	var rows  = int(ceil(size.y / tile)) + 1
+	var gx    = floor(start_pos.x / tile) * tile
+	var gy    = floor(start_pos.y / tile) * tile
 	for x in cols:
 		for y in rows:
-			var px=gx+x*tile; var py=gy+y*tile
-			var tile_seed:=int(px/tile)+int(py/tile)*1000
-			var v:=(_hf(tile_seed)-0.5)*texture_variation
-			var tr2=Rect2(Vector2(px,py),Vector2(tile,tile))
-			var wr=Rect2(wall_min,wall_max-wall_min)
-			var cl=tr2.intersection(wr)
+			var px        = gx + x * tile
+			var py        = gy + y * tile
+			var tile_seed = int(px / tile) + int(py / tile) * 1000
+			var v         = (_hf(tile_seed) - 0.5) * texture_variation
+			var tr2       = Rect2(Vector2(px, py), Vector2(tile, tile))
+			var wr        = Rect2(wall_min, wall_max - wall_min)
+			var cl        = tr2.intersection(wr)
 			if cl.has_area():
-				draw_rect(cl,Color(current_wall_color.r+v,current_wall_color.g+v,
-								   current_wall_color.b+v,current_wall_color.a))
+				draw_rect(cl, Color(
+					current_wall_color.r + v,
+					current_wall_color.g + v,
+					current_wall_color.b + v,
+					current_wall_color.a))
 
-func draw_bolt_holes(start_pos: Vector2, end_pos: Vector2):
-	var margin=15.0
-	var dmx=start_pos.x+margin; var dMx=end_pos.x-margin
-	var dmy=start_pos.y+margin; var dMy=end_pos.y-margin
-	var sx=floor(dmx/hole_spacing.x)*hole_spacing.x; var sy=floor(dmy/hole_spacing.y)*hole_spacing.y
-	var x=sx
-	while x<=ceil(dMx/hole_spacing.x)*hole_spacing.x:
-		var y=sy
-		while y<=ceil(dMy/hole_spacing.y)*hole_spacing.y:
-			var hole_seed:=int(x/hole_spacing.x)+int(y/hole_spacing.y)*1000
-			var hp=Vector2(x,y)+Vector2((_hf(hole_seed)-0.5)*hole_jitter,(_hf(hole_seed+1)-0.5)*hole_jitter)
-			if hp.x>=dmx and hp.x<=dMx and hp.y>=dmy and hp.y<=dMy:
-				draw_circle(hp,hole_radius,hole_color)
-			y+=hole_spacing.y
-		x+=hole_spacing.x
+func draw_bolt_holes(_start_pos: Vector2, _end_pos: Vector2) -> void:
+	return
 
-func draw_bolt_holes_on_polygon():
-	if control_points.size()<3: return
-	var margin=15.0
-	var dmx=wall_min.x+margin; var dMx=wall_max.x-margin
-	var dmy=wall_min.y+margin; var dMy=wall_max.y-margin
-	var sx=floor(dmx/hole_spacing.x)*hole_spacing.x; var sy=floor(dmy/hole_spacing.y)*hole_spacing.y
-	var x=sx
-	while x<=ceil(dMx/hole_spacing.x)*hole_spacing.x:
-		var y=sy
-		while y<=ceil(dMy/hole_spacing.y)*hole_spacing.y:
-			var hole_seed:=int(x/hole_spacing.x)+int(y/hole_spacing.y)*1000
-			var hp=Vector2(x,y)+Vector2((_hf(hole_seed)-0.5)*hole_jitter,(_hf(hole_seed+1)-0.5)*hole_jitter)
-			if _point_in_polygon(hp): draw_circle(hp,hole_radius,hole_color)
-			y+=hole_spacing.y
-		x+=hole_spacing.x
+func draw_bolt_holes_on_polygon() -> void:
+	return
 
 func _point_in_polygon(point: Vector2) -> bool:
-	var inside=false; var j=control_points.size()-1
+	var inside = false; var j = control_points.size() - 1
 	for i in range(control_points.size()):
-		var pi=control_points[i]; var pj=control_points[j]
-		if ((pi.y>point.y)!=(pj.y>point.y)) and \
-		   (point.x<(pj.x-pi.x)*(point.y-pi.y)/(pj.y-pi.y)+pi.x):
-			inside=not inside
-		j=i
+		var pi = control_points[i]; var pj = control_points[j]
+		if ((pi.y > point.y) != (pj.y > point.y)) and \
+		   (point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y) + pi.x):
+			inside = not inside
+		j = i
 	return inside
 
-func draw_granite_texture():
-	var ws=wall_max-wall_min; var rs=int(wall_min.x+wall_min.y)
-	for i in range(int(ws.x/200.0)+2):
-		var xp=wall_min.x+(float(i)/(int(ws.x/200.0)+2))*ws.x+(hash(rs+i)%50-25)
-		if xp>=wall_min.x and xp<=wall_max.x:
-			draw_line(Vector2(xp,wall_min.y),Vector2(xp,wall_max.y),Color(0.45,0.43,0.4,0.3),2.0)
+func draw_granite_texture() -> void:
+	var ws  = wall_max - wall_min
+	var rs  = int(wall_min.x + wall_min.y)
+	for i in range(int(ws.x / 200.0) + 2):
+		var xp = wall_min.x + (float(i) / (int(ws.x / 200.0) + 2)) * ws.x + (hash(rs + i) % 50 - 25)
+		if xp >= wall_min.x and xp <= wall_max.x:
+			draw_line(Vector2(xp, wall_min.y), Vector2(xp, wall_max.y),
+					  Color(0.45, 0.43, 0.4, 0.22), 1.5)
 
-func _draw_edge_highlights():
-	if hovered_edge<0 or control_points.size()<2: return
+# =============================================================================
+# EDITOR OVERLAYS — only shown in editor, never in-game
+# =============================================================================
+
+func _draw_edge_highlights() -> void:
+	if hovered_edge < 0 or control_points.size() < 2: return
 	if _is_ground_edge(hovered_edge): return
-	var p1=control_points[hovered_edge]; var p2=control_points[(hovered_edge+1)%control_points.size()]
-	var color=edge_hover_color; var lt="RIGHT-CLICK: Add point | SHIFT+RIGHT-CLICK: Mark as TOP-OUT"
+	var p1    = control_points[hovered_edge]
+	var p2    = control_points[(hovered_edge + 1) % control_points.size()]
+	var color = edge_hover_color
+	var lt    = "RIGHT-CLICK: Add point | SHIFT+RIGHT-CLICK: Mark as TOP-OUT"
 	if hovered_edge in top_edge_indices:
-		color=Color(1.0,0.5,0.0,0.9); lt="MARKED AS TOP-OUT | SHIFT+RIGHT-CLICK: Unmark"
-	draw_line(p1,p2,color,8.0,true)
-	var mp=get_global_mouse_position(); var seg=p2-p1; var slsq=seg.length_squared()
-	if slsq>0:
-		var np=p1+clamp((mp-p1).dot(seg)/slsq,0.0,1.0)*seg
-		draw_circle(np,8.0,color)
-		var lp=np+Vector2(0,-30)
-		var ls=ThemeDB.fallback_font.get_string_size(lt,HORIZONTAL_ALIGNMENT_CENTER,-1,14)
-		draw_rect(Rect2(lp-Vector2(ls.x/2+8,8),ls+Vector2(16,16)),Color(0,0,0,0.9),true)
-		draw_string(ThemeDB.fallback_font,lp,lt,HORIZONTAL_ALIGNMENT_CENTER,-1,14,color)
+		color = Color(1.0, 0.5, 0.0, 0.9)
+		lt    = "MARKED AS TOP-OUT | SHIFT+RIGHT-CLICK: Unmark"
+	draw_line(p1, p2, color, 6.0, true)
+	var mp   = get_global_mouse_position()
+	var seg  = p2 - p1
+	var slsq = seg.length_squared()
+	if slsq > 0:
+		var np = p1 + clamp((mp - p1).dot(seg) / slsq, 0.0, 1.0) * seg
+		draw_circle(np, 6.0, color)
+		var lp = np + Vector2(0, -30)
+		var ls = ThemeDB.fallback_font.get_string_size(lt, HORIZONTAL_ALIGNMENT_CENTER, -1, 14)
+		draw_rect(Rect2(lp - Vector2(ls.x / 2 + 8, 8), ls + Vector2(16, 16)), Color(0, 0, 0, 0.85), true)
+		draw_string(ThemeDB.fallback_font, lp, lt, HORIZONTAL_ALIGNMENT_CENTER, -1, 14, color)
 
-func _draw_control_points():
+func _draw_control_points() -> void:
 	for i in range(control_points.size()):
-		var pt=control_points[i]; var color=point_color
-		if i==ground_left_index or i==ground_right_index: color=ground_point_color
+		var pt    = control_points[i]
+		var color = point_color
+		if i == ground_left_index or i == ground_right_index: color = ground_point_color
 		elif edit_mode:
-			if dragging_point==i: color=point_drag_color
-			elif hovered_point==i: color=point_hover_color
-		draw_circle(pt,POINT_RADIUS+3,Color(0,0,0,0.5))
-		draw_circle(pt,POINT_RADIUS,color)
-		draw_string(ThemeDB.fallback_font,pt+Vector2(-5,6),str(i+1),HORIZONTAL_ALIGNMENT_LEFT,-1,18,Color.WHITE)
-	if edit_mode and control_points.size()>0:
-		var mk="" if top_edge_indices.is_empty() else " | MARKED: "+str(top_edge_indices)
-		var text="LEFT-DRAG: Move | RIGHT-CLICK: Add | SHIFT+RIGHT-CLICK on EDGE: Mark Top"+mk
-		var pos=Vector2(wall_min.x,wall_min.y-40)
-		var sz=ThemeDB.fallback_font.get_string_size(text,HORIZONTAL_ALIGNMENT_LEFT,-1,16)
-		draw_rect(Rect2(pos-Vector2(8,22),sz+Vector2(16,30)),Color(0,0,0,0.8),true)
-		draw_string(ThemeDB.fallback_font,pos,text,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color(1,1,0.6))
+			if dragging_point == i:  color = point_drag_color
+			elif hovered_point == i: color = point_hover_color
+		draw_circle(pt, POINT_RADIUS + 3, Color(0, 0, 0, 0.4))
+		draw_circle(pt, POINT_RADIUS, color)
+		draw_string(ThemeDB.fallback_font, pt + Vector2(-5, 6), str(i + 1),
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
+	if edit_mode and control_points.size() > 0:
+		var mk   = "" if top_edge_indices.is_empty() else " | MARKED: " + str(top_edge_indices)
+		var text = "LEFT-DRAG: Move | RIGHT-CLICK: Add | SHIFT+RIGHT-CLICK on EDGE: Mark Top" + mk
+		var pos  = Vector2(wall_min.x, wall_min.y - 40)
+		var sz   = ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+		draw_rect(Rect2(pos - Vector2(8, 22), sz + Vector2(16, 30)), Color(0, 0, 0, 0.8), true)
+		draw_string(ThemeDB.fallback_font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 0.6))
 
-func calculate_bounds_from_holds(holds_container: Node2D):
-	if not holds_container or holds_container.get_child_count()==0:
-		wall_valid=false; queue_redraw(); return
-	var mn_x=INF; var mx_x=-INF; var mn_y=INF; var mx_y=-INF
+# =============================================================================
+# BOUNDS & POLYGON MANAGEMENT
+# =============================================================================
+
+func calculate_bounds_from_holds(holds_container: Node2D) -> void:
+	if not holds_container or holds_container.get_child_count() == 0:
+		wall_valid = false; queue_redraw(); return
+	var mn_x = INF; var mx_x = -INF; var mn_y = INF; var mx_y = -INF
 	for hold in holds_container.get_children():
 		if not hold is Node2D: continue
-		var pos=hold.global_position
-		mn_x=min(mn_x,pos.x); mx_x=max(mx_x,pos.x)
-		mn_y=min(mn_y,pos.y); mx_y=max(mx_y,pos.y)
-	wall_min=Vector2(mn_x-WALL_PADDING_SIDES,mn_y-WALL_PADDING_TOP)
-	wall_max=Vector2(mx_x+WALL_PADDING_SIDES,mx_y+WALL_PADDING_BOTTOM)
-	wall_valid=true; ground_y=wall_max.y
+		var pos = hold.global_position
+		mn_x = min(mn_x, pos.x); mx_x = max(mx_x, pos.x)
+		mn_y = min(mn_y, pos.y); mx_y = max(mx_y, pos.y)
+	wall_min  = Vector2(mn_x - WALL_PADDING_SIDES, mn_y - WALL_PADDING_TOP)
+	wall_max  = Vector2(mx_x + WALL_PADDING_SIDES, mx_y + WALL_PADDING_BOTTOM)
+	wall_valid = true
+	ground_y   = wall_max.y
 	if control_points.is_empty():
-		control_points=[wall_min,Vector2(wall_max.x,wall_min.y),
-						Vector2(wall_max.x,wall_max.y),Vector2(wall_min.x,wall_max.y)]
-		ground_left_index=3; ground_right_index=2; use_polygon_mode=true
+		control_points = [wall_min, Vector2(wall_max.x, wall_min.y),
+						  Vector2(wall_max.x, wall_max.y), Vector2(wall_min.x, wall_max.y)]
+		ground_left_index = 3; ground_right_index = 2; use_polygon_mode = true
 	else:
-		if ground_left_index>=0 and ground_left_index<control_points.size():
-			control_points[ground_left_index].y=ground_y
-		if ground_right_index>=0 and ground_right_index<control_points.size():
-			control_points[ground_right_index].y=ground_y
+		if ground_left_index  >= 0 and ground_left_index  < control_points.size():
+			control_points[ground_left_index].y  = ground_y
+		if ground_right_index >= 0 and ground_right_index < control_points.size():
+			control_points[ground_right_index].y = ground_y
 	if not top_edge_indices.is_empty(): _create_top_edge_holds()
-	if weather_modifier: weather_modifier._wall_ref=self
+	if weather_modifier: weather_modifier._wall_ref = self
 	_init_clouds()
 	queue_redraw()
 
-func _update_bounds_from_polygon():
+func _update_bounds_from_polygon() -> void:
 	if control_points.is_empty(): return
-	var mn_x=INF; var mx_x=-INF; var mn_y=INF; var mx_y=-INF
+	var mn_x = INF; var mx_x = -INF; var mn_y = INF; var mx_y = -INF
 	for p in control_points:
-		mn_x=min(mn_x,p.x); mx_x=max(mx_x,p.x)
-		mn_y=min(mn_y,p.y); mx_y=max(mx_y,p.y)
-	wall_min=Vector2(mn_x,mn_y); wall_max=Vector2(mx_x,mx_y); wall_valid=true
+		mn_x = min(mn_x, p.x); mx_x = max(mx_x, p.x)
+		mn_y = min(mn_y, p.y); mx_y = max(mx_y, p.y)
+	wall_min = Vector2(mn_x, mn_y); wall_max = Vector2(mx_x, mx_y); wall_valid = true
 
-func add_point_between_nearest_edge(pos: Vector2):
-	if control_points.size()<2:
+func add_point_between_nearest_edge(pos: Vector2) -> void:
+	if control_points.size() < 2:
 		control_points.append(pos); _update_bounds_from_polygon(); queue_redraw(); return
-	var nei=-1; var ned=INF
+	var nei = -1; var ned = INF
 	for i in range(control_points.size()):
 		if _is_ground_edge(i): continue
-		var d=_point_to_segment_distance(pos,control_points[i],control_points[(i+1)%control_points.size()])
-		if d<ned: ned=d; nei=i
-	if nei<0: return
-	var ni=nei+1; control_points.insert(ni,pos)
-	if ground_left_index>=ni: ground_left_index+=1
-	if ground_right_index>=ni: ground_right_index+=1
-	var ute: Array[int]=[]
-	for ei in top_edge_indices: ute.append(ei+1 if ei>=nei else ei)
-	top_edge_indices=ute
+		var d = _point_to_segment_distance(pos, control_points[i],
+				control_points[(i + 1) % control_points.size()])
+		if d < ned: ned = d; nei = i
+	if nei < 0: return
+	var ni = nei + 1; control_points.insert(ni, pos)
+	if ground_left_index  >= ni: ground_left_index  += 1
+	if ground_right_index >= ni: ground_right_index += 1
+	var ute: Array[int] = []
+	for ei in top_edge_indices: ute.append(ei + 1 if ei >= nei else ei)
+	top_edge_indices = ute
 	_update_bounds_from_polygon()
 	if not top_edge_indices.is_empty(): _create_top_edge_holds()
 	queue_redraw()
 
-func remove_point(index: int):
-	if index==ground_left_index or index==ground_right_index:
+func remove_point(index: int) -> void:
+	if index == ground_left_index or index == ground_right_index:
 		push_warning("Cannot remove ground points"); return
-	if control_points.size()<=4:
+	if control_points.size() <= 4:
 		push_warning("Cannot remove - need at least 4 points"); return
-	if index>=0 and index<control_points.size():
+	if index >= 0 and index < control_points.size():
 		control_points.remove_at(index)
-		if ground_left_index>index: ground_left_index-=1
-		if ground_right_index>index: ground_right_index-=1
-		if dragging_point==index: dragging_point=-1
-		elif dragging_point>index: dragging_point-=1
-		if hovered_point==index: hovered_point=-1
-		elif hovered_point>index: hovered_point-=1
-		var ute: Array[int]=[]
+		if ground_left_index  > index: ground_left_index  -= 1
+		if ground_right_index > index: ground_right_index -= 1
+		if dragging_point == index:    dragging_point = -1
+		elif dragging_point > index:   dragging_point -= 1
+		if hovered_point == index:     hovered_point = -1
+		elif hovered_point > index:    hovered_point -= 1
+		var ute: Array[int] = []
 		for ei in top_edge_indices:
-			if ei==index: continue
-			ute.append(ei-1 if ei>index else ei)
-		top_edge_indices=ute
+			if ei == index: continue
+			ute.append(ei - 1 if ei > index else ei)
+		top_edge_indices = ute
 		_update_bounds_from_polygon()
 		if not top_edge_indices.is_empty(): _create_top_edge_holds()
 		queue_redraw()
 
-func enable_polygon_mode(enabled: bool=true):
-	use_polygon_mode=enabled
+func enable_polygon_mode(enabled: bool = true) -> void:
+	use_polygon_mode = enabled
 	if enabled and control_points.is_empty() and wall_valid:
-		control_points=[wall_min,Vector2(wall_max.x,wall_min.y),
-						Vector2(wall_max.x,wall_max.y),Vector2(wall_min.x,wall_max.y)]
-		ground_left_index=3; ground_right_index=2; ground_y=wall_max.y
+		control_points = [wall_min, Vector2(wall_max.x, wall_min.y),
+						  Vector2(wall_max.x, wall_max.y), Vector2(wall_min.x, wall_max.y)]
+		ground_left_index = 3; ground_right_index = 2; ground_y = wall_max.y
 	queue_redraw()
 
-func enable_edit_mode(enabled: bool=true):
-	edit_mode=enabled
-	if not enabled: dragging_point=-1; hovered_point=-1; hovered_edge=-1
+func enable_edit_mode(enabled: bool = true) -> void:
+	edit_mode = enabled
+	if not enabled: dragging_point = -1; hovered_point = -1; hovered_edge = -1
 	queue_redraw()
 
-func reset_polygon():
-	use_polygon_mode=false; edit_mode=false
+func reset_polygon() -> void:
+	use_polygon_mode = false; edit_mode = false
 	control_points.clear(); top_edge_indices.clear()
-	ground_left_index=-1; ground_right_index=-1
-	dragging_point=-1; hovered_point=-1; hovered_edge=-1
+	ground_left_index = -1; ground_right_index = -1
+	dragging_point = -1; hovered_point = -1; hovered_edge = -1
 	for child in get_children():
 		if child.has_meta("is_top_edge_hold"): child.queue_free()
 	queue_redraw()
 
 func _point_to_segment_distance(point: Vector2, seg_start: Vector2, seg_end: Vector2) -> float:
-	var seg=seg_end-seg_start; var lsq=seg.length_squared()
-	if lsq==0: return point.distance_to(seg_start)
-	return point.distance_to(seg_start+clamp((point-seg_start).dot(seg)/lsq,0.0,1.0)*seg)
+	var seg  = seg_end - seg_start
+	var lsq  = seg.length_squared()
+	if lsq == 0: return point.distance_to(seg_start)
+	return point.distance_to(seg_start + clamp((point - seg_start).dot(seg) / lsq, 0.0, 1.0) * seg)
 
-func _create_top_edge_holds():
+# =============================================================================
+# TOP EDGE HOLD
+# =============================================================================
+
+func _create_top_edge_holds() -> void:
 	for child in get_children():
 		if child.has_meta("is_top_edge_hold"):
 			child.set_script(null)
@@ -1905,32 +1931,28 @@ func _create_top_edge_holds():
 	if not use_polygon_mode or top_edge_indices.is_empty():
 		return
 	for edge_idx in top_edge_indices:
-		if edge_idx >= control_points.size():
-			continue
+		if edge_idx >= control_points.size(): continue
 		var p1 = control_points[edge_idx]
 		var p2 = control_points[(edge_idx + 1) % control_points.size()]
 		_create_top_hold_at((p1 + p2) / 2.0, p1.distance_to(p2))
 
 func _create_top_hold_at(hold_position: Vector2, width: float) -> void:
-	var top_hold = _TopEdgeHold.new()
+	var top_hold            = _TopEdgeHold.new()
 	top_hold.set_meta("is_top_edge_hold", true)
 	top_hold.collision_layer = 2
 	top_hold.collision_mask  = 0
 	top_hold.monitoring      = false
 	top_hold.monitorable     = true
 	top_hold.name            = "TopEdgeHold"
-
-	var shape      = RectangleShape2D.new()
-	shape.size     = Vector2(width, 50)
-	var collision  = CollisionShape2D.new()
-	collision.shape = shape
+	var shape       = RectangleShape2D.new()
+	shape.size       = Vector2(width, 50)
+	var collision   = CollisionShape2D.new()
+	collision.shape  = shape
 	top_hold.add_child(collision)
-
 	var hold_point      = Marker2D.new()
-	hold_point.name     = "HoldPoint"
-	hold_point.position = Vector2.ZERO
+	hold_point.name      = "HoldPoint"
+	hold_point.position  = Vector2.ZERO
 	top_hold.add_child(hold_point)
-
 	top_hold.global_position = hold_position
 	add_child(top_hold)
 	top_hold.add_to_group("holds")
@@ -1955,25 +1977,19 @@ class _TopEdgeHold extends Area2D:
 	func try_claim(limb: Node2D, is_foot: bool, snap_pos: Vector2) -> bool:
 		if not can_grab(limb, is_foot): return false
 		if limb.name == "LeftHand":
-			claimed_left_hand = limb
-			left_hand_x = snap_pos.x
+			claimed_left_hand = limb; left_hand_x = snap_pos.x
 		elif limb.name == "RightHand":
-			claimed_right_hand = limb
-			right_hand_x = snap_pos.x
+			claimed_right_hand = limb; right_hand_x = snap_pos.x
 		return true
 
 	func release(limb: Node2D) -> void:
-		if limb.name == "LeftHand" and claimed_left_hand == limb:
-			claimed_left_hand = null
-			left_hand_x = 0.0
-		elif limb.name == "RightHand" and claimed_right_hand == limb:
-			claimed_right_hand = null
-			right_hand_x = 0.0
+		if limb.name == "LeftHand"  and claimed_left_hand  == limb: claimed_left_hand  = null; left_hand_x  = 0.0
+		elif limb.name == "RightHand" and claimed_right_hand == limb: claimed_right_hand = null; right_hand_x = 0.0
 
 	func get_limb_anchor(limb: Node2D) -> Vector2:
-		var x = left_hand_x if (limb.name == "LeftHand" and claimed_left_hand == limb) \
-				else right_hand_x if (limb.name == "RightHand" and claimed_right_hand == limb) \
-				else limb.global_position.x
+		var x = left_hand_x  if (limb.name == "LeftHand"  and claimed_left_hand  == limb) \
+				 else right_hand_x if (limb.name == "RightHand" and claimed_right_hand == limb) \
+				 else limb.global_position.x
 		return Vector2(x, global_position.y)
 
 	func get_state_pressure(delta: float, _bo: float, _st: float, _fs: float, _limb: Node2D) -> float:
@@ -1982,105 +1998,70 @@ class _TopEdgeHold extends Area2D:
 	func get_recovery_rate(delta: float, body_balance: float, _fs: float) -> float:
 		return 3.0 * delta * body_balance
 
+# =============================================================================
+# PUBLIC API
+# =============================================================================
+
 func get_bounds() -> Dictionary:
 	return {"min": wall_min, "max": wall_max, "valid": wall_valid}
 
 func get_top_edge_y() -> float:
 	if use_polygon_mode and not top_edge_indices.is_empty():
-		var ty=INF
+		var ty = INF
 		for ei in top_edge_indices:
-			if ei>=control_points.size(): continue
-			var p1=control_points[ei]; var p2=control_points[(ei+1)%control_points.size()]
-			ty=min(ty,min(p1.y,p2.y))
-		return ty if ty!=INF else wall_min.y
+			if ei >= control_points.size(): continue
+			var p1 = control_points[ei]
+			var p2 = control_points[(ei + 1) % control_points.size()]
+			ty = min(ty, min(p1.y, p2.y))
+		return ty if ty != INF else wall_min.y
 	return wall_min.y
 
-func get_wall_height() -> float: return ground_y-get_top_edge_y()
-func get_wall_width() -> float: return wall_max.x-wall_min.x
-
-# ─── Rope anchor API ──────────────────────────────────────────────────────────
+func get_wall_height() -> float: return ground_y - get_top_edge_y()
+func get_wall_width()  -> float: return wall_max.x - wall_min.x
 
 func get_anchor_position_for_x(world_x: float) -> Vector2:
 	if use_polygon_mode and control_points.size() >= 3:
 		var edges_to_check: Array[int] = []
-
 		if not top_edge_indices.is_empty():
 			edges_to_check = top_edge_indices.duplicate()
 		else:
 			for i in range(control_points.size()):
-				if not _is_ground_edge(i):
-					edges_to_check.append(i)
-
-		var best_pos   := Vector2.ZERO
-		var best_score := INF
-
+				if not _is_ground_edge(i): edges_to_check.append(i)
+		var best_pos   = Vector2.ZERO
+		var best_score = INF
 		for ei in edges_to_check:
-			if ei >= control_points.size():
-				continue
-			var p1 := control_points[ei]
-			var p2 := control_points[(ei + 1) % control_points.size()]
-
-			var x_min := minf(p1.x, p2.x)
-			var x_max := maxf(p1.x, p2.x)
-			if x_max - x_min < 1.0:
-				continue
-
-			var clamped_x := clampf(world_x, x_min, x_max)
-			var t         := (clamped_x - p1.x) / (p2.x - p1.x)
-			t              = clampf(t, 0.0, 1.0)
-			var on_edge   := p1.lerp(p2, t)
-
-			var x_penalty := absf(world_x - clamped_x) * 0.5
-			var score     := on_edge.y + x_penalty
+			if ei >= control_points.size(): continue
+			var p1 = control_points[ei]
+			var p2 = control_points[(ei + 1) % control_points.size()]
+			var x_min = minf(p1.x, p2.x); var x_max = maxf(p1.x, p2.x)
+			if x_max - x_min < 1.0: continue
+			var clamped_x = clampf(world_x, x_min, x_max)
+			var t         = clampf((clamped_x - p1.x) / (p2.x - p1.x), 0.0, 1.0)
+			var on_edge   = p1.lerp(p2, t)
+			var score     = on_edge.y + absf(world_x - clamped_x) * 0.5
 			if score < best_score:
-				best_score = score
-				best_pos   = on_edge
-
-		if best_score < INF:
-			return best_pos
-
+				best_score = score; best_pos = on_edge
+		if best_score < INF: return best_pos
 	return Vector2(clampf(world_x, wall_min.x, wall_max.x), wall_min.y)
-
-# ─────────────────────────────────────────────────────────────────────────────
-
-## Returns true only if the polygon has enough non-collinear points to survive
-## Godot's triangulator. Guards every draw_colored_polygon / draw_polygon call.
-func _polygon_valid(pts: PackedVector2Array) -> bool:
-	if pts.size() < 3:
-		return false
-	# Require at least one triplet with a non-zero cross-product (not all collinear)
-	for i in range(pts.size()):
-		var a := pts[i]
-		var b := pts[(i + 1) % pts.size()]
-		var c := pts[(i + 2) % pts.size()]
-		if abs((b - a).cross(c - a)) > 0.01:
-			return true
-	return false
-
-func _hf(v: int) -> float:
-	return float(hash(v)%10000)/10000.0
-
-func hash_to_float(v: int) -> float:
-	return _hf(v)
 
 func get_polygon_data() -> Dictionary:
 	if not use_polygon_mode or control_points.is_empty(): return {}
-	var pts=[]; for p in control_points: pts.append({"x":p.x,"y":p.y})
-	return {"enabled":true,"points":pts,"ground_left_index":ground_left_index,
-			"ground_right_index":ground_right_index,"top_edge_indices":top_edge_indices.duplicate()}
+	var pts = []
+	for p in control_points: pts.append({"x": p.x, "y": p.y})
+	return {"enabled": true, "points": pts,
+			"ground_left_index": ground_left_index,
+			"ground_right_index": ground_right_index,
+			"top_edge_indices": top_edge_indices.duplicate()}
 
-func set_polygon_data(data: Dictionary):
+func set_polygon_data(data: Dictionary) -> void:
 	if not data or data.is_empty() or not data.get("enabled", false): return
 	use_polygon_mode = true
 	control_points.clear()
 	for pd in data.get("points", []):
 		control_points.append(Vector2(pd.get("x", 0), pd.get("y", 0)))
-	# Need at least a triangle before doing anything further
 	if control_points.size() < 3:
 		push_warning("DynamicWall.set_polygon_data: fewer than 3 points, ignoring polygon")
-		control_points.clear()
-		use_polygon_mode = false
-		return
+		control_points.clear(); use_polygon_mode = false; return
 	ground_left_index  = data.get("ground_left_index",  -1)
 	ground_right_index = data.get("ground_right_index", -1)
 	top_edge_indices.clear()
@@ -2094,3 +2075,41 @@ func set_polygon_data(data: Dictionary):
 	_init_clouds()
 	queue_redraw()
 	print("  Polygon loaded: " + str(control_points.size()) + " points, " + str(top_edge_indices.size()) + " top edges")
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+## Vertical gradient quad — top color fades to bottom color
+func _draw_grad_quad(x: float, y0: float, w: float, y1: float,
+					 c_top: Color, c_bot: Color) -> void:
+	if w < 0.5 or absf(y1 - y0) < 0.5: return
+	var tl = Vector2(x,     y0); var tr2 = Vector2(x + w, y0)
+	var br2 = Vector2(x + w, y1); var bl  = Vector2(x,     y1)
+	draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c_top, c_top, c_bot]))
+	draw_polygon(PackedVector2Array([tl, br2, bl]),  PackedColorArray([c_top, c_bot, c_bot]))
+
+## Horizontal gradient quad — left color to right color
+func _draw_grad_quad_h(x0: float, y0: float, x1: float, y1: float,
+					   c_left: Color, c_right: Color) -> void:
+	if absf(x1 - x0) < 0.5 or absf(y1 - y0) < 0.5: return
+	var tl  = Vector2(x0, y0); var tr2 = Vector2(x1, y0)
+	var br2 = Vector2(x1, y1); var bl   = Vector2(x0, y1)
+	draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c_left, c_right, c_right]))
+	draw_polygon(PackedVector2Array([tl, br2, bl]),  PackedColorArray([c_left, c_right, c_left]))
+
+## Polygon validity guard — prevents Godot triangulator crash on degenerate polygons
+func _polygon_valid(pts: PackedVector2Array) -> bool:
+	if pts.size() < 3: return false
+	for i in range(pts.size()):
+		var a = pts[i]
+		var b = pts[(i + 1) % pts.size()]
+		var c = pts[(i + 2) % pts.size()]
+		if abs((b - a).cross(c - a)) > 0.01: return true
+	return false
+
+func _hf(v: int) -> float:
+	return float(hash(v) % 10000) / 10000.0
+
+func hash_to_float(v: int) -> float:
+	return _hf(v)

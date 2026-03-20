@@ -1,9 +1,7 @@
-[gd_scene load_steps=9 format=3 uid="uid://c1im8e5hhobxh"]
+[gd_scene load_steps=7 format=3 uid="uid://c1im8e5hhobxh"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_18v5o"]
-[ext_resource type="Texture2D" uid="uid://brjpdi745slir" path="res://assets/images/holds/gym/jug.png" id="2_6hudy"]
-[ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_ncc32"]
-[ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_1wr7q"]
+[ext_resource type="Texture2D" uid="uid://caiqufwyi0hrq" path="res://assets/images/holds/gym/jug.png" id="2_6hudy"]
 [ext_resource type="Texture2D" uid="uid://hqdm2hg1mgb8" path="res://assets/images/holds/granite/granite-jug.png" id="5_75vn4"]
 [ext_resource type="Texture2D" uid="uid://6p2iwpokv8k3" path="res://assets/images/holds/sandstone/sandstone-jug.png" id="6_rgk33"]
 
@@ -11,10 +9,6 @@
 radius = 75.66373
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_1wr7q"]
-shader = ExtResource("2_ncc32")
-shader_parameter/grunge_mask = ExtResource("3_1wr7q")
-shader_parameter/wear_strength = 0.30000001425
-shader_parameter/grunge_scale = 1.00000004424012
 
 [node name="Jug" type="Node2D"]
 scale = Vector2(0.2, 0.2)
@@ -31,18 +25,19 @@ shape = SubResource("CircleShape2D_18v5o")
 position = Vector2(-9.999999, -75)
 
 [node name="GymHold" type="Sprite2D" parent="."]
-material = SubResource("ShaderMaterial_1wr7q")
 position = Vector2(-5.0000153, -10.0000305)
 scale = Vector2(0.1625, 0.1625)
 texture = ExtResource("2_6hudy")
 
 [node name="GraniteHold" type="Sprite2D" parent="."]
+visible = false
 material = SubResource("ShaderMaterial_1wr7q")
 position = Vector2(-5.0000153, -10.0000305)
 scale = Vector2(0.1625, 0.1625)
 texture = ExtResource("5_75vn4")
 
 [node name="SandstoneHold" type="Sprite2D" parent="."]
+visible = false
 material = SubResource("ShaderMaterial_1wr7q")
 position = Vector2(-5.0000153, -10.0000305)
 scale = Vector2(0.1625, 0.1625)

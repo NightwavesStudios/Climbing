@@ -105,15 +105,14 @@ func _configure_wall() -> void:
 	var vp     := get_viewport_rect().size
 	var center := vp / 2.0
 
-	_wall.wall_min        = Vector2(center.x, center.y * wall_span_fraction.x)
-	_wall.wall_max        = Vector2(center.x, center.y * wall_span_fraction.y)
-	_wall.wall_valid      = true
-	_wall.ground_y        = vp.y * ground_fraction
-	_wall.ground_enabled  = true
+	_wall.wall_min       = Vector2(center.x, center.y * wall_span_fraction.x)
+	_wall.wall_max       = Vector2(center.x, center.y * wall_span_fraction.y)
+	_wall.wall_valid     = true
+	_wall.ground_y       = vp.y * ground_fraction
+	_wall.ground_enabled = true
 	_wall.show_bolt_holes = false
 	_wall.is_granite      = false
-	_wall.edge_color      = Color(0, 0, 0, 0)
-	_wall.top_edge_color  = Color(0, 0, 0, 0)
+	# edge_color / top_edge_color removed — new DynamicWall has no outline drawing
 
 	_wall._apply_environment_theme()
 	_wall._init_clouds()
@@ -177,7 +176,6 @@ func rerandomize() -> void:
 func set_environment(env_name: String) -> void:
 	var env_types: Array = EnvironmentConfig.get_all_environment_types()
 	for env in env_types:
-		# Adjust the comparison to however EnvironmentConfig identifies types.
 		if str(env) == env_name:
 			EnvironmentConfig.current_environment = env
 			break

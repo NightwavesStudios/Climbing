@@ -9,6 +9,22 @@ enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET, WINDOW }
 @export var snap_to_point: bool = true
 @export var is_grabbable: bool = true
 @export var multi_area_enabled: bool = false
+@export var shadow_enabled: bool = false
+
+
+# =============================================================================
+#  SHADOW EXPORTS
+# =============================================================================
+@export_group("Shadow")
+## Overall shadow darkness multiplier.
+@export_range(0.5, 3.0, 0.05) var shadow_intensity: float = 2.2
+## How many pixels the shadow spreads beyond the sprite edge.
+@export var shadow_spread: float = 12.0
+## Number of stacked shadow passes — more = softer, denser gradient.
+@export_range(1, 5, 1) var shadow_passes: int = 4
+## How far the shadow is cast along the light direction.
+@export var shadow_offset_scale: float = 7.0
+@export_group("")
 
 const GRAB_SFX = preload("res://assets/audio/sfx/grab-hold.wav")
 
@@ -58,6 +74,7 @@ func _process(delta: float) -> void:
 	for child in get_children():
 		if child.has_method("on_process"):
 			child.on_process(delta)
+	queue_redraw()
 
 func _setup_multi_areas():
 	grab_areas.clear()
@@ -135,66 +152,39 @@ func _auto_detect_type_from_name():
 func _configure_hold_properties():
 	match hold_type:
 		HoldType.JUG:
-			difficulty = 0.0
-			rest_value = 50.0
+			difficulty = 0.0; rest_value = 50.0
 		HoldType.START:
-			difficulty = 0.0
-			rest_value = 50.0
+			difficulty = 0.0; rest_value = 50.0
 		HoldType.TOP_OUT:
-			difficulty = 0.0
-			rest_value = 10.0
+			difficulty = 0.0; rest_value = 10.0
 		HoldType.CRIMP:
-			difficulty = 3.0
-			rest_value = 0.0
+			difficulty = 3.0; rest_value = 0.0
 		HoldType.SLOPER:
-			difficulty = 2.5
-			rest_value = 0.0
+			difficulty = 2.5; rest_value = 0.0
 		HoldType.FOOTHOLD:
-			difficulty = 1.0
-			rest_value = 0.0
+			difficulty = 1.0; rest_value = 0.0
 		HoldType.POCKET:
-			difficulty = 1.2
-			rest_value = 0.0
+			difficulty = 1.2; rest_value = 0.0
 
 func set_hold_type_from_string(type_str: String):
 	_type_was_set_manually = true
 	match type_str.to_upper():
-		"START":
-			hold_type = HoldType.START
-		"TOP":
-			hold_type = HoldType.TOP_OUT
-		"JUG":
-			hold_type = HoldType.JUG
-		"CRIMP":
-			hold_type = HoldType.CRIMP
-		"SLOPER":
-			hold_type = HoldType.SLOPER
-		"FOOT":
-			hold_type = HoldType.FOOTHOLD
-		"POCKET":
-			hold_type = HoldType.POCKET
+		"START":  hold_type = HoldType.START
+		"TOP":    hold_type = HoldType.TOP_OUT
+		"JUG":    hold_type = HoldType.JUG
+		"CRIMP":  hold_type = HoldType.CRIMP
+		"SLOPER": hold_type = HoldType.SLOPER
+		"FOOT":   hold_type = HoldType.FOOTHOLD
+		"POCKET": hold_type = HoldType.POCKET
 	_configure_hold_properties()
 
-func is_start_hold() -> bool:
-	return hold_type == HoldType.START
-
-func is_top_out() -> bool:
-	return hold_type == HoldType.TOP_OUT
-
-func is_jug() -> bool:
-	return hold_type == HoldType.JUG
-
-func is_crimp() -> bool:
-	return hold_type == HoldType.CRIMP
-
-func is_sloper() -> bool:
-	return hold_type == HoldType.SLOPER
-
-func is_foothold() -> bool:
-	return hold_type == HoldType.FOOTHOLD
-
-func is_pocket() -> bool:
-	return hold_type == HoldType.POCKET
+func is_start_hold() -> bool: return hold_type == HoldType.START
+func is_top_out()    -> bool: return hold_type == HoldType.TOP_OUT
+func is_jug()        -> bool: return hold_type == HoldType.JUG
+func is_crimp()      -> bool: return hold_type == HoldType.CRIMP
+func is_sloper()     -> bool: return hold_type == HoldType.SLOPER
+func is_foothold()   -> bool: return hold_type == HoldType.FOOTHOLD
+func is_pocket()     -> bool: return hold_type == HoldType.POCKET
 
 func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 	if not is_grabbable:
@@ -299,8 +289,7 @@ func get_placement_offset(limb: Node2D) -> float:
 	if shape_node.shape is RectangleShape2D:
 		shape_extents = shape_node.shape.size / 2.0
 	elif shape_node.shape is CircleShape2D:
-		var radius = shape_node.shape.radius
-		shape_extents = Vector2(radius, radius)
+		shape_extents = Vector2(shape_node.shape.radius, shape_node.shape.radius)
 	if shape_extents.length() < 0.1:
 		return 0.0
 	return clamp(local_pos.length() / shape_extents.length(), 0.0, 1.0)
@@ -309,14 +298,10 @@ func get_placement_difficulty_modifier(limb: Node2D) -> float:
 	if not snap_to_point:
 		var offset = get_placement_offset(limb)
 		match hold_type:
-			HoldType.SLOPER:
-				return 1.0 + (offset * 2.0)
-			HoldType.CRIMP:
-				return 1.0 + (offset * 1.0)
-			HoldType.POCKET:
-				return 1.0 + (offset * 0.3)
-			_:
-				return 1.0 + (offset * 0.5)
+			HoldType.SLOPER: return 1.0 + (offset * 2.0)
+			HoldType.CRIMP:  return 1.0 + (offset * 1.0)
+			HoldType.POCKET: return 1.0 + (offset * 0.3)
+			_:               return 1.0 + (offset * 0.5)
 	return 1.0
 
 func get_state_pressure(delta: float, body_offset: float, time_static: float, foot_support_ratio: float, limb: Node2D) -> float:
@@ -343,3 +328,147 @@ func notify_climb_start():
 	for child in get_children():
 		if child.has_method("on_climb_reset"):
 			child.on_climb_reset()
+
+# =============================================================================
+#  DRAW
+# =============================================================================
+
+func _draw() -> void:
+	var spr := _get_active_sprite()
+	if spr == null or spr.texture == null:
+		return
+
+	if shadow_enabled:
+		_draw_hold_shadow(spr)
+
+
+func _get_active_sprite() -> Sprite2D:
+	for suffix in sprite_nodes:
+		var spr: Sprite2D = sprite_nodes[suffix]
+		if spr and spr.visible:
+			return spr
+	return null
+
+
+# =============================================================================
+#  SHADOW
+#
+#  Mimics a clean painted drop shadow: one fixed offset, then multiple passes
+#  that grow outward from that center.  Outermost pass = widest + most
+#  transparent.  Innermost pass = tightest + most opaque.  Drawn outer-to-inner
+#  so inner passes paint on top and create a crisp dark core that bleeds
+#  softly outward — same look as Klifur's hand-painted shadows.
+# =============================================================================
+
+func _draw_hold_shadow(spr: Sprite2D) -> void:
+	var light: Dictionary = _get_light_info()
+	var intensity: float  = light["intensity"] as float
+	if intensity <= 0.005:
+		return
+
+	var light_dir: Vector2 = light["direction"] as Vector2
+	var tex: Texture2D     = spr.texture
+	var use_region: bool   = spr.region_enabled
+	var region: Rect2      = spr.region_rect if use_region else Rect2(Vector2.ZERO, tex.get_size())
+	var base_size: Vector2 = (region.size if use_region else tex.get_size()) * spr.scale
+	var center: Vector2    = to_local(spr.global_position)
+	var wall_col: Color    = _get_wall_color()
+
+	# Single fixed offset — the shadow sits in one place, not smearing.
+	# Squash y slightly so it reads as lying flat against the wall.
+	var offset := Vector2(
+		light_dir.x * shadow_offset_scale,
+		light_dir.y * shadow_offset_scale * 0.55
+	)
+
+	# Shadow tint: darker warm version of the wall color, never pure black.
+	var sr := wall_col.r * 0.52
+	var sg := wall_col.g * 0.47
+	var sb := wall_col.b * 0.40
+
+	draw_set_transform(Vector2.ZERO, spr.rotation, Vector2.ONE)
+
+	# Outer to inner — each pass paints on top of the last.
+	# i=0 → outermost (widest, faintest), i=passes-1 → innermost (tightest, darkest).
+	for i in range(shadow_passes):
+		var t: float = float(i) / float(max(shadow_passes - 1, 1))
+
+		var spread := shadow_spread * (1.0 - t * 0.65)
+		var shadow_size := base_size + Vector2(spread * 2.0, spread * 2.0)
+		var pass_alpha = clamp(intensity * shadow_intensity * 0.20 * (0.20 + t * 0.80), 0.0, 0.55)
+
+		var dest := Rect2(center + offset - shadow_size * 0.5, shadow_size)
+		draw_texture_rect_region(tex, dest, region, Color(sr, sg, sb, pass_alpha))
+
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+# ── Environment helpers ───────────────────────────────────────────────────────
+
+func _get_wall_color() -> Color:
+	var env_config = get_node_or_null("/root/EnvironmentConfig")
+	if env_config and env_config.has_method("get_environment_data"):
+		return env_config.get_environment_data().get("wall_color", Color(0.82, 0.75, 0.62))
+	return Color(0.82, 0.75, 0.62)
+
+
+func _get_light_info() -> Dictionary:
+	var env_wall: Node2D = get_tree().get_first_node_in_group("environment_walls")
+	if not env_wall:
+		return {"direction": Vector2(0.3, 1.0).normalized(), "intensity": 0.38, "ambient": 0.14}
+
+	var env: Dictionary = env_wall.get("_env") if env_wall.get("_env") != null else {}
+
+	var wmod: Node        = get_tree().get_first_node_in_group("weather_modifier")
+	var weather_type: int = 0
+	if wmod and "weather" in wmod:
+		weather_type = wmod.weather
+
+	if weather_type == 2:
+		var blend = wmod.get_blend() if wmod.has_method("get_blend") else 1.0
+		return {"direction": Vector2(0.0, 1.0), "intensity": 0.05 * blend, "ambient": 0.02}
+
+	if weather_type == 5:
+		var blend = wmod.get_blend() if wmod.has_method("get_blend") else 1.0
+		return {"direction": Vector2(0.0, 1.0),
+				"intensity": lerp(0.34, 0.07, blend),
+				"ambient":   lerp(0.12, 0.20, blend)}
+
+	var weather_shadow_mult := 1.0
+	if weather_type in [1, 4, 6]:
+		var blend = wmod.get_blend() if wmod.has_method("get_blend") else 0.0
+		weather_shadow_mult = lerp(1.0, 0.42, blend)
+
+	if not env.get("has_sun", true):
+		return {"direction": Vector2(0.0, 1.0), "intensity": 0.11 * weather_shadow_mult, "ambient": 0.07}
+
+	var sun_color: Color = env.get("sun_color",   Color(1.0, 0.95, 0.70))
+	var sun_lum:   float = sun_color.r * 0.299 + sun_color.g * 0.587 + sun_color.b * 0.114
+	var sky_top:   Color = env.get("sky_top",     Color(0.20, 0.45, 0.78))
+	var sky_lum:   float = sky_top.r * 0.299 + sky_top.g * 0.587 + sky_top.b * 0.114
+	var sky_horiz: Color = env.get("sky_horizon", Color(0.72, 0.85, 0.95))
+	var is_dusk:   bool  = sky_horiz.r > sky_horiz.b + 0.15
+
+	var direction: Vector2
+	var intensity: float
+	var ambient:   float
+
+	if is_dusk:
+		direction = Vector2(0.55, 0.95).normalized()
+		intensity = 0.44 * sun_lum * weather_shadow_mult
+		ambient   = 0.17
+	elif sky_lum < 0.15:
+		direction = Vector2(0.0, 1.0)
+		intensity = 0.05 * weather_shadow_mult
+		ambient   = 0.03
+	else:
+		direction = Vector2(0.28, 0.96).normalized()
+		intensity = clamp(sun_lum * 0.54, 0.20, 0.54) * weather_shadow_mult
+		ambient   = 0.11
+
+	if env.get("has_gym_interior", false):
+		direction = Vector2(0.12, 1.0).normalized()
+		intensity = 0.18 * weather_shadow_mult
+		ambient   = 0.22
+
+	return {"direction": direction, "intensity": intensity, "ambient": ambient}
