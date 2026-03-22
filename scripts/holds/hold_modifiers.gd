@@ -59,7 +59,7 @@ func get_display_name() -> String:
 #
 #  State machine:
 #    IDLE      → waiting for any limb to grab
-#    SHAKING   → rattling with orange tint, ramps up over fall_delay seconds
+#    SHAKING   → rattling, ramps up over fall_delay seconds
 #    FALLING   → limbs force-released, hold drops, collision disabled
 #    FALLEN    → resting off-screen, waiting for reset_delay
 #    RESETTING → snaps back to origin, collision re-enabled
@@ -71,15 +71,12 @@ class FallingHoldModifier extends HoldModifierBase:
 	var fall_delay:       float = 2.2
 	var reset_delay:      float = 4.0
 	var fall_gravity:     float = 1800.0
-	var auto_reset:       bool  = false  # reset only on climb reload
+	var auto_reset:       bool  = false
 	var calm_if_released: bool  = true
 
 	var shake_max_amp:    float = 1.8
 	var shake_frequency:  float = 22.0
 	var shake_ramp_speed: float = 1.8
-
-	var warning_color: Color = Color(1.0,  0.55, 0.20, 1.0)
-	var fallen_color:  Color = Color(0.35, 0.35, 0.35, 0.50)
 
 	# ── Internal state ────────────────────────────────────────────────────────
 	enum _State { IDLE, SHAKING, FALLING, FALLEN, RESETTING }
@@ -100,19 +97,14 @@ class FallingHoldModifier extends HoldModifierBase:
 		modifier_type = "falling"
 		super._ready()
 
-	# The visual root is the Node2D wrapper that owns the sprites.
-	# Moving it moves everything; moving only the Area2D (hold) moves nothing visible.
 	func _get_visual_root() -> Node2D:
 		if hold == null:
 			return null
 		var parent = hold.get_parent()
-		# If parent is a plain Node2D wrapper (no script), that's the visual root.
 		if parent is Node2D and parent.get_script() == null:
 			return parent as Node2D
-		# Otherwise the Area2D itself is the root (editor-placed holds).
 		return hold
 
-	# Called by LevelLoader after add_child(). Captures _origin synchronously.
 	func on_hold_ready() -> void:
 		if hold != null and hold.is_inside_tree():
 			_origin     = _get_visual_root().global_position
@@ -171,22 +163,20 @@ class FallingHoldModifier extends HoldModifierBase:
 
 	func _tick_shaking(delta: float) -> void:
 		_shake_timer += delta
-		var progress  = clamp(_shake_timer / fall_delay, 0.0, 1.0)
-		_shake_lerp    = lerp(_shake_lerp, 1.0, shake_ramp_speed * delta)
+		_shake_lerp   = lerp(_shake_lerp, 1.0, shake_ramp_speed * delta)
 
 		var amp := _shake_lerp * shake_max_amp
 		var ox  := sin(_time * shake_frequency * TAU)              * amp
 		var oy  := sin(_time * shake_frequency * TAU * 1.3 + 1.1) * amp * 0.55
 		_get_visual_root().global_position = _origin + Vector2(ox, oy)
-		_get_visual_root().modulate        = Color.WHITE.lerp(warning_color, progress)
 
 		if _shake_timer >= fall_delay:
 			_enter_falling()
 
 	func _tick_falling(delta: float) -> void:
-		_fall_velocity       += fall_gravity * delta
+		_fall_velocity                     += fall_gravity * delta
 		_get_visual_root().global_position += Vector2(0.0, _fall_velocity * delta)
-		_fall_timer          += delta
+		_fall_timer                        += delta
 		if _fall_timer >= reset_delay and auto_reset:
 			_enter_resetting()
 
@@ -212,14 +202,12 @@ class FallingHoldModifier extends HoldModifierBase:
 		_force_release_all()
 		_set_collision_enabled(false)
 		_get_visual_root().global_position = _origin
-		_get_visual_root().modulate        = fallen_color
 
 	func _enter_idle_calm() -> void:
-		_state               = _State.IDLE
-		_shake_timer         = 0.0
-		_shake_lerp          = 0.0
+		_state                             = _State.IDLE
+		_shake_timer                       = 0.0
+		_shake_lerp                        = 0.0
 		_get_visual_root().global_position = _origin
-		_get_visual_root().modulate        = Color.WHITE
 
 	func _enter_resetting() -> void:
 		_state       = _State.RESETTING
@@ -229,15 +217,14 @@ class FallingHoldModifier extends HoldModifierBase:
 		_do_reset()
 
 	func _do_reset() -> void:
-		_state               = _State.IDLE
-		_shake_timer         = 0.0
-		_shake_lerp          = 0.0
-		_fall_timer          = 0.0
-		_fall_velocity       = 0.0
-		_reset_timer         = 0.0
+		_state                             = _State.IDLE
+		_shake_timer                       = 0.0
+		_shake_lerp                        = 0.0
+		_fall_timer                        = 0.0
+		_fall_velocity                     = 0.0
+		_reset_timer                       = 0.0
 		_claimed_limbs.clear()
 		_get_visual_root().global_position = _origin
-		_get_visual_root().modulate        = Color.WHITE
 		_set_collision_enabled(true)
 
 	# ── Helpers ───────────────────────────────────────────────────────────────
@@ -266,10 +253,6 @@ class FallingHoldModifier extends HoldModifierBase:
 			"shake_max_amp":    shake_max_amp,
 			"shake_frequency":  shake_frequency,
 			"shake_ramp_speed": shake_ramp_speed,
-			"warning_color":    [warning_color.r, warning_color.g,
-								 warning_color.b, warning_color.a],
-			"fallen_color":     [fallen_color.r,  fallen_color.g,
-								 fallen_color.b,  fallen_color.a],
 		}
 
 	func deserialize(data: Dictionary) -> void:
@@ -281,12 +264,6 @@ class FallingHoldModifier extends HoldModifierBase:
 		shake_max_amp    = float(data.get("shake_max_amp",    shake_max_amp))
 		shake_frequency  = float(data.get("shake_frequency",  shake_frequency))
 		shake_ramp_speed = float(data.get("shake_ramp_speed", shake_ramp_speed))
-		if "warning_color" in data:
-			var c: Array = data["warning_color"]
-			warning_color = Color(c[0], c[1], c[2], c[3])
-		if "fallen_color" in data:
-			var c: Array = data["fallen_color"]
-			fallen_color = Color(c[0], c[1], c[2], c[3])
 
 	func get_display_name() -> String:
 		return "Falling (%.1fs)" % fall_delay
