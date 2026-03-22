@@ -1534,16 +1534,15 @@ func _outline_color(col: Color) -> Color:
     b = lerp(b, 0.0, figure_outline_darken)
     return Color(r, g, b, figure_outline_alpha)
 
-
 func _draw_stick_figure() -> void:
     var skin_color    = Color("#C68642")
     var shirt_color   = Color("#2E4A6B")
     var pants_color   = Color("#1A1A2E")
-    var shoe_color    = Color("#3D2B1F")
+    var shoe_color    = Color("d89418ff")
     var harness_color = Color("#E8A020")
 
-    var lh_skin = skin_color.lerp(_get_limb_color(lh.pressure), lh.pressure / PRESSURE_FAIL * 0.6)
-    var rh_skin = skin_color.lerp(_get_limb_color(rh.pressure), rh.pressure / PRESSURE_FAIL * 0.6)
+    var lh_skin = skin_color
+    var rh_skin = skin_color
 
     var lhd = lh.node.position + lh.shake_offset + lh.visual_offset
     var rhd = rh.node.position + rh.shake_offset + rh.visual_offset
