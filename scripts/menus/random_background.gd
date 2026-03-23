@@ -102,17 +102,29 @@ func _setup_background_wall() -> void:
 
 
 func _configure_wall() -> void:
-	var vp     := get_viewport_rect().size
-	var center := vp / 2.0
+	var vp := get_viewport_rect().size
 
-	_wall.wall_min       = Vector2(center.x, center.y * wall_span_fraction.x)
-	_wall.wall_max       = Vector2(center.x, center.y * wall_span_fraction.y)
-	_wall.wall_valid     = true
-	_wall.ground_y       = vp.y * ground_fraction
-	_wall.ground_enabled = true
+	# Bounds are centred on screen so sky/ground/clouds all render correctly.
+	# wall_min.x == wall_max.x gives the wall rect zero width, so
+	# _draw_rectangle_wall draws nothing visible (size.x = 0).
+	# All background layers (sky, mountains, ground, clouds) expand outward
+	# by BACKGROUND_EXPANSION = 2000 px from these bounds and fill the screen.
+	var mid_x := vp.x * 0.5
+	_wall.wall_min   = Vector2(mid_x, vp.y * wall_span_fraction.x)
+	_wall.wall_max   = Vector2(mid_x, vp.y * wall_span_fraction.y)
+	_wall.wall_valid  = true
+	_wall.ground_y    = vp.y * ground_fraction
+	_wall.ground_enabled  = true
 	_wall.show_bolt_holes = false
 	_wall.is_granite      = false
-	# edge_color / top_edge_color removed — new DynamicWall has no outline drawing
+
+	# Rectangle mode with zero-width bounds — wall rect is invisible.
+	_wall.use_polygon_mode = false
+
+	# Zero out tonal outlines so no border stripe appears at wall edges
+	# or the ground horizon line.
+	_wall.wall_outline_width  = 0.0
+	_wall.wall_outline_darken = 0.0
 
 	_wall._apply_environment_theme()
 	_wall._init_clouds()
