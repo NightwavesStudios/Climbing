@@ -81,6 +81,7 @@ var is_setup         : bool = false
 var player               : Node2D = null
 var player_attach_offset : Vector2 = Vector2(0, -10)
 var rope_line            : Line2D = null
+var rope_line_lower      : Line2D = null   # anchor → climber, drawn BEHIND character
 
 # ── Hold accessors ────────────────────────────────────────────────────────
 
@@ -110,7 +111,9 @@ func _has_hand_hold() -> bool:
 func _ready():
 	global_position  = Vector2.ZERO
 	z_index          = 50
-	rope_line        = Line2D.new()
+
+	# Upper rope: belayer hand → anchor (in front of most things)
+	rope_line                = Line2D.new()
 	rope_line.width          = rope_thickness
 	rope_line.default_color  = rope_color
 	rope_line.z_index        = 49
@@ -120,6 +123,19 @@ func _ready():
 	rope_line.end_cap_mode   = Line2D.LINE_CAP_ROUND
 	rope_line.joint_mode     = Line2D.LINE_JOINT_ROUND
 	add_child(rope_line)
+
+	# Lower rope: anchor → climber chest (behind the character figure)
+	rope_line_lower                  = Line2D.new()
+	rope_line_lower.width            = rope_thickness
+	rope_line_lower.default_color    = rope_color
+	rope_line_lower.z_index          = -1
+	rope_line_lower.top_level        = true
+	rope_line_lower.antialiased      = true
+	rope_line_lower.begin_cap_mode   = Line2D.LINE_CAP_ROUND
+	rope_line_lower.end_cap_mode     = Line2D.LINE_CAP_ROUND
+	rope_line_lower.joint_mode       = Line2D.LINE_JOINT_ROUND
+	add_child(rope_line_lower)
+
 	set_process(true)
 
 
@@ -152,6 +168,8 @@ func setup_rope(belayer_pos: Vector2, player_node: Node2D, anchor_pos: Vector2 =
 	visible           = true
 	if is_instance_valid(rope_line):
 		rope_line.visible = true
+	if is_instance_valid(rope_line_lower):
+		rope_line_lower.visible = true
 	catch_state       = CatchState.IDLE
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -380,27 +398,55 @@ func _smooth_rope():
 							+ rope_points[i + 1]   * 0.2)
 
 # ═══════════════════════════════════════════════════════════════════════════
-## Rope visual
+## Rope visual — split at anchor: upper segment in front, lower behind character
 # ═══════════════════════════════════════════════════════════════════════════
 
 func update_rope_visual():
 	if not is_instance_valid(rope_line) or rope_points.size() < 2:
 		return
-	var pts := PackedVector2Array()
-	for p in rope_points:
-		pts.append(p)
-	rope_line.points = pts
 
+	# Find the anchor index (same logic as simulate_rope_physics)
+	var anchor_index := 0
+	var min_dist     := rope_points[0].distance_to(anchor_position)
+	for i in range(1, rope_points.size()):
+		var d := rope_points[i].distance_to(anchor_position)
+		if d < min_dist:
+			min_dist     = d
+			anchor_index = i
+
+	# Upper segment: belayer hand → anchor  (z_index 49, in front of wall/most things)
+	var upper_pts := PackedVector2Array()
+	for i in range(anchor_index + 1):
+		upper_pts.append(rope_points[i])
+	rope_line.points = upper_pts
+
+	# Lower segment: anchor → climber chest  (z_index -1, behind character figure)
+	if is_instance_valid(rope_line_lower):
+		var lower_pts := PackedVector2Array()
+		for i in range(anchor_index, rope_points.size()):
+			lower_pts.append(rope_points[i])
+		rope_line_lower.points = lower_pts
+
+	# Tint / width based on catch state — applied to both lines
 	if catch_state == CatchState.STRETCHING:
-		var t                   = clamp(fall_vel / 400.0, 0.0, 1.0)
-		rope_line.width         = rope_thickness + t * 2.0
-		rope_line.default_color = rope_color.darkened(t * 0.35)
+		var t = clamp(fall_vel / 400.0, 0.0, 1.0)
+		var w = rope_thickness + t * 2.0
+		var c := rope_color.darkened(t * 0.35)
+		rope_line.width             = w;  rope_line.default_color  = c
+		if is_instance_valid(rope_line_lower):
+			rope_line_lower.width        = w;  rope_line_lower.default_color = c
 	elif catch_state == CatchState.HELD:
-		rope_line.width         = rope_thickness + 0.5
-		rope_line.default_color = rope_color.darkened(0.15)
+		var w := rope_thickness + 0.5
+		var c := rope_color.darkened(0.15)
+		rope_line.width             = w;  rope_line.default_color  = c
+		if is_instance_valid(rope_line_lower):
+			rope_line_lower.width        = w;  rope_line_lower.default_color = c
 	else:
-		rope_line.width         = rope_thickness
-		rope_line.default_color = rope_color
+		rope_line.width             = rope_thickness
+		rope_line.default_color     = rope_color
+		if is_instance_valid(rope_line_lower):
+			rope_line_lower.width        = rope_thickness
+			rope_line_lower.default_color = rope_color
 
 # ═══════════════════════════════════════════════════════════════════════════
 ## Draw
@@ -420,15 +466,30 @@ func _draw_anchor():
 	draw_circle(al,  5, Color(0.18, 0.18, 0.18))
 	draw_circle(al,  3, Color(0.85, 0.85, 0.85))
 
+# ═══════════════════════════════════════════════════════════════════════════
+## Tonal outline helper — mirrors character.gd's _outline_color() exactly
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _belayer_outline_color(col: Color) -> Color:
+	var lum := col.r * 0.299 + col.g * 0.587 + col.b * 0.114
+	var r   = lerp(col.r, lum, 0.3 * 0.3)
+	var g   = lerp(col.g, lum, 0.3 * 0.3)
+	var b   = lerp(col.b, lum, 0.3 * 0.3)
+	r = lerp(r, 0.0, 0.25)
+	g = lerp(g, 0.0, 0.25)
+	b = lerp(b, 0.0, 0.25)
+	return Color(r, g, b, 1.0)
+
 
 func _draw_belayer_figure():
-	# ── Palette ───────────────────────────────────────────────────────────────
+	# ── Palette — matches character.gd exactly ────────────────────────────────
 	var skin_color    := Color("#C68642")
-	var shirt_color   := Color("#3A5F8A")
-	var pants_color   := Color("#1E2D45")
-	var shoe_color    := Color("#2E1F14")
-	var outline_color := Color(0, 0, 0, 1)
-	const OW := 6.0
+	var shirt_color   := Color("#2E4A6B")
+	var pants_color   := Color("#1A1A2E")
+	var shoe_color    := Color("#d89418ff")
+	var harness_color := Color("#E8A020")
+
+	const OW := 5.5   # outline extra width, matching character.gd figure_outline_width
 
 	var sm := belayer_facing
 
@@ -438,8 +499,7 @@ func _draw_belayer_figure():
 	var b_base      := to_local(belayer_position)
 
 	var head_center := b      + Vector2(0, HEAD_OFFSET)
-	var neck        := b      + Vector2(0, HEAD_OFFSET + 16)
-	var chest       := b      + Vector2(0, HEAD_OFFSET + 26)
+	var neck        := b      + Vector2(0, HEAD_OFFSET + 16.0)
 	var hips        := b_base + Vector2(0, HIP_DOWN)
 
 	var near_shoulder := neck + Vector2( sm * 12.0, 4.0)
@@ -456,100 +516,110 @@ func _draw_belayer_figure():
 	var rfj := to_local(b_right_foot_joint)
 	var rf  := to_local(b_right_foot)
 
-	var near_sl := near_shoulder.lerp(rhj, 0.40)
-	var far_sl  := far_shoulder.lerp(lhj, 0.40)
+	# Sleeve transition points — matches character.gd's left_sl / right_sl (0.35 lerp)
+	var near_sl := near_shoulder.lerp(rhj, 0.35)
+	var far_sl  := far_shoulder.lerp(lhj, 0.35)
 
 	# ── Lowering hand highlights ──────────────────────────────────────────────
 	var guide_bright := 0.0
 	var brake_bright := 0.0
 	if lower_anim_phase > 0.005:
-		guide_bright = clamp( sin(lower_anim_phase * TAU),       0.0, 1.0)
-		brake_bright = clamp( sin(lower_anim_phase * TAU + PI),  0.0, 1.0)
+		guide_bright = clamp(sin(lower_anim_phase * TAU),       0.0, 1.0)
+		brake_bright = clamp(sin(lower_anim_phase * TAU + PI),  0.0, 1.0)
 
-	var rope_hand_color  := skin_color.lerp(Color("#E8A020"), guide_bright * 0.55)
-	var brake_hand_color := skin_color.lerp(Color("#E8A020"), brake_bright * 0.55)
+	var rope_hand_color  := skin_color.lerp(harness_color, guide_bright * 0.55)
+	var brake_hand_color := skin_color.lerp(harness_color, brake_bright * 0.55)
 
-	# ══════════════════════════════════════════════════════════════════════════
-	# PASS 1 — outline
-	# ══════════════════════════════════════════════════════════════════════════
-
-	# Far leg
-	draw_line(far_hip,  lfj, outline_color, 11.0 + OW)
-	draw_line(lfj,      lf,  outline_color, 10.0 + OW)
-	draw_circle(lfj, 5.5 + OW * 0.5, outline_color)
-	draw_circle(lf,  7.5 + OW * 0.5, outline_color)
-
-	# Near leg
-	draw_line(near_hip, rfj, outline_color, 11.0 + OW)
-	draw_line(rfj,      rf,  outline_color, 10.0 + OW)
-	draw_circle(rfj, 5.5 + OW * 0.5, outline_color)
-	draw_circle(rf,  7.5 + OW * 0.5, outline_color)
-
-	# Torso
-	draw_line(far_hip,  near_hip, outline_color, 17.0 + OW)
-	draw_line(hips,     chest,    outline_color, 19.0 + OW)
-	draw_line(chest,    neck,     outline_color, 17.0 + OW)
-
-	# Far arm
-	draw_line(far_shoulder, lhj, outline_color, 11.0 + OW)
-	draw_line(lhj,          lh,  outline_color,  9.0 + OW)
-	draw_circle(lhj, 5.5 + OW * 0.5, outline_color)
-	draw_circle(lh,  6.5 + OW * 0.5, outline_color)
-
-	# Near arm
-	draw_line(near_shoulder, rhj, outline_color, 11.0 + OW)
-	draw_line(rhj,           rh,  outline_color,  9.0 + OW)
-	draw_circle(rhj, 5.5 + OW * 0.5, outline_color)
-	draw_circle(rh,  6.5 + OW * 0.5, outline_color)
-
-	# Head
-	draw_circle(head_center, 19.0 + OW * 0.5, outline_color)
+	# Pre-compute tonal outline colors
+	var oc_pants   := _belayer_outline_color(pants_color)
+	var oc_shoe    := _belayer_outline_color(shoe_color)
+	var oc_shirt   := _belayer_outline_color(shirt_color)
+	var oc_harness := _belayer_outline_color(harness_color)
+	var oc_skin    := _belayer_outline_color(skin_color)
 
 	# ══════════════════════════════════════════════════════════════════════════
-	# PASS 2 — color fill
+	# PASS 1 — tonal outline (behind fill)
 	# ══════════════════════════════════════════════════════════════════════════
 
 	# Far leg
-	draw_line(far_hip, lfj, pants_color, 11.0)
-	draw_circle(lfj,   5.5, pants_color)
-	draw_line(lfj,     lf,  pants_color, 10.0)
-	draw_circle(lf,    7.5, shoe_color)
+	draw_line(far_hip,  lfj, oc_pants, 12.0 + OW)
+	draw_circle(lfj, 5.0 + OW * 0.5, oc_pants)
+	draw_line(lfj,      lf,  oc_pants, 11.0 + OW)
+	draw_circle(lf,  9.0 + OW * 0.5, oc_shoe)
 
 	# Near leg
-	draw_line(near_hip, rfj, pants_color, 11.0)
-	draw_circle(rfj,    5.5, pants_color)
-	draw_line(rfj,      rf,  pants_color, 10.0)
-	draw_circle(rf,     7.5, shoe_color)
+	draw_line(near_hip, rfj, oc_pants, 12.0 + OW)
+	draw_circle(rfj, 5.0 + OW * 0.5, oc_pants)
+	draw_line(rfj,      rf,  oc_pants, 11.0 + OW)
+	draw_circle(rf,  9.0 + OW * 0.5, oc_shoe)
 
-	# Torso
-	draw_line(far_hip, near_hip, pants_color, 17.0)
-	draw_line(hips,    chest,    shirt_color, 19.0)
-	draw_line(chest,   neck,     shirt_color, 17.0)
+	# Torso — hip span + harness strip + shirt body
+	draw_line(far_hip,  near_hip,        oc_pants,   17.0 + OW)
+	draw_line(far_hip,  near_hip,        oc_harness,  4.0 + OW * 0.5)
+	draw_line(hips,     b,               oc_shirt,   19.0 + OW)
+	draw_line(b,        neck,            oc_shirt,   17.0 + OW)
 
-	# Far arm  (brake hand)
-	draw_circle(far_shoulder, 6, shirt_color)
-	draw_line(far_shoulder, far_sl, shirt_color, 11.0)
-	draw_line(far_sl,       lhj,    skin_color,  10.0)
-	draw_circle(lhj, 5.5, skin_color)
-	draw_line(lhj,   lh,  skin_color, 9.0)
-	draw_circle(lh,  6.5, brake_hand_color)
+	# Far arm (brake hand) — shirt sleeve → skin forearm
+	draw_circle(far_shoulder,  5.0 + OW * 0.5, oc_shirt)
+	draw_line(far_shoulder,  far_sl,  oc_shirt, 12.0 + OW)
+	draw_line(far_sl,        lhj,     oc_skin,  12.0 + OW)
+	draw_circle(lhj, 5.0 + OW * 0.5, oc_skin)
+	draw_line(lhj,   lh,  oc_skin,   10.0 + OW)
+	draw_circle(lh,  8.0 + OW * 0.5, _belayer_outline_color(brake_hand_color))
 
-	# Near arm  (rope/guide hand)
-	draw_circle(near_shoulder, 6, shirt_color)
-	draw_line(near_shoulder, near_sl, shirt_color, 11.0)
-	draw_line(near_sl,       rhj,     skin_color,  10.0)
-	draw_circle(rhj, 5.5, skin_color)
-	draw_line(rhj,   rh,  skin_color, 9.0)
-	draw_circle(rh,  6.5, rope_hand_color)
+	# Near arm (rope/guide hand) — shirt sleeve → skin forearm
+	draw_circle(near_shoulder, 5.0 + OW * 0.5, oc_shirt)
+	draw_line(near_shoulder, near_sl, oc_shirt, 12.0 + OW)
+	draw_line(near_sl,       rhj,     oc_skin,  12.0 + OW)
+	draw_circle(rhj, 5.0 + OW * 0.5, oc_skin)
+	draw_line(rhj,   rh,  oc_skin,   10.0 + OW)
+	draw_circle(rh,  8.0 + OW * 0.5, _belayer_outline_color(rope_hand_color))
 
-	# Shoulder yoke
-	draw_line(far_shoulder, near_shoulder, shirt_color, 14.0)
+	# Head + neck connector
+	draw_line(head_center + Vector2(0, 14.0), head_center + Vector2(0, 4.0), oc_skin, 10.0 + OW)
+	draw_circle(head_center, 16.0 + OW * 0.5, oc_skin)
 
-	# Head
-	draw_circle(head_center, 18, skin_color)
+	# ══════════════════════════════════════════════════════════════════════════
+	# PASS 2 — color fill (on top)
+	# ══════════════════════════════════════════════════════════════════════════
 
-	# Neck connector
-	draw_line(head_center + Vector2(0, 16), neck, skin_color, 8.0)
+	# Far leg
+	draw_line(far_hip,  lfj, pants_color, 12.0)
+	draw_circle(lfj,    5.0, pants_color)
+	draw_line(lfj,      lf,  pants_color, 11.0)
+	draw_circle(lf,     9.0, shoe_color)
+
+	# Near leg
+	draw_line(near_hip, rfj, pants_color, 12.0)
+	draw_circle(rfj,    5.0, pants_color)
+	draw_line(rfj,      rf,  pants_color, 11.0)
+	draw_circle(rf,     9.0, shoe_color)
+
+	# Torso — hip harness strip + shirt body
+	draw_line(far_hip,  near_hip,  pants_color,   17.0)
+	draw_line(far_hip,  near_hip,  harness_color,  4.0)
+	draw_line(hips,     b,         shirt_color,   19.0)
+	draw_line(b,        neck,      shirt_color,   17.0)
+
+	# Far arm (brake hand) — shirt sleeve → skin forearm
+	draw_circle(far_shoulder, 5, shirt_color)
+	draw_line(far_shoulder, far_sl,  shirt_color, 12.0)
+	draw_line(far_sl,       lhj,     skin_color,  12.0)
+	draw_circle(lhj, 5, skin_color)
+	draw_line(lhj,   lh,  skin_color,  10.0)
+	draw_circle(lh,  8, brake_hand_color)
+
+	# Near arm (rope/guide hand) — shirt sleeve → skin forearm
+	draw_circle(near_shoulder, 5, shirt_color)
+	draw_line(near_shoulder, near_sl, shirt_color, 12.0)
+	draw_line(near_sl,       rhj,     skin_color,  12.0)
+	draw_circle(rhj, 5, skin_color)
+	draw_line(rhj,   rh,  skin_color,  10.0)
+	draw_circle(rh,  8, rope_hand_color)
+
+	# Head + neck connector
+	draw_line(head_center + Vector2(0, 14.0), head_center + Vector2(0, 4.0), skin_color, 10.0)
+	draw_circle(head_center, 16, skin_color)
 
 # ═══════════════════════════════════════════════════════════════════════════
 ## Anchor lookup
@@ -611,9 +681,12 @@ func cleanup():
 	is_setup = false
 	set_process(false)
 	set_physics_process(false)
-	# Free the Line2D child we own — but do NOT free ourselves.
+	# Free the Line2D children we own — but do NOT free ourselves.
 	# The parent (main_scene) is responsible for removing us from the tree
 	# and calling .free() directly, which avoids the deferred-free race.
 	if is_instance_valid(rope_line):
 		rope_line.queue_free()
 		rope_line = null
+	if is_instance_valid(rope_line_lower):
+		rope_line_lower.queue_free()
+		rope_line_lower = null
