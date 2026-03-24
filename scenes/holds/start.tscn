@@ -4,7 +4,7 @@
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="1_yvwuy"]
 [ext_resource type="Texture2D" uid="uid://be76uy6nhb8lq" path="res://assets/images/holds/gym/start_hold.png" id="2_4vhrv"]
 [ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="2_xyj0e"]
-[ext_resource type="Texture2D" uid="uid://hqdm2hg1mgb8" path="res://assets/images/holds/granite/granite-jug.png" id="5_xyj0e"]
+[ext_resource type="Texture2D" uid="uid://bfn1dt2gdxa5r" path="res://assets/images/holds/granite/granite-jug.png" id="5_xyj0e"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_nlhhe"]
 shader = ExtResource("1_yvwuy")
