@@ -1,6 +1,8 @@
 extends Node2D
 class_name DynamicWall
 
+var _is_ready: bool = false
+
 var wall_texture_enabled = true
 var texture_variation = 0.03
 
@@ -26,10 +28,8 @@ const BACKGROUND_EXPANSION = 2000.0
 # =============================================================================
 @export_group("Outline")
 ## Width of the tonal outline stroke on the wall edges and ground horizon lines (px).
-## 1.0–3.0 is subtle; matches figure_outline_width on the character for consistency.
 @export var wall_outline_width: float = 5.5
 ## How much darker the outline is versus the surface color it borders.
-## 0.0 = same color, 1.0 = black. Match figure_outline_darken on the character.
 @export_range(0.0, 1.0, 0.01) var wall_outline_darken: float = 0.25
 @export_group("")
 
@@ -87,13 +87,17 @@ const SPLASH_DROPLET_COUNT = 22
 
 var weather_modifier: Node2D = null
 
-func _ready():
+func _ready() -> void:
+	print("DynamicWall _ready START")
 	z_index = -10
 	add_to_group("environment_walls")
 	_scenery_seed = randi()
 	_init_clouds()
 	_init_weather()
-	call_deferred("update_environment_settings")
+	_is_ready = true  # ← SET THIS BEFORE the await
+	await _wait_for_env_config()
+	update_environment_settings()
+	print("DynamicWall _ready COMPLETE — wall_valid: ", wall_valid)
 
 var _redraw_timer: float = 0.0
 const REDRAW_INTERVAL = 0.05
@@ -275,19 +279,32 @@ func set_editor_mode(enabled: bool):
 	is_in_editor = enabled
 	queue_redraw()
 
+func _wait_for_env_config() -> void:
+	var timeout := 0
+	while get_node_or_null("/root/EnvironmentConfig") == null and timeout < 120:
+		await get_tree().process_frame
+		timeout += 1
+
 func update_environment_settings():
+	# Background decorative walls manage their own environment — skip broadcast
+	if get_meta("is_background_wall", false):
+		return
+	print("update_environment_settings called")
 	var env_config = get_node_or_null("/root/EnvironmentConfig")
 	if env_config == null:
-		call_deferred("update_environment_settings")
+		print("ERROR: EnvironmentConfig is NULL in update_environment_settings")
 		return
+	print("EnvironmentConfig found OK")
 	var data = env_config.get_environment_data()
-	current_wall_color = data.get("wall_color", Color(0.82, 0.75, 0.62))
-	background_color   = data.get("background_color", Color(0.53, 0.81, 0.92))
-	show_bolt_holes    = data.get("show_bolt_holes", false)
-	is_granite         = data.get("show_granite_texture", false)
+	current_wall_color  = data.get("wall_color",           Color(0.82, 0.75, 0.62))
+	background_color    = data.get("background_color",     Color(0.53, 0.81, 0.92))
+	show_bolt_holes     = data.get("show_bolt_holes",      false)
+	is_granite          = data.get("show_granite_texture", false)
 	current_environment = env_config.get_current_environment_name().to_lower()
+	print("current_environment set to: ", current_environment)
 	_apply_environment_theme()
-	if not top_edge_indices.is_empty(): _create_top_edge_holds()
+	if not top_edge_indices.is_empty():
+		_create_top_edge_holds()
 	queue_redraw()
 
 func _apply_environment_theme():
@@ -603,7 +620,7 @@ func _draw():
 	if use_polygon_mode and control_points.size() >= 3: _draw_polygon_wall()
 	else: _draw_rectangle_wall()
 	_draw_wall_depth_shading()
-	_draw_wall_tonal_outline()        # tonal outlines: darker shade of each surface
+	_draw_wall_tonal_outline()
 	if _env.get("has_water", false): _draw_underwater_wall_depth()
 	if show_bolt_holes:
 		if use_polygon_mode and control_points.size() >= 3: draw_bolt_holes_on_polygon()
@@ -613,12 +630,11 @@ func _draw():
 	if _env.get("has_water", false):
 		_draw_water_surface()
 		_draw_splashes()
-	# Editor overlays only — no game-visible outlines
 	if is_in_editor and use_polygon_mode and control_points.size() > 0: _draw_control_points()
 	if is_in_editor and edit_mode and use_polygon_mode: _draw_edge_highlights()
 
 # =============================================================================
-# SKY — smooth multi-stop gradient, no banding
+# SKY — smooth multi-stop gradient, 20 bands to eliminate banding
 # =============================================================================
 
 func _draw_sky() -> void:
@@ -631,22 +647,24 @@ func _draw_sky() -> void:
 	var col_top   = _rain_lerp_color(_env.get("sky_top",    background_color),               "sky_top",     rb)
 	var col_horiz = _rain_lerp_color(_env.get("sky_horizon", background_color.lightened(0.15)), "sky_horizon", rb)
 
-	# 16 gradient bands with eased curve for smooth transition
-	var bands = 16
+	# 20 gradient bands — more than 16 further eliminates any visible banding
+	var bands = 20
 	var total_h = ground_y - st
 	for i in range(bands):
 		var t0 = float(i)     / float(bands)
 		var t1 = float(i + 1) / float(bands)
+		# Squared easing: sky color changes faster at top, slower near horizon
 		var c0 = col_top.lerp(col_horiz, t0 * t0)
 		var c1 = col_top.lerp(col_horiz, t1 * t1)
 		var y0 = st + t0 * total_h
 		var y1 = st + t1 * total_h
 		_draw_grad_quad(bl, y0, sw, y1, c0, c1)
 
+	# Fill below horizon with horizon color
 	draw_rect(Rect2(Vector2(bl, ground_y), Vector2(sw, 99999.0)), col_horiz, true)
 
 # =============================================================================
-# CELESTIAL — stars, sun, moon (unchanged logic, cleaner glow)
+# CELESTIAL — stars, sun, moon
 # =============================================================================
 
 func _draw_stars() -> void:
@@ -671,7 +689,6 @@ func _draw_sun() -> void:
 	var sy = wall_min.y - BACKGROUND_EXPANSION * 0.5 + 180.0
 	var sc: Color = _env.get("sun_color", Color(1.0, 0.95, 0.70))
 	var fade = 1.0 - _get_weather_blend()
-	# Soft radial glow — more passes, lower alpha per pass
 	for gi in range(8):
 		draw_circle(Vector2(sx, sy), 45.0 + float(gi) * 28.0,
 					Color(sc.r, sc.g, sc.b, (0.05 - float(gi) * 0.005) * fade))
@@ -694,7 +711,7 @@ func _draw_moon() -> void:
 					2.0 + _hf(cs + 2) * 4.0, Color(0.70, 0.72, 0.78, 0.35))
 
 # =============================================================================
-# MOUNTAINS — layered silhouettes, no outlines
+# MOUNTAINS — layered silhouettes with atmospheric haze between layers
 # =============================================================================
 
 func _draw_mountains() -> void:
@@ -703,10 +720,26 @@ func _draw_mountains() -> void:
 	var rb  = _get_weather_blend()
 	var hs: Color = _rain_lerp_color(_env.get("sky_horizon", background_color), "sky_horizon", rb)
 	var ht: Color = _rain_lerp_color(_env.get("sky_top",     background_color), "sky_top",     rb)
+
+	# Far mountain layers
 	_draw_hill_layer(bl, br, ground_y - 60.0, 240.0, 600.0, 90, hs.lerp(ht, 0.6).darkened(0.05), _scenery_seed ^ 0x0A1B2C)
 	_draw_hill_layer(bl, br, ground_y - 20.0, 160.0, 420.0, 80, hs.lerp(ht, 0.4).darkened(0.09), _scenery_seed ^ 0x1A2B3C)
-	_draw_hill_layer(bl, br, ground_y - 5.0,   90.0, 230.0, 55, hs.darkened(0.22),               _scenery_seed ^ 0x4D5E6F)
-	_draw_hill_layer(bl, br, ground_y,          40.0, 110.0, 45, hs.darkened(0.38),               _scenery_seed ^ 0x7F8A9B)
+
+	# Atmospheric haze band — separates distant mountains from near ground, key for depth
+	var haze_color = hs.lightened(0.08)
+	var haze_color_rb = _rain_lerp_color(haze_color, "sky_horizon", rb * 0.5)
+	var haze_y     = ground_y - 55.0
+	var sw         = br - bl
+	_draw_grad_quad(bl, haze_y - 20.0, sw, haze_y + 8.0,
+		Color(haze_color_rb.r, haze_color_rb.g, haze_color_rb.b, 0.0),
+		Color(haze_color_rb.r, haze_color_rb.g, haze_color_rb.b, 0.50 * (1.0 - rb * 0.4)))
+	_draw_grad_quad(bl, haze_y + 8.0, sw, haze_y + 36.0,
+		Color(haze_color_rb.r, haze_color_rb.g, haze_color_rb.b, 0.50 * (1.0 - rb * 0.4)),
+		Color(haze_color_rb.r, haze_color_rb.g, haze_color_rb.b, 0.0))
+
+	# Near mountain layers (drawn after haze so they appear in front)
+	_draw_hill_layer(bl, br, ground_y - 5.0,   90.0, 230.0, 55, hs.darkened(0.22), _scenery_seed ^ 0x4D5E6F)
+	_draw_hill_layer(bl, br, ground_y,          40.0, 110.0, 45, hs.darkened(0.38), _scenery_seed ^ 0x7F8A9B)
 
 func _draw_hill_layer(left: float, right: float, base_y: float,
 					  min_h: float, max_h: float, segs: int, color: Color, hill_seed: int) -> void:
@@ -784,7 +817,7 @@ func _draw_city_silhouette() -> void:
 					  Color(0.55, 0.60, 0.90, 0.020 * (1.0 - float(gi) / 3.0)), true)
 
 # =============================================================================
-# CLOUDS — softened alpha, no hard edges
+# CLOUDS
 # =============================================================================
 
 func _draw_clouds() -> void:
@@ -890,7 +923,6 @@ func _draw_gym_interior() -> void:
 	var vis_h   = vis_bot - vis_top
 	if width < 1.0 or vis_h < 10.0: return
 
-	# Smooth ceiling-to-floor interior gradient
 	var steps = 12
 	for i in range(steps):
 		var t = float(i) / float(steps)
@@ -938,7 +970,6 @@ func _draw_gym_interior() -> void:
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		var wx2 = wx + win_w
 
-		# Sky gradient inside window
 		for gi in range(12):
 			var gt = float(gi) / 12.0
 			var sky_c: Color
@@ -1039,18 +1070,15 @@ func _draw_gym_interior() -> void:
 		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
 				  gym_grass_color.darkened(0.16), true)
 
-		# Subtle glass sheen — no hard frame lines
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w, win_h)), Color(1.0, 1.0, 1.0, 0.06), true)
 		draw_rect(Rect2(Vector2(wx, win_top), Vector2(win_w * 0.08, win_h)), Color(1.0, 1.0, 1.0, 0.05), true)
 
-	# Wall between windows — clean flat panels, no hard lines
 	for wi in range(win_count + 1):
 		var gx = bl + float(wi) * win_stride + win_gap * 0.5 - win_gap
 		draw_rect(Rect2(Vector2(gx, vis_top), Vector2(win_gap + 4.0, vis_h)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, vis_top), Vector2(width, win_top - vis_top + 1.0)), wall_col, true)
 	draw_rect(Rect2(Vector2(bl, win_bot - 1.0), Vector2(width, vis_bot - win_bot + 2.0)), wall_col, true)
 
-	# Minimal window frames — thin, low-alpha
 	for wi in range(win_count):
 		var wx  = bl + float(wi) * win_stride + win_gap * 0.5
 		draw_line(Vector2(wx, win_top), Vector2(wx + win_w, win_top), Color(0.55, 0.57, 0.62, 0.35), 1.5, true)
@@ -1127,7 +1155,7 @@ func _draw_scaffold() -> void:
 		draw_rect(Rect2(Vector2(px - 22.0, ground_y - 8.0), Vector2(44.0, 22.0)), Color(0.50, 0.50, 0.52), true)
 
 # =============================================================================
-# WALL RENDERING — flat fills, soft depth, NO outlines
+# WALL RENDERING
 # =============================================================================
 
 func _draw_rectangle_wall() -> void:
@@ -1137,21 +1165,17 @@ func _draw_rectangle_wall() -> void:
 
 	var ws = wall_max - wall_min
 
-	# 1. Flat base
 	draw_rect(Rect2(wall_min, ws), current_wall_color, true)
 
-	# 2. Top sheen — catches light from above
 	var sheen_h   = ws.y * 0.15
 	var sheen_top = current_wall_color.lightened(0.09)
 	_draw_grad_quad(wall_min.x, wall_min.y, ws.x, wall_min.y + sheen_h,
 		sheen_top, Color(sheen_top.r, sheen_top.g, sheen_top.b, 0.0))
 
-	# 3. Bottom depth — very gentle darkening
 	var depth_h = ws.y * 0.30
 	_draw_grad_quad(wall_min.x, wall_max.y - depth_h, ws.x, wall_max.y,
 		Color(0.0, 0.0, 0.0, 0.0), Color(0.0, 0.0, 0.0, 0.06))
 
-	# 4. Left ambient occlusion strip
 	var ao_w = minf(ws.x * 0.035, 16.0)
 	_draw_grad_quad_h(wall_min.x, wall_min.y, wall_min.x + ao_w, wall_max.y,
 		Color(0.0, 0.0, 0.0, 0.09), Color(0.0, 0.0, 0.0, 0.0))
@@ -1165,7 +1189,6 @@ func _draw_polygon_wall() -> void:
 
 	draw_colored_polygon(pp, current_wall_color)
 
-	# Subtle depth overlay — bottom-weighted, max 6% dark
 	if wall_texture_enabled:
 		var p2:   PackedVector2Array = PackedVector2Array()
 		var cols: PackedColorArray   = PackedColorArray()
@@ -1176,33 +1199,39 @@ func _draw_polygon_wall() -> void:
 		if _polygon_valid(p2):
 			draw_polygon(p2, cols)
 
-# Wall depth shading — replaces the old hard draw_edges() outlines
+# =============================================================================
+# WALL DEPTH SHADING — improved contact shadow
+# =============================================================================
+
 func _draw_wall_depth_shading() -> void:
 	if not wall_valid: return
 
-	# Soft base contact shadow below the wall
-	var w = wall_max.x - wall_min.x
-	_draw_grad_quad(wall_min.x, ground_y, w, ground_y + 16.0,
-		Color(0.0, 0.0, 0.0, 0.16),
+	# Wide soft contact shadow — extends slightly past wall edges to ground the wall
+	var w          = wall_max.x - wall_min.x
+	var shadow_w   = w + 80.0
+	var shadow_x   = wall_min.x - 40.0
+	_draw_grad_quad(shadow_x, ground_y, shadow_w, ground_y + 32.0,
+		Color(0.0, 0.0, 0.0, 0.24),
 		Color(0.0, 0.0, 0.0, 0.0))
 
-	# Very faint top edge brightening — marks the top of the wall surface
+	# Tight AO strip right at the wall base — crisp seam between wall and ground
+	_draw_grad_quad(wall_min.x, ground_y - 8.0, w, ground_y + 6.0,
+		Color(0.0, 0.0, 0.0, 0.0),
+		Color(0.0, 0.0, 0.0, 0.14))
+
+	# Faint top edge brightening
 	if not use_polygon_mode:
 		_draw_grad_quad(wall_min.x, wall_min.y - 3.0, w, wall_min.y + 6.0,
 			Color(1.0, 1.0, 1.0, 0.08),
 			Color(1.0, 1.0, 1.0, 0.0))
 
-
 # ─── Tonal outlines ───────────────────────────────────────────────────────────
-# Replaces hard black outlines with a darker shade of each surface's own color.
-# Thickness 2 px — reads as depth/form, not a cartoon border.
 
 func _draw_wall_tonal_outline() -> void:
 	if not wall_valid: return
 
-	# Wall outline — darkened by wall_outline_darken, alpha driven by wall_outline_alpha
 	var wc = current_wall_color.darkened(wall_outline_darken)
-	wc.a    = wall_outline_darken * 2.8   # darken=0.25 → alpha≈0.70; darken=0.5 → alpha≈1.0
+	wc.a    = wall_outline_darken * 2.8
 
 	if use_polygon_mode and control_points.size() >= 3:
 		for i in range(control_points.size()):
@@ -1215,16 +1244,15 @@ func _draw_wall_tonal_outline() -> void:
 		var tr2 = Vector2(wall_max.x, wall_min.y)
 		var bl  = Vector2(wall_min.x, wall_max.y)
 		var br  = wall_max
-		draw_line(tl,  tr2, wc, wall_outline_width, true)   # top
-		draw_line(tl,  bl,  wc, wall_outline_width, true)   # left
-		draw_line(tr2, br,  wc, wall_outline_width, true)   # right
-		# Bottom edge blends with ground
+		draw_line(tl,  tr2, wc, wall_outline_width, true)
+		draw_line(tl,  bl,  wc, wall_outline_width, true)
+		draw_line(tr2, br,  wc, wall_outline_width, true)
 		var gc = (_env.get("ground_top", Color(0.22, 0.52, 0.14)) as Color).darkened(wall_outline_darken)
 		gc.a    = wc.a * 0.80
 		draw_line(bl, br, gc, wall_outline_width, true)
 
 # =============================================================================
-# BUILDING FACADE — concrete panels, windows, no hard borders
+# BUILDING FACADE
 # =============================================================================
 
 func _draw_building_facade_wall() -> void:
@@ -1252,7 +1280,6 @@ func _draw_building_facade_wall() -> void:
 	var w = wall_max.x - wall_min.x
 	var h = wall_max.y - wall_min.y
 
-	# Smooth vertical gradient
 	var v_bands = 10
 	for vi in range(v_bands):
 		var t0 = float(vi)     / float(v_bands)
@@ -1263,7 +1290,6 @@ func _draw_building_facade_wall() -> void:
 		var c1 = lite_col.lerp(dark_col, t1 * 0.5)
 		_draw_grad_quad(wall_min.x, y0, w, y1, c0, c1)
 
-	# Panel grooves — thin, low alpha
 	var panel_w = 220.0
 	var panel_h = 160.0
 	var groove   = Color(dark_col.r, dark_col.g, dark_col.b, 0.30)
@@ -1280,7 +1306,6 @@ func _draw_building_facade_wall() -> void:
 			draw_line(Vector2(wall_min.x, hg_y), Vector2(wall_max.x, hg_y), groove, 1.5, true)
 		hg_y += panel_h
 
-	# Windows
 	var win_w  = panel_w * 0.42
 	var win_h2 = panel_h * 0.50
 	var wmx    = (panel_w - win_w) * 0.5
@@ -1316,7 +1341,6 @@ func _draw_building_facade_wall() -> void:
 			if cl.has_area():
 				var wseed = (col_i * 1117 + row_i * 337) ^ _scenery_seed
 				var lit   = _hf(wseed) < lit_prob
-				# Thin frame — no hard rect border, just inset shadow
 				_draw_grad_quad(cl.position.x - 2.0, cl.position.y - 2.0,
 					cl.size.x + 4.0, cl.position.y + 2.0,
 					Color(win_frame.r, win_frame.g, win_frame.b, 0.5),
@@ -1333,12 +1357,10 @@ func _draw_building_facade_wall() -> void:
 		col_i += 1
 		cpx   += panel_w
 
-	# Side rims (structural ribs)
 	var rib_w = 10.0
 	draw_rect(Rect2(wall_min.x,         wall_min.y, rib_w, h), dark_col, true)
 	draw_rect(Rect2(wall_max.x - rib_w, wall_min.y, rib_w, h), dark_col, true)
 
-	# Rain streaks
 	if rb > 0.2:
 		for si in range(int(10.0 * rb)):
 			var sseed  = (_scenery_seed ^ 0xC0DE) + si * 43
@@ -1353,7 +1375,7 @@ func _draw_building_facade_wall() -> void:
 					  Color(0.60, 0.70, 0.88, salp), 1.0, true)
 
 # =============================================================================
-# GROUND
+# GROUND DISPATCH
 # =============================================================================
 
 func _draw_ground() -> void:
@@ -1364,6 +1386,10 @@ func _draw_ground() -> void:
 		"water":      _draw_ground_water()
 		"city_street": _draw_ground_city()
 		_:            _draw_ground_grass()
+
+# =============================================================================
+# GROUND — GRASS (full 3D recession)
+# =============================================================================
 
 func _draw_ground_grass() -> void:
 	var left  = wall_min.x - BACKGROUND_EXPANSION
@@ -1378,29 +1404,58 @@ func _draw_ground_grass() -> void:
 	cm = cm.lerp(Color(0.20, 0.16, 0.10), rb * 0.40)
 	cd = cd.lerp(Color(0.14, 0.12, 0.08), rb * 0.30)
 
-	# Deep fill
-	draw_rect(Rect2(Vector2(left, ground_y + 10.0), Vector2(width, 99999.0)), cd, true)
+	# ── Deep base fill ────────────────────────────────────────────────────────
+	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
 
-	# Mid-ground gradient
-	_draw_grad_quad(left, ground_y, width, ground_y + 36.0, cm, cd)
+	# ── Ground plane: 3 recession bands ──────────────────────────────────────
+	# Horizon band (far): lightest — aerial perspective pushes distant ground toward sky
+	var close_h = 38.0   # thin bright strip at horizon
+	var mid_h   = 90.0   # mid-recession
+	var near_h  = 240.0  # camera-near, darkest
 
-	# Single smooth hill silhouette — one clean pass
+	_draw_grad_quad(left, ground_y,                    width, ground_y + close_h,
+		ct.lightened(0.06), ct)
+	_draw_grad_quad(left, ground_y + close_h,          width, ground_y + close_h + mid_h,
+		ct, cm)
+	_draw_grad_quad(left, ground_y + close_h + mid_h,  width, ground_y + close_h + mid_h + near_h,
+		cm, cd)
+
+	# ── Hill silhouette (micro undulation at horizon line) ────────────────────
 	var segs      = 80
 	var step      = width / float(segs)
 	var hill_seed = _scenery_seed ^ 0x6A55
 	var pts       = PackedVector2Array()
-	pts.append(Vector2(left, ground_y + 40.0))
+	pts.append(Vector2(left, ground_y + close_h + 6.0))
 	for i in range(segs + 1):
 		var gx = left + float(i) * step
-		var h0 = _hf(hill_seed + (i - 1) * 11) * 10.0
-		var h1 = _hf(hill_seed + i       * 11) * 10.0
-		var h2 = _hf(hill_seed + (i + 1) * 11) * 10.0
+		var h0 = _hf(hill_seed + (i - 1) * 11) * 7.0
+		var h1 = _hf(hill_seed + i       * 11) * 7.0
+		var h2 = _hf(hill_seed + (i + 1) * 11) * 7.0
 		pts.append(Vector2(gx, ground_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2)))
-	pts.append(Vector2(right, ground_y + 40.0))
+	pts.append(Vector2(right, ground_y + close_h + 6.0))
 	if _polygon_valid(pts):
 		draw_colored_polygon(pts, ct)
 
-	# Tonal horizon line — darker shade of grass
+	# ── Atmospheric haze on horizon ground strip (aerial perspective) ─────────
+	var sky_h: Color = _env.get("sky_horizon", background_color.lightened(0.15))
+	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
+	_draw_grad_quad(left, ground_y - 2.0, width, ground_y + 30.0,
+		Color(sky_h.r, sky_h.g, sky_h.b, 0.40 * (1.0 - rb * 0.5)),
+		Color(sky_h.r, sky_h.g, sky_h.b, 0.0))
+
+	# ── Perspective texture lines (foreshortened — dense near horizon) ────────
+	# Spacing increases as lines approach camera = reads as a 3D plane receding
+	var line_col = cd.darkened(0.18)
+	var offsets: Array = [4.0, 10.0, 19.0, 32.0, 50.0, 74.0, 106.0, 148.0, 202.0, 270.0]
+	var alphas:  Array = [0.22, 0.20, 0.18, 0.16, 0.14, 0.12, 0.10,  0.08,  0.06,  0.04]
+	var lwidths: Array = [0.6,  0.7,  0.75, 0.8,  0.9,  1.0,  1.1,   1.2,   1.3,   1.4]
+	for i in range(offsets.size()):
+		var ly = ground_y + offsets[i]
+		draw_line(Vector2(left, ly), Vector2(right, ly),
+				  Color(line_col.r, line_col.g, line_col.b, alphas[i] * (1.0 - rb * 0.4)),
+				  lwidths[i], true)
+
+	# ── Tonal horizon line ────────────────────────────────────────────────────
 	var hc = ct.darkened(wall_outline_darken)
 	hc.a = minf(wall_outline_darken * 2.6, 1.0)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), hc, wall_outline_width, true)
@@ -1429,6 +1484,10 @@ func _draw_ground_puddles(left: float, right: float, blend: float) -> void:
 		draw_line(Vector2(px - pw * 0.3, ground_y + 1.0),
 				  Vector2(px + pw * 0.3, ground_y + 1.0), reflect, 1.2, true)
 
+# =============================================================================
+# GROUND — GYM FLOOR (polished with perspective tiles)
+# =============================================================================
+
 func _draw_ground_gym() -> void:
 	var left  = wall_min.x - BACKGROUND_EXPANSION
 	var right = wall_max.x + BACKGROUND_EXPANSION
@@ -1436,24 +1495,41 @@ func _draw_ground_gym() -> void:
 	var ct: Color = _env.get("ground_top",  Color(0.22, 0.22, 0.24))
 	var cd: Color = _env.get("ground_deep", Color(0.11, 0.11, 0.12))
 
-	# Flat base
+	# Base fill
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), ct, true)
 
-	# Soft sheen at the top of the floor
-	_draw_grad_quad(left, ground_y, width, ground_y + 24.0, ct.lightened(0.07), ct)
+	# Recession gradient — floor gets darker away from wall
+	_draw_grad_quad(left, ground_y, width, ground_y + 280.0, ct.lightened(0.05), cd)
 
-	# Faint tile seams — very low alpha
+	# Specular sheen right at horizon — polished floor catching ceiling light
+	_draw_grad_quad(left, ground_y, width, ground_y + 20.0,
+		Color(1.0, 1.0, 1.0, 0.10),
+		Color(1.0, 1.0, 1.0, 0.0))
+
+	# Perspective horizontal tile lines (foreshortened)
+	var offsets: Array = [5.0, 13.0, 25.0, 42.0, 65.0, 96.0, 138.0, 194.0, 268.0]
+	var alphas:  Array = [0.20, 0.18, 0.15, 0.13, 0.11, 0.09, 0.07,  0.05,  0.04]
+	for i in range(offsets.size()):
+		var ty = ground_y + offsets[i]
+		draw_line(Vector2(left, ty), Vector2(right, ty),
+				  Color(cd.r, cd.g, cd.b, alphas[i]), 0.8, true)
+
+	# Vertical tile seams (uniform spacing — don't foreshorten laterally)
 	var tile_w     = 200.0
 	var tile_count = int(ceil(width / tile_w)) + 1
 	for ti in range(tile_count):
 		var tx = left + float(ti) * tile_w
-		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y + 30.0),
-				  Color(cd.r, cd.g, cd.b, 0.25), 1.0, true)
+		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y + 38.0),
+				  Color(cd.r, cd.g, cd.b, 0.20), 0.8, true)
 
 	# Tonal floor edge
 	var fc = ct.darkened(wall_outline_darken)
 	fc.a = minf(wall_outline_darken * 2.4, 1.0)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), fc, wall_outline_width, true)
+
+# =============================================================================
+# GROUND — CITY STREET (asphalt with perspective and wet reflections)
+# =============================================================================
 
 func _draw_ground_city() -> void:
 	var left  = wall_min.x - BACKGROUND_EXPANSION
@@ -1470,22 +1546,49 @@ func _draw_ground_city() -> void:
 	ct = ct.lerp(Color(0.16, 0.18, 0.20), rb * 0.45)
 
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
-	_draw_grad_quad(left, ground_y, width, ground_y + 28.0, ct, cd)
+
+	# Recession gradient
+	_draw_grad_quad(left, ground_y, width, ground_y + 220.0, ct.lightened(0.04), cd)
+
+	# Atmospheric haze at street horizon
+	var sky_h: Color = _env.get("sky_horizon", background_color)
+	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
+	_draw_grad_quad(left, ground_y, width, ground_y + 22.0,
+		Color(sky_h.r, sky_h.g, sky_h.b, 0.25 * (1.0 - rb * 0.4)),
+		Color(sky_h.r, sky_h.g, sky_h.b, 0.0))
+
+	# Perspective pavement lines
+	var offsets: Array = [4.0, 11.0, 22.0, 37.0, 57.0, 84.0, 120.0, 168.0]
+	var alphas:  Array = [0.20, 0.17, 0.14, 0.12, 0.10, 0.08, 0.06,  0.05]
+	for i in range(offsets.size()):
+		draw_line(Vector2(left, ground_y + offsets[i]),
+				  Vector2(right, ground_y + offsets[i]),
+				  Color(cd.r, cd.g, cd.b, alphas[i]), 0.9, true)
 
 	# Tonal curb line
 	var cc = ct.darkened(wall_outline_darken)
 	cc.a = minf(wall_outline_darken * 2.4, 1.0)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), cc, wall_outline_width, true)
 
-	# Faint lane dashes
-	var stripe_c = Color(0.55, 0.52, 0.22, 0.15 if tod == 0 else 0.24)
+	# Road lane dashes (wet = brighter reflection)
+	var stripe_alpha = 0.15 if tod == 0 else 0.24
+	stripe_alpha = lerp(stripe_alpha, stripe_alpha * 1.6, rb * 0.5)
 	var ssx = floor(left / 150.0) * 150.0
 	while ssx < right:
-		draw_rect(Rect2(ssx, ground_y + 14.0, 22.0, 2.0), stripe_c, true)
+		draw_rect(Rect2(ssx, ground_y + 14.0, 22.0, 2.0),
+				  Color(0.55, 0.52, 0.22, stripe_alpha), true)
+		# Wet puddle reflection of dash
+		if rb > 0.2:
+			draw_rect(Rect2(ssx, ground_y + 8.0, 22.0, 5.0),
+					  Color(0.65, 0.68, 0.75, rb * 0.20), true)
 		ssx += 150.0
 
 	if rb > 0.1:
 		_draw_ground_puddles(left, right, rb)
+
+# =============================================================================
+# GROUND — WATER
+# =============================================================================
 
 func _draw_ground_water() -> void:
 	var left  = wall_min.x - BACKGROUND_EXPANSION
@@ -1521,7 +1624,6 @@ func _draw_water_surface() -> void:
 	var width = br - bl
 	var t     = _water_time
 
-	# Depth gradient
 	var depth_layers = 8
 	for di in range(depth_layers):
 		var t0 = float(di)     / float(depth_layers)
@@ -1530,7 +1632,6 @@ func _draw_water_surface() -> void:
 			Color(0.02, 0.22, 0.50, lerp(0.55, 0.0, t0)),
 			Color(0.01, 0.10, 0.28, lerp(0.55, 0.0, t1)))
 
-	# Caustic glints
 	for ci in range(6):
 		var cseed = (_scenery_seed ^ 0x4C00) + ci * 29
 		var cx    = bl + _hf(cseed) * width
@@ -1541,7 +1642,6 @@ func _draw_water_surface() -> void:
 		var drift = sin(t * (0.3 + _hf(cseed + 5) * 0.4) + float(ci)) * 20.0
 		_draw_oval(cx + drift, cy, cw2, cw2 * 0.3, Color(0.4, 0.75, 1.0, alpha))
 
-	# Wave polygons
 	var segs = 120
 	var step = width / float(segs)
 	for wi in range(4):
@@ -1568,7 +1668,6 @@ func _draw_water_surface() -> void:
 		if _polygon_valid(pts):
 			draw_colored_polygon(pts, wcol)
 
-	# Specular highlights
 	var spec_segs = 80
 	var spec_step = width / float(spec_segs)
 	for si in range(spec_segs):
@@ -1580,7 +1679,6 @@ func _draw_water_surface() -> void:
 			draw_circle(Vector2(sx, sy), 3.0 + sin(float(si) * 2.1) * 1.4,
 						Color(0.92, 0.97, 1.0, spec_a))
 
-	# Foam
 	var foam_segs = 70
 	var fstep     = width / float(foam_segs)
 	for fi in range(foam_segs):
@@ -1765,7 +1863,7 @@ func draw_granite_texture() -> void:
 					  Color(0.45, 0.43, 0.4, 0.22), 1.5)
 
 # =============================================================================
-# EDITOR OVERLAYS — only shown in editor, never in-game
+# EDITOR OVERLAYS
 # =============================================================================
 
 func _draw_edge_highlights() -> void:
@@ -1815,11 +1913,16 @@ func _draw_control_points() -> void:
 # =============================================================================
 
 func calculate_bounds_from_holds(holds_container: Node2D) -> void:
+	print("calculate_bounds_from_holds called — holds: ", holds_container.get_child_count() if holds_container else "NULL CONTAINER")
 	if not holds_container or holds_container.get_child_count() == 0:
-		wall_valid = false; queue_redraw(); return
+		print("WARNING: no holds in container, wall_valid stays false")
+		wall_valid = false
+		queue_redraw()
+		return
 	var mn_x = INF; var mx_x = -INF; var mn_y = INF; var mx_y = -INF
 	for hold in holds_container.get_children():
-		if not hold is Node2D: continue
+		if not hold is Node2D:
+			continue
 		var pos = hold.global_position
 		mn_x = min(mn_x, pos.x); mx_x = max(mx_x, pos.x)
 		mn_y = min(mn_y, pos.y); mx_y = max(mx_y, pos.y)
@@ -1827,6 +1930,7 @@ func calculate_bounds_from_holds(holds_container: Node2D) -> void:
 	wall_max  = Vector2(mx_x + WALL_PADDING_SIDES, mx_y + WALL_PADDING_BOTTOM)
 	wall_valid = true
 	ground_y   = wall_max.y
+	print("calculate_bounds_from_holds DONE — wall_min: ", wall_min, " wall_max: ", wall_max, " ground_y: ", ground_y)
 	if control_points.is_empty():
 		control_points = [wall_min, Vector2(wall_max.x, wall_min.y),
 						  Vector2(wall_max.x, wall_max.y), Vector2(wall_min.x, wall_max.y)]
@@ -1836,8 +1940,10 @@ func calculate_bounds_from_holds(holds_container: Node2D) -> void:
 			control_points[ground_left_index].y  = ground_y
 		if ground_right_index >= 0 and ground_right_index < control_points.size():
 			control_points[ground_right_index].y = ground_y
-	if not top_edge_indices.is_empty(): _create_top_edge_holds()
-	if weather_modifier: weather_modifier._wall_ref = self
+	if not top_edge_indices.is_empty():
+		_create_top_edge_holds()
+	if weather_modifier:
+		weather_modifier._wall_ref = self
 	_init_clouds()
 	queue_redraw()
 
@@ -2098,7 +2204,7 @@ func _draw_grad_quad_h(x0: float, y0: float, x1: float, y1: float,
 	draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c_left, c_right, c_right]))
 	draw_polygon(PackedVector2Array([tl, br2, bl]),  PackedColorArray([c_left, c_right, c_left]))
 
-## Polygon validity guard — prevents Godot triangulator crash on degenerate polygons
+## Polygon validity guard
 func _polygon_valid(pts: PackedVector2Array) -> bool:
 	if pts.size() < 3: return false
 	for i in range(pts.size()):

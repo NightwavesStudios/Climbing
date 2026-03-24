@@ -156,44 +156,42 @@ const DEFAULT_CONFIG = {
 
 func _ready():
 	name = "HoldRegistry"
-	discover_holds()
+	_register_all_holds()
 
 # =============================================================================
 # AUTO-DISCOVERY
 # =============================================================================
-func discover_holds():
-	"""Automatically find all .tscn files in the holds folder"""
+func _register_all_holds() -> void:
 	hold_scenes.clear()
 	hold_metadata.clear()
-
-	var dir = DirAccess.open(HOLD_FOLDER)
-	if not dir:
-		push_error("Cannot open holds folder: " + HOLD_FOLDER)
-		return
-
-	dir.list_dir_begin()
-	var file_name = dir.get_next()
-
-	while file_name != "":
-		if not dir.current_is_dir() and file_name.ends_with(".tscn"):
-			var hold_path = HOLD_FOLDER + file_name
-			var hold_type = _extract_type_from_filename(file_name)
-
-			if ResourceLoader.exists(hold_path):
-				hold_scenes[hold_type] = load(hold_path)
-				var config = get_hold_config(hold_type)
-				hold_metadata[hold_type] = {
-					"path": hold_path,
-					"filename": file_name,
-					"display_name": config.get("display_name", "") if config.get("display_name", "") != "" else _format_display_name(hold_type),
-					"config": config
-				}
-				print("✓ Registered hold: ", hold_type, " -> ", file_name)
-
-		file_name = dir.get_next()
-
-	dir.list_dir_end()
-
+	
+	var holds_to_register = {
+		"JUG":    "res://scenes/holds/jug.tscn",
+		"START":  "res://scenes/holds/start.tscn",
+		"TOP":    "res://scenes/holds/top_out.tscn",
+		"CRIMP":  "res://scenes/holds/crimp.tscn",
+		"SLOPER": "res://scenes/holds/sloper.tscn",
+		"POCKET": "res://scenes/holds/pocket.tscn",
+		"FOOT":   "res://scenes/holds/foothold.tscn",
+		"WINDOW": "res://scenes/holds/window.tscn",
+		"LEDGE":  "res://scenes/holds/ledge.tscn",
+	}
+	
+	for hold_type in holds_to_register:
+		var hold_path = holds_to_register[hold_type]
+		if ResourceLoader.exists(hold_path):
+			hold_scenes[hold_type] = load(hold_path)
+			var config = get_hold_config(hold_type)
+			hold_metadata[hold_type] = {
+				"path": hold_path,
+				"filename": hold_path.get_file(),
+				"display_name": config.get("display_name", _format_display_name(hold_type)),
+				"config": config
+			}
+			print("✓ Registered hold: ", hold_type, " -> ", hold_path.get_file())
+		else:
+			push_error("Hold scene not found: " + hold_path)
+	
 	print("\n═══════════════════════════════════════")
 	print("HoldRegistry: ", hold_scenes.size(), " holds registered")
 	print("═══════════════════════════════════════\n")
@@ -289,4 +287,4 @@ func get_hold_count() -> int:
 
 func refresh():
 	"""Re-scan holds folder (call after adding new holds at runtime)"""
-	discover_holds()
+	_register_all_holds()

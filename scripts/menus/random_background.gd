@@ -61,8 +61,20 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# is_instance_valid() returns false for queue_free()'d nodes,
+	# unlike != null which stays true for one extra frame.
+	# Bail out completely if the wall node is gone or not yet assigned.
+	if not is_instance_valid(_wall):
+		return
+
 	# ── Wait for the wall script to be fully initialised ──────────────────
-	if not _wall_ready and _wall != null and _wall.get_script() != null:
+	if not _wall_ready and _wall.get_script() != null:
+		# Extra safety: make sure the wall's own _is_ready flag is set
+		# before we try to configure it. DynamicWall sets _is_ready = true
+		# synchronously in _ready(), so this guards against the one frame
+		# where the node exists but _ready() hasn't run yet.
+		if not _wall.get("_is_ready"):
+			return
 		_configure_wall()
 		_wall_ready = true
 		if fade_in_duration > 0.0:
@@ -126,6 +138,10 @@ func _configure_wall() -> void:
 	_wall.wall_outline_width  = 0.0
 	_wall.wall_outline_darken = 0.0
 
+	# Mark this wall so DynamicWall.update_environment_settings()
+	# skips the environment broadcast (background walls manage their own theme).
+	_wall.set_meta("is_background_wall", true)
+
 	_wall._apply_environment_theme()
 	_wall._init_clouds()
 	_wall.queue_redraw()
@@ -175,12 +191,16 @@ func _fade_in(duration: float) -> void:
 
 ## Force a new random environment and rebuild the background at runtime.
 func rerandomize() -> void:
-	_randomize_environment()
-	if _wall != null:
-		_wall.queue_free()
-	_wall        = null
+	# Reset state flags FIRST, before freeing, so _process cannot
+	# enter the parallax block with a stale _wall_ready = true.
 	_wall_ready  = false
 	_weather_set = false
+
+	if is_instance_valid(_wall):
+		_wall.queue_free()
+	_wall = null   # null immediately — is_instance_valid() will catch the freed node
+				   # for any _process call that sneaks in this frame
+
 	modulate = Color(1, 1, 1, 0) if fade_in_duration > 0.0 else Color(1, 1, 1, 1)
 	_setup_background_wall()
 
@@ -195,7 +215,7 @@ func set_environment(env_name: String) -> void:
 
 ## Force a specific weather type directly.
 func set_weather(type: WeatherType, intensity: float = 1.0) -> void:
-	if _wall == null:
+	if not is_instance_valid(_wall):
 		return
 	var wm: Node = _wall.get_node_or_null("WeatherModifier")
 	if wm == null:

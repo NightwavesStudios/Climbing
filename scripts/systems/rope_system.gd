@@ -29,7 +29,7 @@ var fall_vel      : float = 0.0
 
 signal player_caught
 
-# ── Belayer body constants (scaled up ~25%) ───────────────────────────────
+# ── Belayer body constants ────────────────────────────────────────────────
 const LEG_UPPER_LENGTH      := 38.0
 const LEG_LOWER_LENGTH      := 35.0
 const HIP_DOWN              := 22.0
@@ -53,6 +53,18 @@ const FACING_LERP_SPEED  := 5.0
 var belayer_lean : float = 0.0
 const LEAN_ATTACK := 10.0
 const LEAN_DECAY  := 2.5
+
+# ── Improved animation state ───────────────────────────────────────────────
+var anim_breath_phase  : float = 0.0   # idle breathing cycle
+var anim_sway_phase    : float = 0.0   # idle weight-shift sway
+var anim_catch_shake   : float = 0.0   # impact shake on catch (decays)
+var anim_catch_shake_x : float = 0.0   # horizontal component of catch shake
+var anim_held_sway     : float = 0.0   # gentle sway while holding
+var anim_head_tilt     : float = 0.0   # head looks toward climber
+const BREATH_SPEED     := 1.1
+const SWAY_SPEED       := 0.55
+const HELD_SWAY_SPEED  := 0.8
+const CATCH_SHAKE_DECAY := 8.0
 
 # ── Lowering animation ─────────────────────────────────────────────────────
 var lower_anim_phase : float = 0.0
@@ -196,10 +208,13 @@ func _update_catch(delta: float):
 			fall_vel    = player.com_velocity.y
 
 			if fallen >= rope_stretch_distance * 0.5 and fall_vel >= fall_trigger_velocity:
-				catch_state  = CatchState.STRETCHING
-				taut_y       = player.com_position.y
-				fall_vel     = player.com_velocity.y
-				belayer_lean = 1.0
+				catch_state      = CatchState.STRETCHING
+				taut_y           = player.com_position.y
+				fall_vel         = player.com_velocity.y
+				belayer_lean     = 1.0
+				# Trigger catch shake — intensity scales with fall velocity
+				anim_catch_shake   = clamp(fall_vel / 300.0, 0.4, 1.0)
+				anim_catch_shake_x = randf_range(-0.5, 0.5)
 				emit_signal("player_caught")
 
 			if _has_hand_hold():
@@ -234,7 +249,7 @@ func _update_catch(delta: float):
 			player.global_position = player.com_position + Vector2(0, -player.COM_OFFSET_Y)
 
 # ═══════════════════════════════════════════════════════════════════════════
-## Belayer animation — lean, facing, lowering phase
+## Belayer animation — lean, facing, lowering phase, breathing, sway, shake
 # ═══════════════════════════════════════════════════════════════════════════
 
 func update_belayer_animation(delta: float):
@@ -242,6 +257,34 @@ func update_belayer_animation(delta: float):
 	var lean_target := 1.0 if catch_state in [CatchState.STRETCHING, CatchState.HELD] else 0.0
 	belayer_lean = move_toward(belayer_lean, lean_target,
 		(LEAN_ATTACK if lean_target > belayer_lean else LEAN_DECAY) * delta)
+
+	# ── Breathing (always active, subtle in non-idle) ──────────────────────────
+	var breath_speed_mult := 1.0 if catch_state == CatchState.IDLE else 1.6  # breathe faster when stressed
+	anim_breath_phase = fmod(anim_breath_phase + BREATH_SPEED * breath_speed_mult * delta, TAU)
+
+	# ── Idle weight-shift sway ────────────────────────────────────────────────
+	if catch_state == CatchState.IDLE:
+		anim_sway_phase = fmod(anim_sway_phase + SWAY_SPEED * delta, TAU)
+	else:
+		# Sway freezes / decelerates when actively catching
+		anim_sway_phase = lerp(anim_sway_phase, 0.0, 3.0 * delta)
+
+	# ── Catch impact shake (decays exponentially) ──────────────────────────────
+	anim_catch_shake = move_toward(anim_catch_shake, 0.0, CATCH_SHAKE_DECAY * anim_catch_shake * delta + 0.5 * delta)
+
+	# ── Held gentle sway ──────────────────────────────────────────────────────
+	if catch_state == CatchState.HELD:
+		anim_held_sway = fmod(anim_held_sway + HELD_SWAY_SPEED * delta, TAU)
+	else:
+		anim_held_sway = lerp(anim_held_sway, 0.0, 4.0 * delta)
+
+	# ── Head tilt — look up toward anchor/climber ──────────────────────────────
+	if is_instance_valid(player):
+		var chest    := get_player_chest_position()
+		var to_climb := chest - belayer_position
+		var tilt_t   = clamp(-to_climb.y / 400.0, 0.0, 1.0)  # more upward = more tilt
+		var tilt_target = tilt_t * 0.35  # max ~20 deg effective tilt
+		anim_head_tilt = lerp(anim_head_tilt, tilt_target, 3.0 * delta)
 
 	# ── Idle slack bursts ─────────────────────────────────────────────────────
 	if catch_state == CatchState.IDLE:
@@ -277,13 +320,20 @@ func update_belayer_animation(delta: float):
 		lower_anim_phase = lerp(lower_anim_phase, 0.0, 5.0 * delta)
 
 # ═══════════════════════════════════════════════════════════════════════════
-## Belayer joints
+## Belayer joints — longer arms, proper proportions
 # ═══════════════════════════════════════════════════════════════════════════
 
 func update_belayer_joints():
 	var sm     := belayer_facing
-	var lean_y := -belayer_lean * 8.0
-	var b      := belayer_position + Vector2(0, lean_y)
+	# Compose all animation offsets into the base position
+	var breath_y    := sin(anim_breath_phase) * 1.2
+	var sway_x      := sin(anim_sway_phase) * 2.5
+	var shake_x     := sin(anim_catch_shake * TAU * 8.0) * anim_catch_shake * 5.0 * anim_catch_shake_x
+	var shake_y     = abs(sin(anim_catch_shake * TAU * 8.0)) * anim_catch_shake * 3.0
+	var held_sway_x := sin(anim_held_sway) * 1.8
+
+	var lean_y := -belayer_lean * 10.0   # slightly more dramatic lean
+	var b      := belayer_position + Vector2(sway_x + shake_x + held_sway_x, lean_y + breath_y + shake_y)
 	var b_base := belayer_position
 
 	var near_shoulder := b      + Vector2( sm * 10.0, 0.0)
@@ -291,34 +341,42 @@ func update_belayer_joints():
 	var near_hip      := b_base + Vector2( sm *  8.0, HIP_DOWN)
 	var far_hip       := b_base + Vector2(-sm *  8.0, HIP_DOWN)
 
-	# ── Guide hand ───────────────────────────────────────────────────────────
+	# ── Guide hand (rope hand, near side) — LONGER ARM ────────────────────────
+	# Elbow extends further out; wrist and hand reach up toward the anchor
 	var lower_guide_y := 0.0
 	var lower_guide_x := 0.0
 	if lower_anim_phase > 0.005:
 		var cycle     := sin(lower_anim_phase * TAU)
-		lower_guide_y  = cycle * 20.0
-		lower_guide_x  = abs(cycle) * sm * 5.0
+		lower_guide_y  = cycle * 22.0
+		lower_guide_x  = abs(cycle) * sm * 6.0
 
-	var pull_offset    := Vector2(lower_guide_x, guide_hand_pull + lower_guide_y)
-	b_right_hand_joint  = near_shoulder + Vector2( sm * 10.0, -10.0) + pull_offset * 0.4
-	b_right_hand        = near_shoulder + Vector2( sm * 14.0, -26.0) + pull_offset
+	var pull_offset         := Vector2(lower_guide_x, guide_hand_pull + lower_guide_y)
+	# Joint (elbow) — further from shoulder, angled toward anchor
+	b_right_hand_joint  = near_shoulder + Vector2( sm * 18.0, -8.0) + pull_offset * 0.35
+	# Hand — extended further still, reaching toward rope above
+	b_right_hand        = near_shoulder + Vector2( sm * 30.0, -28.0) + pull_offset
 
-	# ── Brake hand ───────────────────────────────────────────────────────────
+	# ── Brake hand (far side) — LONGER ARM ────────────────────────────────────
 	var lower_brake_y := 0.0
 	if lower_anim_phase > 0.005:
 		var brake_cycle := sin(lower_anim_phase * TAU + PI)
-		lower_brake_y    = brake_cycle * 11.0
+		lower_brake_y    = brake_cycle * 12.0
 
-	var brake_pull := belayer_lean * 18.0 + lower_brake_y
-	b_left_hand_joint  = far_shoulder + Vector2(-sm * 6.0, 14.0 + brake_pull * 0.4)
-	b_left_hand        = far_shoulder + Vector2(-sm * 8.0, 28.0 + brake_pull)
+	var brake_pull := belayer_lean * 22.0 + lower_brake_y
+	# Joint (elbow) — swings back and down for brake position
+	b_left_hand_joint  = far_shoulder + Vector2(-sm * 14.0, 10.0 + brake_pull * 0.35)
+	# Hand — extends further down and back (brake device position)
+	b_left_hand        = far_shoulder + Vector2(-sm * 22.0, 30.0 + brake_pull)
 
 	# ── Feet ──────────────────────────────────────────────────────────────────
 	var lr := deg_to_rad(LEG_NATURAL_SPLAY_DEG)
-	b_right_foot_joint = near_hip + Vector2( sm * LEG_UPPER_LENGTH * sin(lr),        LEG_UPPER_LENGTH * cos(lr))
-	b_right_foot       = b_right_foot_joint + Vector2(0, LEG_LOWER_LENGTH)
-	b_left_foot_joint  = far_hip  + Vector2(-sm * LEG_UPPER_LENGTH * sin(lr) * 0.7,  LEG_UPPER_LENGTH * cos(lr))
-	b_left_foot        = b_left_foot_joint  + Vector2(0, LEG_LOWER_LENGTH)
+	# Apply a subtle foot weight-shift driven by sway
+	var sway_lean_r := sin(anim_sway_phase) * 0.06
+	var sway_lean_l := sin(anim_sway_phase + PI) * 0.04
+	b_right_foot_joint = near_hip + Vector2( sm * LEG_UPPER_LENGTH * sin(lr + sway_lean_r),        LEG_UPPER_LENGTH * cos(lr + sway_lean_r))
+	b_right_foot       = b_right_foot_joint + Vector2( sm * 4.0, LEG_LOWER_LENGTH)
+	b_left_foot_joint  = far_hip  + Vector2(-sm * LEG_UPPER_LENGTH * sin(lr + sway_lean_l) * 0.7,  LEG_UPPER_LENGTH * cos(lr + sway_lean_l))
+	b_left_foot        = b_left_foot_joint  + Vector2(-sm * 2.0, LEG_LOWER_LENGTH)
 
 
 func get_belayer_guide_hand_world() -> Vector2:
@@ -482,23 +540,30 @@ func _belayer_outline_color(col: Color) -> Color:
 
 
 func _draw_belayer_figure():
-	# ── Palette — matches character.gd exactly ────────────────────────────────
-	var skin_color    := Color("#C68642")
-	var shirt_color   := Color("#2E4A6B")
-	var pants_color   := Color("#1A1A2E")
-	var shoe_color    := Color("#d89418ff")
-	var harness_color := Color("#E8A020")
+	# ── Palette ────────────────────────────────────────────────────────────────
+	var skin_color  := Color("#C68642")
+	var shirt_color := Color("#2E4A6B")
+	var pants_color := Color("#1A1A2E")
+	var shoe_color  := Color("#d89418ff")
 
-	const OW := 5.5   # outline extra width, matching character.gd figure_outline_width
+	const OW := 5.5   # outline extra width
 
 	var sm := belayer_facing
 
 	# ── Local body landmarks ──────────────────────────────────────────────────
-	var lean_y      := -belayer_lean * 8.0
-	var b           := to_local(belayer_position + Vector2(0, lean_y))
+	var breath_y    := sin(anim_breath_phase) * 1.2
+	var sway_x      := sin(anim_sway_phase) * 2.5
+	var shake_x     := sin(anim_catch_shake * TAU * 8.0) * anim_catch_shake * 5.0 * anim_catch_shake_x
+	var shake_y     = abs(sin(anim_catch_shake * TAU * 8.0)) * anim_catch_shake * 3.0
+	var held_sway_x := sin(anim_held_sway) * 1.8
+
+	var lean_y      := -belayer_lean * 10.0
+	var b           := to_local(belayer_position + Vector2(sway_x + shake_x + held_sway_x, lean_y + breath_y + shake_y))
 	var b_base      := to_local(belayer_position)
 
-	var head_center := b      + Vector2(0, HEAD_OFFSET)
+	# Head tilts upward when looking at climber
+	var head_tilt_y := -anim_head_tilt * 8.0
+	var head_center := b      + Vector2(sm * anim_head_tilt * 4.0, HEAD_OFFSET + head_tilt_y)
 	var neck        := b      + Vector2(0, HEAD_OFFSET + 16.0)
 	var hips        := b_base + Vector2(0, HIP_DOWN)
 
@@ -516,7 +581,7 @@ func _draw_belayer_figure():
 	var rfj := to_local(b_right_foot_joint)
 	var rf  := to_local(b_right_foot)
 
-	# Sleeve transition points — matches character.gd's left_sl / right_sl (0.35 lerp)
+	# Sleeve transition points (0.35 lerp from shoulder to elbow)
 	var near_sl := near_shoulder.lerp(rhj, 0.35)
 	var far_sl  := far_shoulder.lerp(lhj, 0.35)
 
@@ -527,53 +592,51 @@ func _draw_belayer_figure():
 		guide_bright = clamp(sin(lower_anim_phase * TAU),       0.0, 1.0)
 		brake_bright = clamp(sin(lower_anim_phase * TAU + PI),  0.0, 1.0)
 
-	var rope_hand_color  := skin_color.lerp(harness_color, guide_bright * 0.55)
-	var brake_hand_color := skin_color.lerp(harness_color, brake_bright * 0.55)
+	var rope_hand_color  := skin_color.lerp(Color("#E8A020"), guide_bright * 0.55)
+	var brake_hand_color := skin_color.lerp(Color("#E8A020"), brake_bright * 0.55)
 
 	# Pre-compute tonal outline colors
-	var oc_pants   := _belayer_outline_color(pants_color)
-	var oc_shoe    := _belayer_outline_color(shoe_color)
-	var oc_shirt   := _belayer_outline_color(shirt_color)
-	var oc_harness := _belayer_outline_color(harness_color)
-	var oc_skin    := _belayer_outline_color(skin_color)
+	var oc_pants  := _belayer_outline_color(pants_color)
+	var oc_shoe   := _belayer_outline_color(shoe_color)
+	var oc_shirt  := _belayer_outline_color(shirt_color)
+	var oc_skin   := _belayer_outline_color(skin_color)
 
 	# ══════════════════════════════════════════════════════════════════════════
 	# PASS 1 — tonal outline (behind fill)
 	# ══════════════════════════════════════════════════════════════════════════
 
-	# Far leg
-	draw_line(far_hip,  lfj, oc_pants, 12.0 + OW)
-	draw_circle(lfj, 5.0 + OW * 0.5, oc_pants)
-	draw_line(lfj,      lf,  oc_pants, 11.0 + OW)
-	draw_circle(lf,  9.0 + OW * 0.5, oc_shoe)
+	# Far leg — thinner: 8.0 / 8.0 (was 12/11)
+	draw_line(far_hip,  lfj, oc_pants, 8.0 + OW)
+	draw_circle(lfj, 4.0 + OW * 0.5, oc_pants)
+	draw_line(lfj,      lf,  oc_pants, 8.0 + OW)
+	draw_circle(lf,  8.0 + OW * 0.5, oc_shoe)
 
-	# Near leg
-	draw_line(near_hip, rfj, oc_pants, 12.0 + OW)
-	draw_circle(rfj, 5.0 + OW * 0.5, oc_pants)
-	draw_line(rfj,      rf,  oc_pants, 11.0 + OW)
-	draw_circle(rf,  9.0 + OW * 0.5, oc_shoe)
+	# Near leg — thinner: 8.0 / 8.0
+	draw_line(near_hip, rfj, oc_pants, 8.0 + OW)
+	draw_circle(rfj, 4.0 + OW * 0.5, oc_pants)
+	draw_line(rfj,      rf,  oc_pants, 8.0 + OW)
+	draw_circle(rf,  8.0 + OW * 0.5, oc_shoe)
 
-	# Torso — hip span + harness strip + shirt body
-	draw_line(far_hip,  near_hip,        oc_pants,   17.0 + OW)
-	draw_line(far_hip,  near_hip,        oc_harness,  4.0 + OW * 0.5)
-	draw_line(hips,     b,               oc_shirt,   19.0 + OW)
-	draw_line(b,        neck,            oc_shirt,   17.0 + OW)
+	# Torso — hip span + shirt body (NO harness strip)
+	draw_line(far_hip,  near_hip,        oc_pants,  14.0 + OW)
+	draw_line(hips,     b,               oc_shirt,  16.0 + OW)
+	draw_line(b,        neck,            oc_shirt,  14.0 + OW)
 
-	# Far arm (brake hand) — shirt sleeve → skin forearm
+	# Far arm (brake hand)
 	draw_circle(far_shoulder,  5.0 + OW * 0.5, oc_shirt)
-	draw_line(far_shoulder,  far_sl,  oc_shirt, 12.0 + OW)
-	draw_line(far_sl,        lhj,     oc_skin,  12.0 + OW)
+	draw_line(far_shoulder,  far_sl,  oc_shirt, 10.0 + OW)
+	draw_line(far_sl,        lhj,     oc_skin,  10.0 + OW)
 	draw_circle(lhj, 5.0 + OW * 0.5, oc_skin)
-	draw_line(lhj,   lh,  oc_skin,   10.0 + OW)
-	draw_circle(lh,  8.0 + OW * 0.5, _belayer_outline_color(brake_hand_color))
+	draw_line(lhj,   lh,  oc_skin,    9.0 + OW)
+	draw_circle(lh,  7.0 + OW * 0.5, _belayer_outline_color(brake_hand_color))
 
-	# Near arm (rope/guide hand) — shirt sleeve → skin forearm
+	# Near arm (rope/guide hand)
 	draw_circle(near_shoulder, 5.0 + OW * 0.5, oc_shirt)
-	draw_line(near_shoulder, near_sl, oc_shirt, 12.0 + OW)
-	draw_line(near_sl,       rhj,     oc_skin,  12.0 + OW)
+	draw_line(near_shoulder, near_sl, oc_shirt, 10.0 + OW)
+	draw_line(near_sl,       rhj,     oc_skin,  10.0 + OW)
 	draw_circle(rhj, 5.0 + OW * 0.5, oc_skin)
-	draw_line(rhj,   rh,  oc_skin,   10.0 + OW)
-	draw_circle(rh,  8.0 + OW * 0.5, _belayer_outline_color(rope_hand_color))
+	draw_line(rhj,   rh,  oc_skin,    9.0 + OW)
+	draw_circle(rh,  7.0 + OW * 0.5, _belayer_outline_color(rope_hand_color))
 
 	# Head + neck connector
 	draw_line(head_center + Vector2(0, 14.0), head_center + Vector2(0, 4.0), oc_skin, 10.0 + OW)
@@ -584,38 +647,37 @@ func _draw_belayer_figure():
 	# ══════════════════════════════════════════════════════════════════════════
 
 	# Far leg
-	draw_line(far_hip,  lfj, pants_color, 12.0)
-	draw_circle(lfj,    5.0, pants_color)
-	draw_line(lfj,      lf,  pants_color, 11.0)
-	draw_circle(lf,     9.0, shoe_color)
+	draw_line(far_hip,  lfj, pants_color, 8.0)
+	draw_circle(lfj,    4.0, pants_color)
+	draw_line(lfj,      lf,  pants_color, 8.0)
+	draw_circle(lf,     8.0, shoe_color)
 
 	# Near leg
-	draw_line(near_hip, rfj, pants_color, 12.0)
-	draw_circle(rfj,    5.0, pants_color)
-	draw_line(rfj,      rf,  pants_color, 11.0)
-	draw_circle(rf,     9.0, shoe_color)
+	draw_line(near_hip, rfj, pants_color, 8.0)
+	draw_circle(rfj,    4.0, pants_color)
+	draw_line(rfj,      rf,  pants_color, 8.0)
+	draw_circle(rf,     8.0, shoe_color)
 
-	# Torso — hip harness strip + shirt body
-	draw_line(far_hip,  near_hip,  pants_color,   17.0)
-	draw_line(far_hip,  near_hip,  harness_color,  4.0)
-	draw_line(hips,     b,         shirt_color,   19.0)
-	draw_line(b,        neck,      shirt_color,   17.0)
+	# Torso — hip span + shirt body (NO harness)
+	draw_line(far_hip,  near_hip,  pants_color, 14.0)
+	draw_line(hips,     b,         shirt_color, 16.0)
+	draw_line(b,        neck,      shirt_color, 14.0)
 
-	# Far arm (brake hand) — shirt sleeve → skin forearm
+	# Far arm (brake hand)
 	draw_circle(far_shoulder, 5, shirt_color)
-	draw_line(far_shoulder, far_sl,  shirt_color, 12.0)
-	draw_line(far_sl,       lhj,     skin_color,  12.0)
+	draw_line(far_shoulder, far_sl,  shirt_color, 10.0)
+	draw_line(far_sl,       lhj,     skin_color,  10.0)
 	draw_circle(lhj, 5, skin_color)
-	draw_line(lhj,   lh,  skin_color,  10.0)
-	draw_circle(lh,  8, brake_hand_color)
+	draw_line(lhj,   lh,  skin_color,  9.0)
+	draw_circle(lh,  7, brake_hand_color)
 
-	# Near arm (rope/guide hand) — shirt sleeve → skin forearm
+	# Near arm (rope/guide hand)
 	draw_circle(near_shoulder, 5, shirt_color)
-	draw_line(near_shoulder, near_sl, shirt_color, 12.0)
-	draw_line(near_sl,       rhj,     skin_color,  12.0)
+	draw_line(near_shoulder, near_sl, shirt_color, 10.0)
+	draw_line(near_sl,       rhj,     skin_color,  10.0)
 	draw_circle(rhj, 5, skin_color)
-	draw_line(rhj,   rh,  skin_color,  10.0)
-	draw_circle(rh,  8, rope_hand_color)
+	draw_line(rhj,   rh,  skin_color,  9.0)
+	draw_circle(rh,  7, rope_hand_color)
 
 	# Head + neck connector
 	draw_line(head_center + Vector2(0, 14.0), head_center + Vector2(0, 4.0), skin_color, 10.0)
@@ -681,9 +743,6 @@ func cleanup():
 	is_setup = false
 	set_process(false)
 	set_physics_process(false)
-	# Free the Line2D children we own — but do NOT free ourselves.
-	# The parent (main_scene) is responsible for removing us from the tree
-	# and calling .free() directly, which avoids the deferred-free race.
 	if is_instance_valid(rope_line):
 		rope_line.queue_free()
 		rope_line = null

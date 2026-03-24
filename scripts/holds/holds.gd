@@ -45,6 +45,7 @@ func _ready():
 		set_process(false)
 		add_to_group("decorations")
 		_cache_sprite_nodes()
+		await _wait_for_env_config()
 		_update_sprite_for_environment()
 		return
 
@@ -63,12 +64,19 @@ func _ready():
 		_setup_multi_areas()
 
 	_cache_sprite_nodes()
+	await _wait_for_env_config()
 	_update_sprite_for_environment()
 
 	_audio_player = AudioStreamPlayer.new()
 	add_child(_audio_player)
 	_audio_player.stream = GRAB_SFX
 	_audio_player.volume_db = 12.0
+
+func _wait_for_env_config() -> void:
+	var timeout := 0
+	while get_node_or_null("/root/EnvironmentConfig") == null and timeout < 120:
+		await get_tree().process_frame
+		timeout += 1
 
 func _process(delta: float) -> void:
 	for child in get_children():

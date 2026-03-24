@@ -23,6 +23,29 @@ const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
 const INSTRUCTIONS_SECTION := "instructions"
 const INSTRUCTIONS_KEY := "shown"
 
+func _check_paths() -> void:
+	var paths = [
+		"res://scenes/levels/tutorial/ladder.json",
+		"res://scenes/props/crashpad.tscn",
+		"res://scenes/holds/start.tscn",
+		"res://scenes/holds/top_out.tscn",
+		"res://scenes/holds/jug.tscn",
+		"res://scenes/holds/crimp.tscn",
+		"res://scenes/holds/sloper.tscn",
+		"res://scenes/holds/pocket.tscn",
+		"res://scenes/holds/foothold.tscn",
+		"res://scenes/holds/window.tscn",
+		"res://scenes/holds/ledge.tscn",
+		"res://scripts/holds/dynamic_wall.gd",
+		"res://scripts/holds/hold_modifiers.gd",
+		"res://scripts/levels/weather_modifier.gd",
+		"res://scripts/systems/rope_system.gd",
+		"res://scripts/levels/speed_timer.gd",
+		"res://scenes/levels/granite_crag/granite_crag_01.json",
+	]
+	for path in paths:
+		print("EXISTS ", path, ": ", FileAccess.file_exists(path) or ResourceLoader.exists(path))
+	
 func _ready():
 	print("=== MAIN SCENE READY ===")
 
@@ -39,6 +62,7 @@ func _ready():
 
 	_setup_level_complete_overlay()
 	_setup_pause_menu()
+	_check_paths()
 
 	if has_node("/root/LevelTransition"):
 		var lt = get_node("/root/LevelTransition")
