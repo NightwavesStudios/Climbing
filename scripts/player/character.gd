@@ -329,6 +329,7 @@ var _spotlight:         Node   = null
 # =============================================================================
 
 func _ready() -> void:
+	z_index = 10
 	spawn_position = global_position
 	_build_limbs()
 	_set_default_local_positions()

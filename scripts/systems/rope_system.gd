@@ -128,7 +128,7 @@ func _ready():
 	rope_line                = Line2D.new()
 	rope_line.width          = rope_thickness
 	rope_line.default_color  = rope_color
-	rope_line.z_index        = 49
+	rope_line.z_index        = 5
 	rope_line.top_level      = true
 	rope_line.antialiased    = true
 	rope_line.begin_cap_mode = Line2D.LINE_CAP_ROUND
@@ -140,7 +140,7 @@ func _ready():
 	rope_line_lower                  = Line2D.new()
 	rope_line_lower.width            = rope_thickness
 	rope_line_lower.default_color    = rope_color
-	rope_line_lower.z_index          = -1
+	rope_line_lower.z_index          = 5
 	rope_line_lower.top_level        = true
 	rope_line_lower.antialiased      = true
 	rope_line_lower.begin_cap_mode   = Line2D.LINE_CAP_ROUND

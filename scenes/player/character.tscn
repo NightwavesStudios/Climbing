@@ -20,6 +20,7 @@ scale = Vector2(0.4, 0.4)
 
 [node name="Sprite2D" type="Sprite2D" parent="RightHand"]
 visible = false
+z_index = 6
 texture = ExtResource("2_wa5vi")
 
 [node name="Area2D" type="Area2D" parent="RightHand"]
@@ -36,6 +37,7 @@ scale = Vector2(0.4, 0.4)
 
 [node name="Sprite2D" type="Sprite2D" parent="LeftHand"]
 visible = false
+z_index = 6
 texture = ExtResource("2_wa5vi")
 
 [node name="Area2D" type="Area2D" parent="LeftHand"]
@@ -61,6 +63,7 @@ shape = SubResource("RectangleShape2D_wfnr8")
 [node name="BodySprite" type="Sprite2D" parent="."]
 visible = false
 modulate = Color(1, 1, 1, 0.78431374)
+z_index = 6
 scale = Vector2(0.5, 0.8)
 texture = ExtResource("2_wa5vi")
 
@@ -82,6 +85,7 @@ scale = Vector2(0.4, 0.4)
 
 [node name="Sprite2D" type="Sprite2D" parent="RightFoot"]
 visible = false
+z_index = 6
 texture = ExtResource("2_wa5vi")
 
 [node name="Area2D" type="Area2D" parent="RightFoot"]
@@ -98,6 +102,7 @@ scale = Vector2(0.4, 0.4)
 
 [node name="Sprite2D" type="Sprite2D" parent="LeftFoot"]
 visible = false
+z_index = 6
 texture = ExtResource("2_wa5vi")
 
 [node name="Area2D" type="Area2D" parent="LeftFoot"]
