@@ -10,48 +10,17 @@ const DEFAULT_VOLUME := 0.5
 @onready var fps_cap_option: OptionButton = $MarginContainer/VBoxContainer/FPSCap
 
 func _ready() -> void:
-	# Disconnect to avoid signal firing during setup
 	if volume_slider.value_changed.is_connected(_on_volume_value_changed):
 		volume_slider.value_changed.disconnect(_on_volume_value_changed)
 
-	# Apply system defaults
 	AudioServer.set_bus_mute(MASTER_BUS, false)
 	AudioServer.set_bus_volume_db(MASTER_BUS, linear_to_db(DEFAULT_VOLUME))
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
 	Engine.max_fps = 60
 
-	# Overwrite with saved file if it exists
 	load_settings()
 
-	# Sync UI to current system state
-	sync_ui_to_settings()
-
-	# Reconnect now that UI is stable
 	volume_slider.value_changed.connect(_on_volume_value_changed)
-
-func sync_ui_to_settings() -> void:
-	# Set slider directly — avoids dB round-trip float drift
-	var linear_vol := db_to_linear(AudioServer.get_bus_volume_db(MASTER_BUS))
-	volume_slider.set_value_no_signal(clampf(linear_vol, 0.0, 1.0))
-
-	match DisplayServer.window_get_mode():
-		DisplayServer.WINDOW_MODE_WINDOWED:
-			window_mode_option.select(0)
-		DisplayServer.WINDOW_MODE_FULLSCREEN:
-			window_mode_option.select(1)
-		DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN:
-			window_mode_option.select(2)
-
-	vsync_toggle.set_pressed_no_signal(
-		DisplayServer.window_get_vsync_mode() == DisplayServer.VSYNC_ENABLED
-	)
-
-	match Engine.max_fps:
-		0:   fps_cap_option.select(0)
-		60:  fps_cap_option.select(1)
-		120: fps_cap_option.select(2)
-		144: fps_cap_option.select(3)
 
 func _on_volume_value_changed(value: float) -> void:
 	if value <= 0.01:
@@ -81,12 +50,9 @@ func _on_fps_cap_item_selected(index: int) -> void:
 func _on_save_pressed() -> void:
 	var cfg := ConfigFile.new()
 
-	# Audio — read from system (volume slider keeps this in sync)
 	cfg.set_value("audio", "master_volume_db", AudioServer.get_bus_volume_db(MASTER_BUS))
 	cfg.set_value("audio", "muted", AudioServer.is_bus_mute(MASTER_BUS))
 
-	# Video — read directly from UI nodes, not DisplayServer
-	# This guarantees what the user sees is what gets saved
 	cfg.set_value("video", "window_mode_index", window_mode_option.selected)
 	cfg.set_value("video", "vsync_enabled", vsync_toggle.button_pressed)
 	cfg.set_value("performance", "fps_cap_index", fps_cap_option.selected)
@@ -104,6 +70,9 @@ func load_settings() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) != OK:
 		print("No settings file, using defaults.")
+		# Default to fullscreen
+		window_mode_option.select(1)
+		_on_window_mode_item_selected(1)
 		return
 
 	if cfg.has_section_key("audio", "master_volume_db"):
@@ -111,22 +80,27 @@ func load_settings() -> void:
 	if cfg.has_section_key("audio", "muted"):
 		AudioServer.set_bus_mute(MASTER_BUS, cfg.get_value("audio", "muted"))
 
-	# Load by index — apply to both system and will be reflected in sync_ui_to_settings
+	# Sync slider UI to loaded audio state
+	var linear_vol := db_to_linear(AudioServer.get_bus_volume_db(MASTER_BUS))
+	volume_slider.set_value_no_signal(clampf(linear_vol, 0.0, 1.0))
+
+	# Load index → set UI → apply to system via the handler
 	if cfg.has_section_key("video", "window_mode_index"):
-		match cfg.get_value("video", "window_mode_index"):
-			0: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			1: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
-			2: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+		var idx: int = cfg.get_value("video", "window_mode_index")
+		window_mode_option.select(idx)
+		_on_window_mode_item_selected(idx)
+	else:
+		window_mode_option.select(1)
+		_on_window_mode_item_selected(1)
 
 	if cfg.has_section_key("video", "vsync_enabled"):
 		var vsync_on: bool = cfg.get_value("video", "vsync_enabled")
+		vsync_toggle.set_pressed_no_signal(vsync_on)
 		DisplayServer.window_set_vsync_mode(
 			DisplayServer.VSYNC_ENABLED if vsync_on else DisplayServer.VSYNC_DISABLED
 		)
 
 	if cfg.has_section_key("performance", "fps_cap_index"):
-		match cfg.get_value("performance", "fps_cap_index"):
-			0: Engine.max_fps = 0
-			1: Engine.max_fps = 60
-			2: Engine.max_fps = 120
-			3: Engine.max_fps = 144
+		var idx: int = cfg.get_value("performance", "fps_cap_index")
+		fps_cap_option.select(idx)
+		_on_fps_cap_item_selected(idx)
