@@ -7,7 +7,6 @@ var holds_container: Node2D
 var crashpads_container: Node2D
 var dynamic_wall = null
 
-
 # Current level metadata
 var current_level_name: String        = ""
 var current_level_grade: String       = ""
@@ -42,6 +41,8 @@ func _ready():
 	else:
 		crashpads_container = get_node("Crashpads")
 
+	call_deferred("_create_dynamic_wall")
+
 # =============================================================================
 # HOLD REGISTRY HELPERS
 # =============================================================================
@@ -63,6 +64,19 @@ func _get_hold_scene(type_name: String) -> PackedScene:
 # =============================================================================
 # DYNAMIC WALL
 # =============================================================================
+func _create_dynamic_wall():
+	# Guard: if a valid wall already exists, don't create a second one.
+	# This can happen if load_level() is called without unload_level() first.
+	if is_instance_valid(dynamic_wall):
+		print("LevelLoader: dynamic_wall already exists — skipping creation")
+		return
+
+	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
+	dynamic_wall = wall_script.new()
+	assert(dynamic_wall != null, "dynamic_wall.gd must extend Node2D")
+	dynamic_wall.name    = "DynamicWall"
+	dynamic_wall.z_index = -10
+	get_parent().add_child(dynamic_wall)
 
 func _free_dynamic_wall() -> void:
 	if dynamic_wall == null:
@@ -81,9 +95,8 @@ func _free_dynamic_wall() -> void:
 	dynamic_wall = null
 
 func update_wall_bounds():
-	if dynamic_wall and is_instance_valid(dynamic_wall):
+	if dynamic_wall:
 		dynamic_wall.calculate_bounds_from_holds(holds_container)
-		dynamic_wall.queue_redraw()
 
 func get_wall_bounds() -> Dictionary:
 	if dynamic_wall and dynamic_wall.has_method("get_bounds"):
@@ -100,57 +113,15 @@ func load_level(path: String) -> bool:
 	clear_holds()
 	clear_crashpads()
 
-	# Free our own reference first
+	# ── Tear down old wall and create a fresh one ─────────────────────────────
+	# Must happen synchronously before any awaits so nothing touches the old
+	# wall reference during the async hold-spawning phase.
 	_free_dynamic_wall()
-
-	# Also kill any other game DynamicWalls left alive from previous scenes.
-	# Background decorative walls (tagged is_background_wall) are left alone.
-	for stale in get_tree().get_nodes_in_group("environment_walls"):
-		if not is_instance_valid(stale):
-			continue
-		if stale.get_meta("is_background_wall", false):
-			continue
-		stale.set_process(false)
-		stale.set_physics_process(false)
-		if stale.get_parent():
-			stale.get_parent().remove_child(stale)
-		stale.free()
-	dynamic_wall = null
-
-	# Create fresh wall
 	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
 	dynamic_wall = wall_script.new()
 	dynamic_wall.name    = "DynamicWall"
 	dynamic_wall.z_index = -10
 	get_parent().add_child(dynamic_wall)
-	print("New dynamic_wall added to scene")
-
-	# Poll _is_ready — in exports _ready fires synchronously inside add_child
-	# so the flag may already be true before we even reach this loop
-	# Replace the current polling loop with:
-	var timeout := 0
-	while timeout < 120:
-		await get_tree().process_frame
-		timeout += 1
-		if dynamic_wall._is_ready and dynamic_wall.wall_valid == false:
-			break  # ready but not yet valid — that's expected, continue
-		if dynamic_wall._is_ready:
-			break
-
-	if not dynamic_wall._is_ready:
-		push_error("DynamicWall never finished _ready — aborting level load")
-		return false
-
-	if not dynamic_wall._is_ready:
-		push_error("DynamicWall never finished _ready — aborting level load")
-		return false
-
-	print("Wall is ready — wall_valid: ", dynamic_wall.wall_valid)
-
-	# Extra settle frame — ensures stale freed nodes are fully gone
-	# before we query the holds group or add new holds
-	await get_tree().process_frame
-	await get_tree().process_frame
 
 	if not FileAccess.file_exists(path):
 		print("ERROR: Level file not found: " + path)
@@ -250,12 +221,7 @@ func load_level(path: String) -> bool:
 				print("  ✓ Polygon has top edge indices: ",
 					  level_data.wall_polygon.top_edge_indices)
 
-	await get_tree().process_frame
-	await get_tree().process_frame
-	await get_tree().process_frame
 	update_wall_bounds()
-	await get_tree().process_frame
-	update_wall_bounds()  # call twice to be safe
 
 	if has_custom_polygon and dynamic_wall:
 		await get_tree().process_frame
@@ -370,48 +336,47 @@ func set_environment_from_string(env_name: String):
 # =============================================================================
 func spawn_hold(hold_data: Dictionary) -> Node2D:
 	var type_name = hold_data.get("type", "JUG").to_upper()
+
 	var scene = _get_hold_scene(type_name)
 	if scene == null:
 		print("WARNING: Skipping hold — no scene registered for type: " + type_name)
 		return null
 
-	var hold_root = scene.instantiate()
-	hold_root.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
+	var hold = scene.instantiate()
+	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
 
-	# Find the scripted node — may be root or a child Area2D
-	var scripted_node: Node2D = null
-	if hold_root.get_script() != null:
-		scripted_node = hold_root
+	if "hold_type" in hold:
+		hold.hold_type = type_name
+		print("  Spawned %s hold at (%.1f, %.1f)" % [
+			type_name, hold.global_position.x, hold.global_position.y])
 	else:
-		for child in hold_root.get_children():
-			if child is Node2D and child.get_script() != null:
-				scripted_node = child
-				break
+		print("  WARNING: Hold at (%.1f, %.1f) missing 'hold_type' property!" % [
+			hold.global_position.x, hold.global_position.y])
+		print("  Hold class: %s | script: %s" % [
+			hold.get_class(),
+			hold.get_script().resource_path if hold.get_script() else "NO SCRIPT"
+		])
 
-	if scripted_node == null:
-		push_error("spawn_hold: no scripted node in scene for type '%s'" % type_name)
-		hold_root.queue_free()
-		return null
+	if hold.has_method("set_hold_type_from_string"):
+		hold.set_hold_type_from_string(type_name)
 
-	if scripted_node.has_method("set_hold_type_from_string"):
-		scripted_node.set_hold_type_from_string(type_name)
+	holds_container.add_child(hold)
+	hold.add_to_group("holds")
 
-	# Add the ROOT to holds_container so position is tracked correctly
-	holds_container.add_child(hold_root)
-
-	# Add the SCRIPTED node to the group so is_start_hold() etc are callable
-	scripted_node.add_to_group("holds")
-	hold_root.set_meta("editor_type", type_name)
-	hold_root.set_meta("scripted_child", scripted_node)
-
+	# ── Custom spawn flag ─────────────────────────────────────────────────────
 	if hold_data.get("custom_spawn", false):
-		custom_spawn_hold = scripted_node
+		custom_spawn_hold = hold
+		print("  [spawn_hold] custom_spawn flag found on %s hold — node stored." % type_name)
 
+	# ── Attach modifiers ──────────────────────────────────────────────────────
 	var modifiers_data: Array = hold_data.get("modifiers", [])
+	print("  [spawn_hold] type=%s modifier_count=%d" % [type_name, modifiers_data.size()])
 	if not modifiers_data.is_empty():
-		_attach_modifiers_to_hold(scripted_node, modifiers_data)
+		_attach_modifiers_to_hold(hold, modifiers_data)
+	else:
+		print("  [spawn_hold] No modifiers for this hold.")
 
-	return scripted_node
+	return hold
 
 func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 	print("  [_attach_modifiers] Attaching %d modifier(s) to hold..." % modifiers_data.size())
@@ -477,23 +442,25 @@ func clear_holds():
 	_custom_spawn_position = Vector2.ZERO
 	if holds_container:
 		for child in holds_container.get_children():
-			child.free()  # immediate, not queue_free
+			child.queue_free()
 
 func get_hold_count() -> int:
 	return holds_container.get_child_count() if holds_container else 0
 
 func get_start_holds() -> Array[Node2D]:
 	var starts: Array[Node2D] = []
-	for hold in get_tree().get_nodes_in_group("holds"):
-		if hold.has_method("is_start_hold") and hold.is_start_hold():
-			starts.append(hold)
+	if holds_container:
+		for hold in holds_container.get_children():
+			if hold.has_method("is_start_hold") and hold.is_start_hold():
+				starts.append(hold)
 	return starts
 
 func get_top_holds() -> Array[Node2D]:
 	var tops: Array[Node2D] = []
-	for hold in get_tree().get_nodes_in_group("holds"):
-		if hold.has_method("is_top_out") and hold.is_top_out():
-			tops.append(hold)
+	if holds_container:
+		for hold in holds_container.get_children():
+			if hold.has_method("is_top_out") and hold.is_top_out():
+				tops.append(hold)
 	if dynamic_wall:
 		for child in dynamic_wall.get_children():
 			if child.has_meta("is_top_edge_hold"):
@@ -501,46 +468,107 @@ func get_top_holds() -> Array[Node2D]:
 	return tops
 
 func get_player_spawn_position() -> Vector2:
+	print("\n=== GET_PLAYER_SPAWN_POSITION ===")
+	print("  custom_spawn_hold valid: ", is_instance_valid(custom_spawn_hold))
+	print("  _custom_spawn_position:  ", _custom_spawn_position)
+
+	# ── Custom spawn takes absolute priority ──────────────────────────────────
 	if is_instance_valid(custom_spawn_hold):
 		if _custom_spawn_position != Vector2.ZERO:
-			return _custom_spawn_position + Vector2(0, 80)
+			var spawn_pos = _custom_spawn_position + Vector2(0, 80)
+			print("  → Custom spawn (cached): ", spawn_pos)
+			print("================================\n")
+			return spawn_pos
+
+		print("  [custom_spawn] Cache is zero — resolving on-the-fly now...")
 		_resolve_custom_spawn_position()
+
 		if _custom_spawn_position != Vector2.ZERO:
-			return _custom_spawn_position + Vector2(0, 80)
+			var spawn_pos = _custom_spawn_position + Vector2(0, 80)
+			print("  → Custom spawn (on-the-fly): ", spawn_pos)
+			print("================================\n")
+			return spawn_pos
+
 		var hold_point = custom_spawn_hold.get_node_or_null("HoldPoint")
 		var raw: Vector2 = hold_point.global_position if hold_point else custom_spawn_hold.global_position
+		print("  [custom_spawn] Last-resort direct read: ", raw)
 		if raw != Vector2.ZERO:
-			return raw + Vector2(0, 80)
+			var spawn_pos = raw + Vector2(0, 80)
+			print("  → Custom spawn (last-resort): ", spawn_pos)
+			print("================================\n")
+			return spawn_pos
 
+		push_warning("LevelLoader: custom_spawn_hold exists but ALL position reads returned ZERO." +
+					 " Falling back to START holds.")
+
+	# ── Fall back to START holds ──────────────────────────────────────────────
 	var starts = get_start_holds()
+	print("  No custom spawn — checking START holds. Found: %d" % starts.size())
+
 	if starts.size() == 0:
+		print("⚠️  WARNING: No START holds found and no valid custom spawn!")
+		if holds_container:
+			for i in min(10, holds_container.get_child_count()):
+				var hold       = holds_container.get_child(i)
+				var has_method = hold.has_method("is_start_hold")
+				var is_start   = has_method and hold.is_start_hold()
+				var hold_type  = hold.get("hold_type") if "hold_type" in hold else "NO_TYPE"
+				print("  [%d] hold_type='%s', has_method=%s, is_start=%s, pos=(%.1f, %.1f)" % [
+					i, hold_type, has_method, is_start,
+					hold.global_position.x, hold.global_position.y])
+		print("================================\n")
 		return Vector2.ZERO
+
 	if starts.size() == 1:
 		var hold_point = starts[0].get_node_or_null("HoldPoint")
-		return (hold_point.global_position if hold_point else starts[0].global_position) + Vector2(0, 80)
+		var spawn_pos  = (hold_point.global_position if hold_point
+						  else starts[0].global_position) + Vector2(0, 80)
+		print("  Single START hold spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+		print("================================\n")
+		return spawn_pos
+
 	var sum = Vector2.ZERO
 	for hold in starts:
 		var hold_point = hold.get_node_or_null("HoldPoint")
-		sum += hold_point.global_position if hold_point else hold.global_position
-	return sum / starts.size() + Vector2(0, 80)
+		if hold_point:
+			sum += hold_point.global_position
+			print("  START hold (HoldPoint) at: (%.1f, %.1f)" % [
+				hold_point.global_position.x, hold_point.global_position.y])
+		else:
+			sum += hold.global_position
+			print("  START hold at: (%.1f, %.1f)" % [
+				hold.global_position.x, hold.global_position.y])
+
+	var spawn_pos = sum / starts.size() + Vector2(0, 80)
+	print("  Averaged START spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+	print("================================\n")
+	return spawn_pos
 
 func validate_level() -> Dictionary:
 	var result = {
-		"valid": false, "has_start": false, "has_top": false,
-		"start_count": 0, "top_count": 0, "total_holds": 0, "errors": []
+		"valid":       false,
+		"has_start":   false,
+		"has_top":     false,
+		"start_count": 0,
+		"top_count":   0,
+		"total_holds": 0,
+		"errors":      []
 	}
-	result.total_holds = get_tree().get_nodes_in_group("holds").size()
+	result.total_holds = get_hold_count()
 	if result.total_holds == 0:
 		result.errors.append("No holds in level")
 		return result
+
 	var starts = get_start_holds()
 	var tops   = get_top_holds()
 	result.start_count = starts.size()
 	result.top_count   = tops.size()
 	result.has_start   = result.start_count > 0 or is_instance_valid(custom_spawn_hold)
 	result.has_top     = result.top_count   > 0
+
 	if not result.has_start: result.errors.append("No START holds or custom spawn")
 	if not result.has_top:   result.errors.append("No TOP holds")
+
 	result.valid = result.has_start and result.has_top
 	return result
 
