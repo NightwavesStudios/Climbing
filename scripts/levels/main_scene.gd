@@ -9,6 +9,7 @@ extends Node2D
 @onready var pause_menu: CanvasLayer = $PauseMenu
 @onready var instructions: CanvasLayer = $Instructions
 @onready var instructions_root: ColorRect = $Instructions/ColorRect
+@onready var popup_sprite: Sprite2D = $Instructions/Sprite2D
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
@@ -20,8 +21,112 @@ var current_discipline: int = 0
 var level_complete_overlay: CanvasLayer = null
 
 const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
-const INSTRUCTIONS_SECTION := "instructions"
-const INSTRUCTIONS_KEY := "shown"
+const INSTRUCTIONS_SECTION  := "instructions"
+const INSTRUCTIONS_KEY      := "shown"
+
+# =============================================================================
+# POPUP SYSTEM
+# =============================================================================
+# Each entry describes one popup condition.
+# Fields:
+#   image_path  – texture loaded onto the Sprite2D (or TextureRect)
+#   condition   – callable that returns true when this popup should show;
+#                 it receives the level path as its only argument.
+#   save_key    – unique key written to prefs.cfg so the popup only fires once.
+#   priority    – higher wins when multiple conditions match simultaneously.
+#
+# Add new popups inside _build_popup_configs() — no changes needed anywhere else.
+# ─────────────────────────────────────────────────────────────────────────────
+var POPUP_CONFIGS: Array = []
+
+func _build_popup_configs() -> void:
+	POPUP_CONFIGS = [
+		{
+			"image_path": "res://assets/images/popups/tutorial_popup.png",
+			"condition":  _popup_cond_first_launch,
+			"save_key":   "tutorial_popup",
+			"priority":   0,
+		},
+		{
+			"image_path": "res://assets/images/popups/topping_out.png",
+			"condition":  _popup_cond_first_granite,
+			"save_key":   "granite_topping_out_popup",
+			"priority":   10,
+		},
+		# ── Add more popups below ─────────────────────────────────────────────
+		# {
+		#     "image_path": "res://assets/images/popups/speed_tips.png",
+		#     "condition":  _popup_cond_first_speed,
+		#     "save_key":   "speed_tips_popup",
+		#     "priority":   5,
+		# },
+	]
+
+# ── Condition callables ───────────────────────────────────────────────────────
+
+## Tutorial popup — always a valid trigger; once-only gating is handled
+## entirely by save_key inside _resolve_popup, not here.
+static func _popup_cond_first_launch(_level_path: String) -> bool:
+	return true
+
+## Granite topping-out popup — fires whenever a granite_crag level loads.
+## _resolve_popup skips it automatically after the first dismissal.
+static func _popup_cond_first_granite(level_path: String) -> bool:
+	return "granite_crag" in level_path
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+## Returns the highest-priority popup config that should fire for *level_path*,
+## or an empty Dictionary if none applies.
+func _resolve_popup(level_path: String) -> Dictionary:
+	var cfg := ConfigFile.new()
+	cfg.load(INSTRUCTIONS_SAVE_PATH)   # OK to fail — missing keys default to false
+
+	var best: Dictionary = {}
+	for entry in POPUP_CONFIGS:
+		var key: String = entry["save_key"]
+		if cfg.get_value("popups", key, false):
+			continue   # already shown
+		if entry["condition"].call(level_path):
+			if best.is_empty() or entry["priority"] > best["priority"]:
+				best = entry
+	return best
+
+## Swap the Sprite2D texture and fade the overlay in.
+func show_popup_image(image_path: String) -> void:
+	if not instructions or not instructions_root:
+		push_error("show_popup_image: Instructions nodes are null!")
+		return
+
+	if popup_sprite == null:
+		push_error("show_popup_image: popup_sprite ($Instructions/Sprite2D) is null")
+	else:
+		var tex = load(image_path) as Texture2D
+		if tex:
+			popup_sprite.texture = tex
+			print("  [Popup] Sprite2D texture set to: ", image_path)
+		else:
+			push_error("show_popup_image: Failed to load texture: " + image_path)
+
+	# Fade in
+	instructions_root.modulate.a = 0.0
+	instructions.show()
+	instructions_root.show()
+
+	var tween = create_tween()
+	tween.tween_property(instructions_root, "modulate:a", 1.0, 0.6) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+
+## Mark a popup's save_key as seen so it never fires again.
+func _mark_popup_seen(save_key: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(INSTRUCTIONS_SAVE_PATH)
+	cfg.set_value("popups", save_key, true)
+	cfg.save(INSTRUCTIONS_SAVE_PATH)
+
+# =============================================================================
+# PATH CHECK (dev helper)
+# =============================================================================
 
 func _check_paths() -> void:
 	var paths = [
@@ -45,17 +150,25 @@ func _check_paths() -> void:
 	]
 	for path in paths:
 		print("EXISTS ", path, ": ", FileAccess.file_exists(path) or ResourceLoader.exists(path))
-	
+
+# =============================================================================
+# READY
+# =============================================================================
+
 func _ready():
 	print("=== MAIN SCENE READY ===")
 
+	_build_popup_configs()
 	add_to_group("main_scene")
 
-	# TEMPORARY: Reset instructions so they always show for testing
+	# TEMPORARY: Reset ALL popup seen-flags so every popup re-fires on each run.
+	# Remove this entire block before shipping.
 	var cfg_reset := ConfigFile.new()
 	cfg_reset.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, false)
+	for _entry in POPUP_CONFIGS:
+		cfg_reset.set_value("popups", _entry["save_key"], false)
 	cfg_reset.save(INSTRUCTIONS_SAVE_PATH)
-	print("  [DEBUG] Instructions pref reset")
+	print("  [DEBUG] All popup prefs reset")
 
 	if instructions_root:
 		instructions_root.modulate.a = 0.0
@@ -76,50 +189,29 @@ func _ready():
 	await _load_initial_level(initial_level)
 
 	await get_tree().process_frame
-	_show_instructions_if_needed()
+	_show_popup_for_level(initial_level)
 
 	print("=== MAIN SCENE READY COMPLETE ===")
 
 # =============================================================================
-# INSTRUCTIONS
+# POPUP ENTRY POINT
 # =============================================================================
 
-func _show_instructions_if_needed() -> void:
-	print("=== INSTRUCTIONS DEBUG ===")
-	print("  instructions: ", instructions)
-	print("  instructions_root: ", instructions_root)
-
-	if not instructions or not instructions_root:
-		push_error("Instructions nodes are null!")
+## Called after every level load. Resolves which popup (if any) to show,
+## swaps the image, and fades it in.
+func _show_popup_for_level(level_path: String) -> void:
+	var entry = _resolve_popup(level_path)
+	if entry.is_empty():
+		print("  [Popup] No popup for this level/state")
 		return
 
-	print("  instructions.visible: ", instructions.visible)
-	print("  instructions_root.visible: ", instructions_root.visible)
-	print("  instructions_root.modulate: ", instructions_root.modulate)
+	print("  [Popup] Showing: ", entry["image_path"], " (key: ", entry["save_key"], ")")
+	show_popup_image(entry["image_path"])
 
-	var cfg := ConfigFile.new()
-	if cfg.load(INSTRUCTIONS_SAVE_PATH) == OK:
-		var already_shown = cfg.get_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, false)
-		print("  already_shown: ", already_shown)
-		if already_shown:
-			print("  SKIPPING — already shown before")
-			return
-	else:
-		print("  No prefs file found — first time")
+	# Store the active key so _on_hide_instructions_pressed knows what to mark.
+	_active_popup_key = entry["save_key"]
 
-	instructions_root.modulate.a = 0.0
-	instructions.show()
-	instructions_root.show()
-
-	print("  instructions.visible after show(): ", instructions.visible)
-	print("  instructions_root.visible after show(): ", instructions_root.visible)
-
-	var tween = create_tween()
-	tween.tween_property(instructions_root, "modulate:a", 1.0, 0.6) \
-		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
-
-	print("  Tween created — should fade in now")
-	print("=========================")
+var _active_popup_key: String = ""
 
 # =============================================================================
 # PAUSE MENU
@@ -257,9 +349,6 @@ func setup_roped_climbing(loader, plyr):
 		else:
 			belayer_pos = plyr.global_position + Vector2(0, 200)
 
-	# ── Defensive guard: rope_system should always be null here because
-	#    cleanup_discipline_systems() immediately nulls it and calls .free()
-	#    directly (not queue_free). If it's somehow non-null, force-clean it.
 	if rope_system != null:
 		push_warning("setup_roped_climbing: rope_system was not null — forcing cleanup")
 		_force_free_node(rope_system)
@@ -273,7 +362,7 @@ func setup_roped_climbing(loader, plyr):
 	rope_system = RopeSystemScript.new()
 	rope_system.name = "RopeSystem"
 	add_child(rope_system)
-	await get_tree().process_frame   # let _ready() run
+	await get_tree().process_frame
 
 	if rope_system.has_method("setup_rope"):
 		rope_system.setup_rope(belayer_pos, plyr)
@@ -480,14 +569,9 @@ func _on_next_level_requested(next_level_path: String) -> void:
 
 	await LevelTransition.fade_out_only()
 
-	# Release all limb hold references BEFORE unloading holds.
-	# clear_holds() uses queue_free() — if any limb still holds a reference to
-	# one of those Area2D nodes, rope_system._left_hand_hold() will crash on the
-	# very next _process frame with "freed instance". reset_climb() nulls every
-	# s.hold so the limbs let go before the nodes are freed.
 	if player and player.has_method("reset_climb"):
 		player.reset_climb()
-	await get_tree().process_frame   # let reset_climb's deferred initial_grab fire and settle
+	await get_tree().process_frame
 
 	cleanup_discipline_systems()
 	level_loader.unload_level()
@@ -498,6 +582,9 @@ func _on_next_level_requested(next_level_path: String) -> void:
 	await get_tree().process_frame
 	if player and player.has_method("reset_climb"):
 		player.reset_climb()
+
+	# ── Show popup for the new level (if any) ────────────────────────────────
+	_show_popup_for_level(next_level_path)
 
 	await get_tree().create_timer(0.1).timeout
 
@@ -522,7 +609,6 @@ func _on_level_complete_restart_requested() -> void:
 
 	await LevelTransition.fade_out_only()
 
-	# Release limb hold references before holds are freed (same reason as next-level path)
 	if player and player.has_method("reset_climb"):
 		player.reset_climb()
 	await get_tree().process_frame
@@ -545,34 +631,25 @@ func _on_level_complete_restart_requested() -> void:
 # DISCIPLINE CLEANUP
 # =============================================================================
 
-## Free a node immediately and synchronously.
-## Uses remove_child + free() instead of queue_free() so callers can rely on
-## the node being gone in the same frame — no deferred-free race conditions.
 func _force_free_node(node: Node) -> void:
 	if not is_instance_valid(node):
 		return
-	# Disable processing first so no callbacks fire during removal
 	node.set_process(false)
 	node.set_physics_process(false)
 	if node.get_parent():
 		node.get_parent().remove_child(node)
 	node.free()
 
-
 func cleanup_discipline_systems():
-	# ── Rope system ───────────────────────────────────────────────────────────
 	if rope_system != null:
 		if is_instance_valid(rope_system):
-			# Let cleanup() stop processing and release its own children
 			if rope_system.has_method("cleanup"):
 				rope_system.cleanup()
 			_force_free_node(rope_system)
-		rope_system = null   # null immediately — never wait on queue_free
-		# Clear the player's reference too — it holds a second pointer to the same node
+		rope_system = null
 		if is_instance_valid(player) and player.has_method("set_rope_system"):
 			player.set_rope_system(null)
 
-	# ── Speed timer ───────────────────────────────────────────────────────────
 	if speed_timer != null:
 		if is_instance_valid(speed_timer):
 			if speed_timer.has_method("cleanup"):
@@ -619,10 +696,16 @@ func _on_level_loaded():
 	pass
 
 # =============================================================================
-# INSTRUCTIONS
+# INSTRUCTIONS / POPUP DISMISS
 # =============================================================================
 
 func _on_hide_instructions_pressed() -> void:
+	# Mark whichever popup is currently showing as seen
+	if _active_popup_key != "":
+		_mark_popup_seen(_active_popup_key)
+		_active_popup_key = ""
+
+	# Also mark the legacy "shown" flag for backwards-compat
 	var cfg := ConfigFile.new()
 	cfg.load(INSTRUCTIONS_SAVE_PATH)
 	cfg.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, true)

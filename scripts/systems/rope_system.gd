@@ -4,7 +4,7 @@ class_name RopeSystem
 ## Top-rope climbing system — visual rope + fall catch
 ## Designed specifically for character.gd which uses com_velocity / com_position.
 
-@export var rope_color     := Color.BLACK
+@export var rope_color     := Color("#7A5C3A")   # dark warm rope brown
 @export var rope_thickness := 2.5
 
 # ── Rope visual simulation ─────────────────────────────────────────────────
@@ -485,26 +485,12 @@ func update_rope_visual():
 			lower_pts.append(rope_points[i])
 		rope_line_lower.points = lower_pts
 
-	# Tint / width based on catch state — applied to both lines
-	if catch_state == CatchState.STRETCHING:
-		var t = clamp(fall_vel / 400.0, 0.0, 1.0)
-		var w = rope_thickness + t * 2.0
-		var c := rope_color.darkened(t * 0.35)
-		rope_line.width             = w;  rope_line.default_color  = c
-		if is_instance_valid(rope_line_lower):
-			rope_line_lower.width        = w;  rope_line_lower.default_color = c
-	elif catch_state == CatchState.HELD:
-		var w := rope_thickness + 0.5
-		var c := rope_color.darkened(0.15)
-		rope_line.width             = w;  rope_line.default_color  = c
-		if is_instance_valid(rope_line_lower):
-			rope_line_lower.width        = w;  rope_line_lower.default_color = c
-	else:
-		rope_line.width             = rope_thickness
-		rope_line.default_color     = rope_color
-		if is_instance_valid(rope_line_lower):
-			rope_line_lower.width        = rope_thickness
-			rope_line_lower.default_color = rope_color
+	# Always use the base rope_color — no tinting on catch state
+	rope_line.width             = rope_thickness
+	rope_line.default_color     = rope_color
+	if is_instance_valid(rope_line_lower):
+		rope_line_lower.width         = rope_thickness
+		rope_line_lower.default_color = rope_color
 
 # ═══════════════════════════════════════════════════════════════════════════
 ## Draw
@@ -519,10 +505,31 @@ func _draw():
 
 func _draw_anchor():
 	var al := to_local(anchor_position)
-	draw_circle(al, 10, Color(0.18, 0.18, 0.18))
-	draw_circle(al,  8, Color(0.72, 0.72, 0.72))
-	draw_circle(al,  5, Color(0.18, 0.18, 0.18))
-	draw_circle(al,  3, Color(0.85, 0.85, 0.85))
+
+	# Anchor fill palette — warm steel matching harness/shoe gold family
+	var metal_dark   := Color("#2A2A30")   # deep charcoal outer ring
+	var metal_mid    := Color("#6E6E78")   # brushed steel body
+	var metal_light  := Color("#A8A8B2")   # highlight ring
+	var bolt_accent  := Color("#D4A84B")   # warm gold bolt head — echoes harness/shoe gold
+
+	# Tonal outline colors — hand-tuned so each is visibly darker than its fill,
+	# since _belayer_outline_color() produces near-identical values on dark colors.
+	var oc_dark   := Color("#141418")
+	var oc_mid    := Color("#3A3A42")
+	var oc_light  := Color("#5C5C66")
+	var oc_accent := Color("#8A6A18")
+
+	# Outline pass first (larger radius = rim visible around fill)
+	draw_circle(al, 14.0, oc_dark)    # rim around outer ring
+	draw_circle(al, 10.0, oc_mid)     # rim around steel body
+	draw_circle(al,  6.5, oc_light)   # rim around highlight
+	draw_circle(al,  4.0, oc_accent)  # rim around gold bolt
+
+	# Fill pass on top
+	draw_circle(al, 12.0, metal_dark)
+	draw_circle(al,  8.5, metal_mid)
+	draw_circle(al,  5.0, metal_light)
+	draw_circle(al,  2.8, bolt_accent)
 
 # ═══════════════════════════════════════════════════════════════════════════
 ## Tonal outline helper — mirrors character.gd's _outline_color() exactly

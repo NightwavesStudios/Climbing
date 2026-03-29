@@ -158,19 +158,17 @@ func _maybe_set_weather() -> void:
 
 	# Weighted rolls: ~55% chance of no weather, otherwise pick a type.
 	# Rare/dramatic effects (lightning, hail) are less likely than common ones.
+	# NIGHT is excluded from random rolls.
 	var roll := randf()
 	if roll < 0.55:
 		wm.set_weather(WeatherType.NONE)
-	elif roll < 0.70:
+	elif roll < 0.73:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.RAIN)
-	elif roll < 0.80:
-		wm.intensity = randf_range(0.3, 1.0)
-		wm.set_weather(WeatherType.NIGHT)
-	elif roll < 0.88:
+	elif roll < 0.84:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.SNOW)
-	elif roll < 0.93:
+	elif roll < 0.91:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.FOG)
 	elif roll < 0.97:
@@ -179,7 +177,6 @@ func _maybe_set_weather() -> void:
 	else:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.HAIL)
-
 
 func _fade_in(duration: float) -> void:
 	var tween := create_tween()

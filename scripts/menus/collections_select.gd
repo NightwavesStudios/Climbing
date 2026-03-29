@@ -106,13 +106,29 @@ func _set_indicator(button: Button, mode: String) -> void:
 			button.add_child(lbl)
 
 		"lock":
-			var lbl := Label.new()
-			lbl.name     = "LockIndicator"
-			lbl.text     = "🔒"
-			lbl.add_theme_font_size_override("font_size", 32)
-			lbl.position = Vector2(button.size.x / 2.0 - 16, button.size.y / 2.0 - 16)
-			lbl.z_index  = 1
-			button.add_child(lbl)
+			var lock_tex := load("res://assets/locked.png")
+			if lock_tex:
+				var sprite := Sprite2D.new()
+				sprite.name     = "LockIndicator"
+				sprite.texture  = lock_tex
+				var target_size := 48.0
+				var tex_size    = lock_tex.get_size()
+				var scale_val   = target_size / max(tex_size.x, tex_size.y)
+				sprite.scale    = Vector2(scale_val, scale_val)
+				sprite.position = Vector2(button.size.x / 2.0, button.size.y / 2.0)
+				sprite.z_index  = 1
+				button.add_child(sprite)
+			else:
+				# Fallback: scaled-down TextureRect
+				var tex_rect := TextureRect.new()
+				tex_rect.name            = "LockIndicator"
+				tex_rect.texture         = load("res://assets/locked.png")
+				tex_rect.stretch_mode    = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+				tex_rect.custom_minimum_size = Vector2(48, 48)
+				tex_rect.size            = Vector2(48, 48)
+				tex_rect.position        = Vector2(button.size.x / 2.0 - 24, button.size.y / 2.0 - 24)
+				tex_rect.z_index         = 1
+				button.add_child(tex_rect)
 
 
 # =============================================================================

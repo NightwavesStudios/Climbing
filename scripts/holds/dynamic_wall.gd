@@ -1408,10 +1408,9 @@ func _draw_ground_grass() -> void:
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
 
 	# ── Ground plane: 3 recession bands ──────────────────────────────────────
-	# Horizon band (far): lightest — aerial perspective pushes distant ground toward sky
-	var close_h = 38.0   # thin bright strip at horizon
-	var mid_h   = 90.0   # mid-recession
-	var near_h  = 240.0  # camera-near, darkest
+	var close_h = 38.0
+	var mid_h   = 90.0
+	var near_h  = 240.0
 
 	_draw_grad_quad(left, ground_y,                    width, ground_y + close_h,
 		ct.lightened(0.06), ct)
@@ -1442,18 +1441,6 @@ func _draw_ground_grass() -> void:
 	_draw_grad_quad(left, ground_y - 2.0, width, ground_y + 30.0,
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.40 * (1.0 - rb * 0.5)),
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.0))
-
-	# ── Perspective texture lines (foreshortened — dense near horizon) ────────
-	# Spacing increases as lines approach camera = reads as a 3D plane receding
-	var line_col = cd.darkened(0.18)
-	var offsets: Array = [4.0, 10.0, 19.0, 32.0, 50.0, 74.0, 106.0, 148.0, 202.0, 270.0]
-	var alphas:  Array = [0.22, 0.20, 0.18, 0.16, 0.14, 0.12, 0.10,  0.08,  0.06,  0.04]
-	var lwidths: Array = [0.6,  0.7,  0.75, 0.8,  0.9,  1.0,  1.1,   1.2,   1.3,   1.4]
-	for i in range(offsets.size()):
-		var ly = ground_y + offsets[i]
-		draw_line(Vector2(left, ly), Vector2(right, ly),
-				  Color(line_col.r, line_col.g, line_col.b, alphas[i] * (1.0 - rb * 0.4)),
-				  lwidths[i], true)
 
 	# ── Tonal horizon line ────────────────────────────────────────────────────
 	var hc = ct.darkened(wall_outline_darken)
@@ -1506,14 +1493,6 @@ func _draw_ground_gym() -> void:
 		Color(1.0, 1.0, 1.0, 0.10),
 		Color(1.0, 1.0, 1.0, 0.0))
 
-	# Perspective horizontal tile lines (foreshortened)
-	var offsets: Array = [5.0, 13.0, 25.0, 42.0, 65.0, 96.0, 138.0, 194.0, 268.0]
-	var alphas:  Array = [0.20, 0.18, 0.15, 0.13, 0.11, 0.09, 0.07,  0.05,  0.04]
-	for i in range(offsets.size()):
-		var ty = ground_y + offsets[i]
-		draw_line(Vector2(left, ty), Vector2(right, ty),
-				  Color(cd.r, cd.g, cd.b, alphas[i]), 0.8, true)
-
 	# Vertical tile seams (uniform spacing — don't foreshorten laterally)
 	var tile_w     = 200.0
 	var tile_count = int(ceil(width / tile_w)) + 1
@@ -1556,14 +1535,6 @@ func _draw_ground_city() -> void:
 	_draw_grad_quad(left, ground_y, width, ground_y + 22.0,
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.25 * (1.0 - rb * 0.4)),
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.0))
-
-	# Perspective pavement lines
-	var offsets: Array = [4.0, 11.0, 22.0, 37.0, 57.0, 84.0, 120.0, 168.0]
-	var alphas:  Array = [0.20, 0.17, 0.14, 0.12, 0.10, 0.08, 0.06,  0.05]
-	for i in range(offsets.size()):
-		draw_line(Vector2(left, ground_y + offsets[i]),
-				  Vector2(right, ground_y + offsets[i]),
-				  Color(cd.r, cd.g, cd.b, alphas[i]), 0.9, true)
 
 	# Tonal curb line
 	var cc = ct.darkened(wall_outline_darken)

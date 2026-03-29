@@ -6,7 +6,7 @@ extends Control
 @onready var btn_next: Button        = $BtnNext
 @onready var page_label: Label       = $PageLabel
 @onready var page_container: Control = $PageContainer
-
+const LOCK_SIZE := 96
 var _levels: Array = []
 var _current_index: int = 0
 var _tween: Tween = null
@@ -385,27 +385,51 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 	veil.color = Color(0, 0, 0, 0.55)
 	wrapper.add_child(veil)
 
-	var lock_canvas := Control.new()
-	lock_canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	lock_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lock_canvas.draw.connect(func():
-		var cs := lock_canvas.size
-		var cx  := cs.x * 0.5
-		var cy  := cs.y * 0.48
-		var scale = clamp(min(cs.x, cs.y) / 220.0, 0.7, 1.6)
-		var body_w    = 44.0 * scale
-		var body_h    = 34.0 * scale
-		var shackle_r = 18.0 * scale
-		var lc  := Color(1, 1, 1, 0.65)
-		var lc2 := Color(1, 1, 1, 0.12)
-		var shackle_cy = cy - body_h * 0.5
-		lock_canvas.draw_arc(Vector2(cx, shackle_cy), shackle_r, PI, TAU, 40, lc, 5.0 * scale)
-		lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc)
-		lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc2, true)
-		lock_canvas.draw_circle(Vector2(cx, cy - 2*scale), 6.0*scale, Color(0,0,0,0.5))
-		lock_canvas.draw_rect(Rect2(cx - 3*scale, cy + 4*scale, 6*scale, 9*scale), Color(0,0,0,0.5))
-	)
-	wrapper.add_child(lock_canvas)
+	# ── Lock icon via res://assets/locked.png ─────────────────────────────────
+	var lock_tex = load("res://assets/locked.png")
+	if lock_tex:
+		var tex_rect := TextureRect.new()
+		tex_rect.name         = "LockIcon"
+		tex_rect.texture      = lock_tex
+		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tex_rect.size         = lock_tex.get_size()
+		var s := LOCK_SIZE / maxf(lock_tex.get_size().x, lock_tex.get_size().y)
+		tex_rect.scale        = Vector2(s, s)
+		# Anchor to center manually — no preset so layout won't fight us
+		tex_rect.anchor_left   = 0.5
+		tex_rect.anchor_top    = 0.5
+		tex_rect.anchor_right  = 0.5
+		tex_rect.anchor_bottom = 0.5
+		tex_rect.offset_left   = -LOCK_SIZE / 2.0
+		tex_rect.offset_top    = -LOCK_SIZE / 2.0
+		tex_rect.offset_right  =  LOCK_SIZE / 2.0
+		tex_rect.offset_bottom =  LOCK_SIZE / 2.0
+		tex_rect.modulate      = Color(1, 1, 1, 0.65)
+		wrapper.add_child(tex_rect)
+	else:
+		# Fallback: procedural drawn lock (original behaviour)
+		var lock_canvas := Control.new()
+		lock_canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		lock_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lock_canvas.draw.connect(func():
+			var cs := lock_canvas.size
+			var cx  := cs.x * 0.5
+			var cy  := cs.y * 0.48
+			var scale = clamp(min(cs.x, cs.y) / 220.0, 0.7, 1.6)
+			var body_w    = 44.0 * scale
+			var body_h    = 34.0 * scale
+			var shackle_r = 18.0 * scale
+			var lc  := Color(1, 1, 1, 0.65)
+			var lc2 := Color(1, 1, 1, 0.12)
+			var shackle_cy = cy - body_h * 0.5
+			lock_canvas.draw_arc(Vector2(cx, shackle_cy), shackle_r, PI, TAU, 40, lc, 5.0 * scale)
+			lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc)
+			lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc2, true)
+			lock_canvas.draw_circle(Vector2(cx, cy - 2*scale), 6.0*scale, Color(0,0,0,0.5))
+			lock_canvas.draw_rect(Rect2(cx - 3*scale, cy + 4*scale, 6*scale, 9*scale), Color(0,0,0,0.5))
+		)
+		wrapper.add_child(lock_canvas)
+
 	return wrapper
 
 # =============================================================================

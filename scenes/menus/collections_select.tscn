@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://phva7vynr56p"]
+[gd_scene load_steps=7 format=3 uid="uid://phva7vynr56p"]
 
 [ext_resource type="Script" uid="uid://3c1r06go1w6k" path="res://scripts/menus/collections_select.gd" id="1_ns5ma"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_rcboh"]
 [ext_resource type="Texture2D" uid="uid://cq0kntyvpbx64" path="res://assets/images/map/gym_location_icon.png" id="3_dfhjo"]
 [ext_resource type="Script" uid="uid://bwqbvj0onxb7s" path="res://scripts/menus/random_background.gd" id="4_2ufrq"]
 [ext_resource type="Texture2D" uid="uid://cedoa8r2y51cp" path="res://assets/images/map/granite_location_map.png" id="4_45fai"]
+[ext_resource type="Texture2D" uid="uid://cyhnri1hhq6yj" path="res://assets/locked.png" id="6_edj87"]
 
 [node name="CollectionsSelect" type="Control"]
 layout_mode = 3
@@ -99,6 +100,12 @@ anchors_preset = 0
 offset_right = 40.0
 offset_bottom = 40.0
 script = ExtResource("4_2ufrq")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+visible = false
+position = Vector2(863.50006, 399.5)
+scale = Vector2(0.03166672, 0.03166672)
+texture = ExtResource("6_edj87")
 
 [connection signal="pressed" from="Back" to="." method="_on_back_pressed"]
 [connection signal="pressed" from="HBoxContainer/Gym" to="." method="_on_tutorial_collection_pressed"]

@@ -1,0 +1,64 @@
+{
+	"crashpads": [],
+	"discipline": "bouldering",
+	"environment": "sandstone",
+	"grade": "VB",
+	"holds": [
+		{
+			"custom_spawn": true,
+			"type": "JUG",
+			"x": -96.0,
+			"y": 64.0
+		},
+		{
+			"type": "JUG",
+			"x": 64.0,
+			"y": 32.0
+		},
+		{
+			"type": "JUG",
+			"x": -96.0,
+			"y": -96.0
+		},
+		{
+			"type": "JUG",
+			"x": 64.0,
+			"y": -128.0
+		},
+		{
+			"type": "JUG",
+			"x": 0.0,
+			"y": -64.0
+		}
+	],
+	"name": "Unnamed Route",
+	"speed_time_limit": 60.0,
+	"wall_polygon": {
+		"enabled": true,
+		"ground_left_index": 3,
+		"ground_right_index": 2,
+		"points": [
+			{
+				"x": -165.027069091797,
+				"y": -252.590667724609
+			},
+			{
+				"x": 155.76611328125,
+				"y": -165.447723388672
+			},
+			{
+				"x": 164.0,
+				"y": 214.0
+			},
+			{
+				"x": -164.0,
+				"y": 214.0
+			}
+		],
+		"top_edge_indices": [
+			0
+		]
+	},
+	"weather": 0,
+	"weather_intensity": 1.0
+}
