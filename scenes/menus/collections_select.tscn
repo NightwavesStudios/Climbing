@@ -96,6 +96,7 @@ text = "Wooden Gym"
 script = ExtResource("2_rcboh")
 
 [node name="RandomBackground" type="Control" parent="."]
+z_index = -1
 anchors_preset = 0
 offset_right = 40.0
 offset_bottom = 40.0

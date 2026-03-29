@@ -74,7 +74,17 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("4_6bivr")
 
+[node name="Feedback" type="Button" parent="."]
+layout_mode = 0
+offset_left = 1012.0
+offset_top = 599.0
+offset_right = 1239.4839
+offset_bottom = 685.0
+theme_override_font_sizes/font_size = 30
+text = "Feedback"
+
 [connection signal="pressed" from="CanvasLayer/Buttons/Story" to="." method="_on_play_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/Settings" to="." method="_on_settings_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/Quit" to="." method="_on_quit_pressed"]
+[connection signal="pressed" from="Feedback" to="." method="_on_button_pressed"]

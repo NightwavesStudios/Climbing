@@ -745,7 +745,6 @@ func _init_rope_points(from: Vector2, mid: Vector2, to: Vector2):
 		rope_points.append(ss.lerp(se, t))
 		rope_velocities.append(Vector2.ZERO)
 
-
 func cleanup():
 	is_setup = false
 	set_process(false)

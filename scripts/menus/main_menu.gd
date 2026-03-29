@@ -37,3 +37,20 @@ func _on_settings_pressed() -> void:
 func _on_quit_pressed() -> void:
 	await get_tree().create_timer(0.1).timeout
 	get_tree().quit()
+
+
+func _on_button_pressed() -> void:
+	var url = "https://docs.google.com/document/d/1N6-leO-syXynmaG4eIWHm48-PhJm5FvxIoEAVukUTqs/edit?usp=sharing"
+	if OS.get_name() == "Web":
+		JavaScriptBridge.eval("""
+            var a = document.createElement('a');
+			a.href = '""" + url + """';
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+		""", true)
+	else:
+		OS.shell_open(url)
+	
