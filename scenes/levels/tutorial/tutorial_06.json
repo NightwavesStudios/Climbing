@@ -108,7 +108,7 @@
 		}
 	],
 	"name": "Falling Holds!",
-	"speed_time_limit": 60.0,
+	"speed_time_limit": 90.0,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 10,

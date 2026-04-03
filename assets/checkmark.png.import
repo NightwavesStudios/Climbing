@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://fc7hycrrbkr7"
-path="res://.godot/imported/sloper.png-9c2b504f7cd7893455c8d42a23681a44.ctex"
+uid="uid://dkaq1gcem4qwd"
+path="res://.godot/imported/checkmark.png-5a88961c1c72d2a83fb11a78bf485998.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/holds/gym/sloper.png"
-dest_files=["res://.godot/imported/sloper.png-9c2b504f7cd7893455c8d42a23681a44.ctex"]
+source_file="res://assets/checkmark.png"
+dest_files=["res://.godot/imported/checkmark.png-5a88961c1c72d2a83fb11a78bf485998.ctex"]
 
 [params]
 

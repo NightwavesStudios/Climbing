@@ -69,43 +69,6 @@ const COLLECTIONS = {
 }
 
 # =============================================================================
-# SAVE / LOAD
-# =============================================================================
-
-const SAVE_PATH := "user://savegame.json"
-
-func save_game() -> void:
-	var data = get_save_data()
-	var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if not file:
-		push_error("GameState: Could not open save file for writing: " + SAVE_PATH)
-		return
-	file.store_string(JSON.stringify(data, "\t"))
-	file.close()
-	print("GameState: Game saved to " + SAVE_PATH)
-
-func load_game() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
-		print("GameState: No save file found — starting fresh")
-		return
-
-	var file = FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if not file:
-		push_error("GameState: Could not open save file for reading")
-		return
-
-	var json = JSON.new()
-	var err = json.parse(file.get_as_text())
-	file.close()
-
-	if err != OK:
-		push_error("GameState: Save file JSON is corrupt — resetting progress")
-		return
-
-	load_save_data(json.data)
-	print("GameState: Game loaded. Completed levels: " + str(completed_levels.size()))
-
-# =============================================================================
 # READY
 # =============================================================================
 
@@ -120,7 +83,6 @@ func _ready():
 
 func set_current_level(level_path: String) -> void:
 	current_level = level_path
-	# Also update current_collection when setting a level
 	_update_current_collection_from_level(level_path)
 	print("GameState: Level set to " + level_path)
 
@@ -132,19 +94,14 @@ func get_last_completed_level() -> String:
 
 func record_level_completion(level_path: String, completion_time: float) -> void:
 	last_completed_level = level_path
-
-	# Make sure we track which collection this level belongs to
 	_update_current_collection_from_level(level_path)
 
 	if level_path not in completed_levels:
 		completed_levels[level_path] = completion_time
 		print("GameState: Completed " + level_path + " in " + str(completion_time) + "s")
-
-		# Check if this completed a collection
 		_check_collection_completion(level_path)
 		save_game()
 	else:
-		# Update if faster time
 		if completion_time < completed_levels[level_path]:
 			completed_levels[level_path] = completion_time
 			print("GameState: New best time for " + level_path + ": " + str(completion_time) + "s")
@@ -215,21 +172,16 @@ func is_collection_unlocked(collection_id: String) -> bool:
 			return true
 
 		"collection_complete":
-			var required_collection = req.collection
-			return is_collection_completed(required_collection)
+			return is_collection_completed(req.collection)
 
 		"total_levels":
-			var required_count = req.count
-			return get_total_completed_levels() >= required_count
+			return get_total_completed_levels() >= req.count
 
 		"collections_complete":
-			var required_count = req.count
-			return completed_collections.size() >= required_count
+			return completed_collections.size() >= req.count
 
 		"specific_levels":
-			# Check if specific levels are completed
-			var required_levels = req.levels
-			for level in required_levels:
+			for level in req.levels:
 				if not is_level_completed(level):
 					return false
 			return true
@@ -257,27 +209,26 @@ func get_collection_progress(collection_id: String) -> Dictionary:
 		"percentage": (float(completed_count) / float(levels.size())) * 100.0
 	}
 
-func _check_collection_completion(level_path: String):
-	# Find which collection this level belongs to
+func _check_collection_completion(level_path: String) -> void:
 	for collection_id in COLLECTIONS:
 		var levels = COLLECTIONS[collection_id].levels
-		if level_path in levels:
-			# Check if all levels in this collection are now complete
-			var all_complete = true
-			for level in levels:
-				if not is_level_completed(level):
-					all_complete = false
-					break
+		if level_path not in levels:
+			continue
 
-			if all_complete and collection_id not in completed_collections:
-				completed_collections.append(collection_id)
-				print("🎉 COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
+		var all_complete = true
+		for level in levels:
+			if not is_level_completed(level):
+				all_complete = false
+				break
+
+		if all_complete and collection_id not in completed_collections:
+			completed_collections.append(collection_id)
+			print("🎉 COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
 
 func _update_current_collection_from_level(level_path: String) -> void:
 	"""Find and set which collection this level belongs to"""
 	for collection_id in COLLECTIONS:
-		var levels = COLLECTIONS[collection_id].levels
-		if level_path in levels:
+		if level_path in COLLECTIONS[collection_id].levels:
 			current_collection = collection_id
 			print("GameState: Current collection set to " + collection_id)
 			return
@@ -294,20 +245,30 @@ func is_level_unlocked(collection_id: String, level_index: int) -> bool:
 	if data.is_empty():
 		return false
 
-	# First level is always unlocked (if collection is unlocked)
-	if level_index == 0:
-		return is_collection_unlocked(collection_id)
+	# Collection must be unlocked before any of its levels are accessible
+	if not is_collection_unlocked(collection_id):
+		return false
 
-	# Other levels require previous level to be completed
+	# First two levels are always available once the collection is unlocked
+	if level_index <= 1:
+		return true
+
+	# A level unlocks if either of the two levels before it has been completed.
+	# e.g. level 4 (index 4) unlocks when index 2 or 3 is completed.
+	# This means completing any level always unlocks up to 2 levels ahead,
+	# and players can skip a level they're stuck on without being fully blocked.
 	var levels = data.levels
 	if level_index >= levels.size():
 		return false
 
-	var previous_level = levels[level_index - 1]
-	return is_level_completed(previous_level)
+	for i in range(level_index - 2, level_index):
+		if i >= 0 and is_level_completed(levels[i]):
+			return true
+
+	return false
 
 func get_next_unlocked_level_in_collection(collection_id: String) -> String:
-	"""Get the first uncompleted level in a collection"""
+	"""Get the first uncompleted (but unlocked) level in a collection"""
 	var data = get_collection_data(collection_id)
 	if data.is_empty():
 		return ""
@@ -324,18 +285,15 @@ func get_next_unlocked_level_in_collection(collection_id: String) -> String:
 # =============================================================================
 
 func get_next_level(level_path: String) -> String:
-	"""Get next level in the same collection"""
-	# First try to find in current collection (if set)
+	"""Get the next level in the same collection"""
+	# Prefer current_collection for lookup to avoid ambiguity
 	if current_collection != "":
 		var data = get_collection_data(current_collection)
 		if not data.is_empty():
-			var levels = data.levels
-			var index = levels.find(level_path)
-
+			var index = data.levels.find(level_path)
 			if index != -1:
-				# Found the level in current collection
-				if index + 1 < levels.size():
-					var next_level = levels[index + 1]
+				if index + 1 < data.levels.size():
+					var next_level = data.levels[index + 1]
 					print("GameState: Next level is " + next_level)
 					return next_level
 				else:
@@ -346,19 +304,17 @@ func get_next_level(level_path: String) -> String:
 	for collection_id in COLLECTIONS:
 		var levels = COLLECTIONS[collection_id].levels
 		var index = levels.find(level_path)
-
 		if index != -1:
-			# Found the level, check if there's a next one
 			if index + 1 < levels.size():
 				var next_level = levels[index + 1]
 				print("GameState: Next level is " + next_level)
 				return next_level
 			else:
 				print("GameState: Last level in collection '" + collection_id + "'")
-				return ""  # Last level in collection
+				return ""
 
 	print("GameState: Level not found in any collection: " + level_path)
-	return ""  # Level not found
+	return ""
 
 func has_next_level(level_path: String) -> bool:
 	return get_next_level(level_path) != ""
@@ -379,8 +335,40 @@ func get_overall_completion_percentage() -> float:
 	return (float(completed_levels.size()) / float(total)) * 100.0
 
 # =============================================================================
-# SAVE/LOAD
+# SAVE / LOAD
 # =============================================================================
+
+const SAVE_PATH := "user://savegame.json"
+
+func save_game() -> void:
+	var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if not file:
+		push_error("GameState: Could not open save file for writing: " + SAVE_PATH)
+		return
+	file.store_string(JSON.stringify(get_save_data(), "\t"))
+	file.close()
+	print("GameState: Game saved to " + SAVE_PATH)
+
+func load_game() -> void:
+	if not FileAccess.file_exists(SAVE_PATH):
+		print("GameState: No save file found — starting fresh")
+		return
+
+	var file = FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if not file:
+		push_error("GameState: Could not open save file for reading")
+		return
+
+	var json = JSON.new()
+	var err = json.parse(file.get_as_text())
+	file.close()
+
+	if err != OK:
+		push_error("GameState: Save file JSON is corrupt — resetting progress")
+		return
+
+	load_save_data(json.data)
+	print("GameState: Game loaded. Completed levels: " + str(completed_levels.size()))
 
 func reset_progress() -> void:
 	completed_levels.clear()
@@ -403,7 +391,7 @@ func get_save_data() -> Dictionary:
 
 func load_save_data(data: Dictionary) -> void:
 	completed_levels = data.get("completed_levels", {})
-	completed_collections.assign(data.get("completed_collections", []))  # ← .assign() instead of =
+	completed_collections.assign(data.get("completed_collections", []))
 	climb_metadata = data.get("climb_metadata", {})
 	current_level = data.get("current_level", "")
 	current_collection = data.get("current_collection", "")

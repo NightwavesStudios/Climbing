@@ -103,7 +103,24 @@ func _randomize_environment() -> void:
 	var env_types: Array = EnvironmentConfig.get_all_environment_types()
 	if env_types.is_empty():
 		return
-	EnvironmentConfig.current_environment = env_types[randi() % env_types.size()]
+
+	# Build a weighted list that makes "Building" / urban environments
+	# extremely rare (1-in-20 chance) compared to all other environments.
+	# We do this by repeating non-building types 20× and building types 1×.
+	const BUILDING_KEYWORDS: Array = ["Building", "Urban", "City"]
+	var weighted: Array = []
+	for env in env_types:
+		var name: String = str(env)
+		var is_building: bool = false
+		for kw in BUILDING_KEYWORDS:
+			if name.containsn(kw):
+				is_building = true
+				break
+		var weight: int = 1 if is_building else 20
+		for _i in range(weight):
+			weighted.append(env)
+
+	EnvironmentConfig.current_environment = weighted[randi() % weighted.size()]
 
 
 func _setup_background_wall() -> void:
@@ -146,6 +163,19 @@ func _configure_wall() -> void:
 	_wall._init_clouds()
 	_wall.queue_redraw()
 
+	# ── Push the WeatherModifier behind all UI siblings ───────────────────
+	# WeatherModifier is a Node2D child of _wall. We want its particles /
+	# polygons to appear above the sky/ground draw calls but BELOW any
+	# Control siblings of this RandomBackground node (e.g. buttons, panels).
+	# Setting z_index on _wall to a negative value achieves this because
+	# Node2D z_index is relative to other Node2Ds in the same canvas layer,
+	# while Control nodes always draw on top of Node2D siblings in the same
+	# CanvasLayer by default Godot draw order.
+	#
+	# If your scene uses explicit z_index values on other Node2Ds you may
+	# need to lower this further (e.g. -10).
+	_wall.z_index = -1
+
 
 func _maybe_set_weather() -> void:
 	# Skip weather in indoor/gym environments.
@@ -156,22 +186,30 @@ func _maybe_set_weather() -> void:
 	if wm == null:
 		return
 
-	# Weighted rolls: ~55% chance of no weather, otherwise pick a type.
-	# Rare/dramatic effects (lightning, hail) are less likely than common ones.
+	# ── Weather rarity table ──────────────────────────────────────────────
+	# ~75% chance of no weather, remaining 25% split across effect types.
+	# Rare/dramatic effects (lightning, hail) remain least likely.
 	# NIGHT is excluded from random rolls.
+	#
+	#  0.00 – 0.75  →  NONE       (75 %)
+	#  0.75 – 0.86  →  RAIN       (11 %)
+	#  0.86 – 0.92  →  SNOW       ( 6 %)
+	#  0.92 – 0.96  →  FOG        ( 4 %)
+	#  0.96 – 0.99  →  LIGHTNING  ( 3 %)
+	#  0.99 – 1.00  →  HAIL       ( 1 %)
 	var roll := randf()
-	if roll < 0.55:
+	if roll < 0.75:
 		wm.set_weather(WeatherType.NONE)
-	elif roll < 0.73:
+	elif roll < 0.86:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.RAIN)
-	elif roll < 0.84:
+	elif roll < 0.92:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.SNOW)
-	elif roll < 0.91:
+	elif roll < 0.96:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.FOG)
-	elif roll < 0.97:
+	elif roll < 0.99:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.LIGHTNING)
 	else:

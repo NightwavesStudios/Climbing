@@ -96,14 +96,20 @@ func _set_indicator(button: Button, mode: String) -> void:
 
 	match mode:
 		"completion":
-			var lbl := Label.new()
-			lbl.name     = "CompletionIndicator"
-			lbl.text     = "✓"
-			lbl.add_theme_font_size_override("font_size", 32)
-			lbl.modulate = Color(0.0, 1.0, 0.0, 1.0)
-			lbl.position = Vector2(button.size.x - 40, -10)
-			lbl.z_index  = 1
-			button.add_child(lbl)
+			var check_tex := load("res://assets/checkmark.png")
+			if check_tex:
+				var sprite := Sprite2D.new()
+				sprite.name     = "CompletionIndicator"
+				sprite.texture  = check_tex
+				var target_size := 48.0
+				var tex_size    = check_tex.get_size()
+				var scale_val   = target_size / max(tex_size.x, tex_size.y)
+				sprite.scale    = Vector2(scale_val * 3, scale_val * 3)
+				sprite.modulate = Color(0.0, 1.0, 0.0, 1.0)
+				sprite.z_index  = 1
+				button.add_child(sprite)
+				# Defer so button.size is resolved before positioning
+				sprite.set_deferred("position", Vector2(button.size.x / 2.0, button.size.y / 2.0))
 
 		"lock":
 			var lock_tex := load("res://assets/locked.png")

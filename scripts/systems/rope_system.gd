@@ -1,199 +1,160 @@
 extends Node2D
 class_name RopeSystem
 
-## Top-rope climbing system — visual rope + fall catch
-## Designed specifically for character.gd which uses com_velocity / com_position.
+# =============================================================================
+#  ROPE SYSTEM
+#  Top-rope: visual rope simulation + fall catch + belayer figure.
+#  Designed for character.gd (com_velocity / com_position API).
+# =============================================================================
 
-@export var rope_color     := Color("#7A5C3A")   # dark warm rope brown
-@export var rope_thickness := 2.5
+@export var rope_color     := Color("#C8A06A")
+@export var rope_thickness := 4.5
 
-# ── Rope visual simulation ─────────────────────────────────────────────────
-const ROPE_SEGMENTS  := 25
-const ROPE_STIFFNESS := 0.95
-const GRAVITY        := 50.0
-const SEGMENT_DRAG   := 0.95
+# -- Rope sim -----------------------------------------------------------------
+const ROPE_SEGMENTS  = 28
+const ROPE_STIFFNESS = 0.92
+const ROPE_GRAVITY   = 60.0
+const SEGMENT_DRAG   = 0.94
 
-# ── Fall catch config ──────────────────────────────────────────────────────
-@export var fall_trigger_velocity : float = 150.0
-@export var rope_stretch_distance : float = 60.0
-@export var catch_decel_rate      : float = 12.0
-@export var lower_speed           : float = 60.0
+# -- Fall catch ---------------------------------------------------------------
+@export var fall_trigger_velocity : float = 120.0
+@export var rope_stretch_distance : float = 120.0
+@export var catch_decel_rate      : float = 6.0
+@export var lower_speed           : float = 55.0
 
-# ── Catch state machine ────────────────────────────────────────────────────
-enum CatchState { IDLE, FALLING, STRETCHING, HELD }
-var catch_state   : CatchState = CatchState.IDLE
-var fall_origin_y : float = 0.0
-var taut_y        : float = 0.0
-var held_y        : float = 0.0
-var fall_vel      : float = 0.0
+# -- Belayer anatomy (matches character.gd scale) ----------------------------
+const BODY_HEIGHT    = 44.0
+const HEAD_RADIUS    = 14.0
+const SHOULDER_WIDTH = 13.0
+const HIP_WIDTH      = 9.0
+const HIP_DOWN       = 20.0
+const LEG_UPPER      = 26.0
+const LEG_LOWER      = 24.0
+
+# -- Belayer animation --------------------------------------------------------
+const BREATH_SPEED      = 1.0
+const SWAY_SPEED        = 0.5
+const LEAN_ATTACK       = 8.0
+const LEAN_DECAY        = 2.0
+const CATCH_SHAKE_DECAY = 6.0
+const FACING_LERP_SPEED = 5.0
+
+# -- Slack burst (belayer takes in rope rhythmically) -------------------------
+const BURST_INTERVAL_MIN = 1.6
+const BURST_INTERVAL_MAX = 3.5
+const BURST_DURATION     = 0.35
+const BURST_MAGNITUDE    = 12.0
+const ARM_RETURN_SPEED   = 3.5
 
 signal player_caught
 
-# ── Belayer body constants ────────────────────────────────────────────────
-const LEG_UPPER_LENGTH      := 38.0
-const LEG_LOWER_LENGTH      := 35.0
-const HIP_DOWN              := 22.0
-const HEAD_OFFSET           := -24.0
-const LEG_NATURAL_SPLAY_DEG := 12.0
+# =============================================================================
+#  STATE
+# =============================================================================
 
-var b_left_hand_joint  := Vector2.ZERO
-var b_right_hand_joint := Vector2.ZERO
-var b_left_foot_joint  := Vector2.ZERO
-var b_right_foot_joint := Vector2.ZERO
-var b_left_hand        := Vector2.ZERO
-var b_right_hand       := Vector2.ZERO
-var b_left_foot        := Vector2.ZERO
-var b_right_foot       := Vector2.ZERO
+enum CatchState { IDLE, FALLING, STRETCHING, HELD }
+var catch_state   : CatchState = CatchState.IDLE
+var fall_origin_y : float = 0.0
+var fall_vel      : float = 0.0
+var held_y        : float = 0.0
+var _is_lowering  : bool  = false
 
-# belayer_facing: smoothed float (+1 = right, -1 = left).
-var belayer_facing_right := true
-var belayer_facing       : float = 1.0
-const FACING_LERP_SPEED  := 5.0
+# Belayer pose (world-space joint positions, set each frame by _update_pose)
+var b_guide_hand_joint : Vector2
+var b_guide_hand       : Vector2
+var b_brake_hand_joint : Vector2
+var b_brake_hand       : Vector2
+var b_near_foot_joint  : Vector2
+var b_near_foot        : Vector2
+var b_far_foot_joint   : Vector2
+var b_far_foot         : Vector2
 
-var belayer_lean : float = 0.0
-const LEAN_ATTACK := 10.0
-const LEAN_DECAY  := 2.5
+# Animation scalars
+var anim_breath      : float = 0.0  # phase
+var anim_sway        : float = 0.0  # phase
+var anim_lean        : float = 0.0  # 0-1
+var anim_catch_shake : float = 0.0  # 0-1 decaying
+var anim_shake_dir   : float = 1.0  # ±1
+var anim_guide_pull  : float = 0.0  # px offset for slack-taking
+var anim_head_tilt   : float = 0.0  # 0-1
 
-# ── Improved animation state ───────────────────────────────────────────────
-var anim_breath_phase  : float = 0.0   # idle breathing cycle
-var anim_sway_phase    : float = 0.0   # idle weight-shift sway
-var anim_catch_shake   : float = 0.0   # impact shake on catch (decays)
-var anim_catch_shake_x : float = 0.0   # horizontal component of catch shake
-var anim_held_sway     : float = 0.0   # gentle sway while holding
-var anim_head_tilt     : float = 0.0   # head looks toward climber
-const BREATH_SPEED     := 1.1
-const SWAY_SPEED       := 0.55
-const HELD_SWAY_SPEED  := 0.8
-const CATCH_SHAKE_DECAY := 8.0
+var burst_timer    : float = 0.0
+var burst_active   : bool  = false
+var burst_intensity: float = 0.0
+var burst_cooldown : float = 1.0
 
-# ── Lowering animation ─────────────────────────────────────────────────────
-var lower_anim_phase : float = 0.0
-const LOWER_ANIM_SPEED := 1.8
-var _is_lowering       : bool  = false
+var facing         : float = 1.0   # +1 = right
+var facing_target  : float = 1.0
 
-# ── Idle slack burst system ────────────────────────────────────────────────
-var guide_hand_pull      : float = 0.0
-var slack_burst_timer    : float = 0.0
-var slack_burst_active   : bool  = false
-var slack_burst_intensity: float = 0.0
-var slack_between_bursts : float = 1.0
-const BURST_INTERVAL_MIN := 1.4
-const BURST_INTERVAL_MAX := 3.2
-const BURST_DURATION     := 0.38
-const BURST_MAGNITUDE    := 16.0
-const ARM_RETURN_SPEED   := 4.0
-
-# ── Rope state ─────────────────────────────────────────────────────────────
-var belayer_position : Vector2 = Vector2.ZERO
-var anchor_position  : Vector2 = Vector2.ZERO
+# Rope
+var belayer_position : Vector2
+var anchor_position  : Vector2
 var rope_points      : Array[Vector2] = []
 var rope_velocities  : Array[Vector2] = []
-var is_setup         : bool = false
 
-var player               : Node2D = null
-var player_attach_offset : Vector2 = Vector2(0, -10)
-var rope_line            : Line2D = null
-var rope_line_lower      : Line2D = null   # anchor → climber, drawn BEHIND character
+# References
+var player       : Node2D = null
+var is_setup     : bool   = false
+var rope_line    : Line2D = null
+var rope_lower   : Line2D = null
 
-# ── Hold accessors ────────────────────────────────────────────────────────
+# =============================================================================
+#  INIT
+# =============================================================================
 
-func _left_hand_hold() -> Area2D:
-	if not is_instance_valid(player):
-		return null
-	var h = player.lh.hold
-	if h != null and not is_instance_valid(h):
-		player.lh.hold = null
-		return null
-	return h
-
-func _right_hand_hold() -> Area2D:
-	if not is_instance_valid(player):
-		return null
-	var h = player.rh.hold
-	if h != null and not is_instance_valid(h):
-		player.rh.hold = null
-		return null
-	return h
-
-func _has_hand_hold() -> bool:
-	return _left_hand_hold() != null or _right_hand_hold() != null
-
-# ═══════════════════════════════════════════════════════════════════════════
-
-func _ready():
-	global_position  = Vector2.ZERO
-	z_index          = 50
-
-	# Upper rope: belayer hand → anchor (in front of most things)
-	rope_line                = Line2D.new()
-	rope_line.width          = rope_thickness
-	rope_line.default_color  = rope_color
-	rope_line.z_index        = 5
-	rope_line.top_level      = true
-	rope_line.antialiased    = true
-	rope_line.begin_cap_mode = Line2D.LINE_CAP_ROUND
-	rope_line.end_cap_mode   = Line2D.LINE_CAP_ROUND
-	rope_line.joint_mode     = Line2D.LINE_JOINT_ROUND
+func _ready() -> void:
+	global_position = Vector2.ZERO
+	z_index = 50
+	rope_line  = _make_line()
+	rope_lower = _make_line()
 	add_child(rope_line)
-
-	# Lower rope: anchor → climber chest (behind the character figure)
-	rope_line_lower                  = Line2D.new()
-	rope_line_lower.width            = rope_thickness
-	rope_line_lower.default_color    = rope_color
-	rope_line_lower.z_index          = 5
-	rope_line_lower.top_level        = true
-	rope_line_lower.antialiased      = true
-	rope_line_lower.begin_cap_mode   = Line2D.LINE_CAP_ROUND
-	rope_line_lower.end_cap_mode     = Line2D.LINE_CAP_ROUND
-	rope_line_lower.joint_mode       = Line2D.LINE_JOINT_ROUND
-	add_child(rope_line_lower)
-
-	set_process(true)
+	add_child(rope_lower)
 
 
-func _process(delta):
+func _make_line() -> Line2D:
+	var l               = Line2D.new()
+	l.width             = rope_thickness
+	l.default_color     = rope_color
+	l.z_index           = 5
+	l.top_level         = true
+	l.antialiased       = true
+	l.begin_cap_mode    = Line2D.LINE_CAP_ROUND
+	l.end_cap_mode      = Line2D.LINE_CAP_ROUND
+	l.joint_mode        = Line2D.LINE_JOINT_ROUND
+	return l
+
+
+func setup_rope(belayer_pos: Vector2, player_node: Node2D, anchor_pos: Vector2 = Vector2.ZERO) -> void:
+	belayer_position = belayer_pos
+	player           = player_node
+	anchor_position  = anchor_pos if anchor_pos != Vector2.ZERO else _find_anchor()
+	facing_target    = 1.0 if _player_chest().x > anchor_position.x else -1.0
+	facing           = facing_target
+	_init_rope()
+	is_setup = true
+	visible  = true
+	catch_state = CatchState.IDLE
+
+# =============================================================================
+#  MAIN LOOP
+# =============================================================================
+
+func _process(delta: float) -> void:
 	if not is_setup or not is_instance_valid(player):
 		is_setup = false
 		return
 	_update_catch(delta)
-	update_belayer_animation(delta)
-	update_belayer_joints()
-	simulate_rope_physics(delta)
-	update_rope_visual()
+	_update_animation(delta)
+	_update_pose()
+	_simulate_rope(delta)
+	_update_rope_visual()
 	queue_redraw()
 
-# ═══════════════════════════════════════════════════════════════════════════
-## Public setup
-# ═══════════════════════════════════════════════════════════════════════════
+# =============================================================================
+#  CATCH STATE MACHINE
+# =============================================================================
 
-func setup_rope(belayer_pos: Vector2, player_node: Node2D, anchor_pos: Vector2 = Vector2.ZERO):
-	belayer_position = belayer_pos
-	player           = player_node
-	anchor_position  = anchor_pos if anchor_pos != Vector2.ZERO else find_top_anchor()
-
-	belayer_facing_right = get_player_chest_position().x > anchor_position.x
-	belayer_facing       = 1.0 if belayer_facing_right else -1.0
-	update_belayer_joints()
-	_init_rope_points(get_belayer_guide_hand_world(), anchor_position, get_player_chest_position())
-
-	is_setup          = true
-	visible           = true
-	if is_instance_valid(rope_line):
-		rope_line.visible = true
-	if is_instance_valid(rope_line_lower):
-		rope_line_lower.visible = true
-	catch_state       = CatchState.IDLE
-
-# ═══════════════════════════════════════════════════════════════════════════
-## Fall / catch state machine
-# ═══════════════════════════════════════════════════════════════════════════
-
-func _update_catch(delta: float):
-	if not is_instance_valid(player):
-		return
-	if not "com_velocity" in player or not "com_position" in player:
-		return
-
+func _update_catch(delta: float) -> void:
 	match catch_state:
 
 		CatchState.IDLE:
@@ -201,35 +162,23 @@ func _update_catch(delta: float):
 				catch_state   = CatchState.FALLING
 				fall_origin_y = player.com_position.y
 				fall_vel      = player.com_velocity.y
-				belayer_lean  = 0.0
 
 		CatchState.FALLING:
-			var fallen = player.com_position.y - fall_origin_y
-			fall_vel    = player.com_velocity.y
-
-			if fallen >= rope_stretch_distance * 0.5 and fall_vel >= fall_trigger_velocity:
+			fall_vel = player.com_velocity.y
+			if player.com_position.y - fall_origin_y >= rope_stretch_distance and fall_vel > 0.0:
 				catch_state      = CatchState.STRETCHING
-				taut_y           = player.com_position.y
 				fall_vel         = player.com_velocity.y
-				belayer_lean     = 1.0
-				# Trigger catch shake — intensity scales with fall velocity
-				anim_catch_shake   = clamp(fall_vel / 300.0, 0.4, 1.0)
-				anim_catch_shake_x = randf_range(-0.5, 0.5)
+				anim_lean        = 1.0
+				anim_catch_shake = clamp(fall_vel / 280.0, 0.5, 1.0)
+				anim_shake_dir   = randf_range(-1.0, 1.0)
 				emit_signal("player_caught")
-
 			if _has_hand_hold():
 				catch_state = CatchState.IDLE
 
 		CatchState.STRETCHING:
-			fall_vel = move_toward(fall_vel, 0.0, catch_decel_rate * fall_vel * delta + 40.0 * delta)
-
-			player.com_position.y  += fall_vel * delta
-			player.com_velocity     = Vector2.ZERO
-			player.body_velocity    = Vector2.ZERO
-			player.global_position  = player.com_position + Vector2(0, -player.COM_OFFSET_Y)
-
-			if fall_vel <= 2.0:
-				fall_vel    = 0.0
+			fall_vel = move_toward(fall_vel, 0.0, catch_decel_rate * delta * fall_vel + 35.0 * delta)
+			_set_player_pos(player.com_position + Vector2(0, fall_vel * delta))
+			if fall_vel <= 1.5:
 				held_y      = player.com_position.y
 				catch_state = CatchState.HELD
 
@@ -237,521 +186,350 @@ func _update_catch(delta: float):
 			if _has_hand_hold():
 				catch_state = CatchState.IDLE
 				return
-
 			player.com_velocity.y  = minf(player.com_velocity.y, 0.0)
-			player.body_velocity.y = minf(player.body_velocity.y, 0.0)
-
-			if Input.is_action_pressed("ui_accept"):
+			_is_lowering = Input.is_action_pressed("ui_accept")
+			if _is_lowering:
 				held_y += lower_speed * delta
+			_set_player_pos(Vector2(player.com_position.x, held_y))
 
-			held_y                 = player.com_position.y
-			player.com_position.y  = held_y
-			player.global_position = player.com_position + Vector2(0, -player.COM_OFFSET_Y)
 
-# ═══════════════════════════════════════════════════════════════════════════
-## Belayer animation — lean, facing, lowering phase, breathing, sway, shake
-# ═══════════════════════════════════════════════════════════════════════════
+func _set_player_pos(pos: Vector2) -> void:
+	player.com_position    = pos
+	player.body_velocity   = Vector2.ZERO
+	player.global_position = pos + Vector2(0, -player.COM_OFFSET_Y)
 
-func update_belayer_animation(delta: float):
-	# ── Lean ──────────────────────────────────────────────────────────────────
-	var lean_target := 1.0 if catch_state in [CatchState.STRETCHING, CatchState.HELD] else 0.0
-	belayer_lean = move_toward(belayer_lean, lean_target,
-		(LEAN_ATTACK if lean_target > belayer_lean else LEAN_DECAY) * delta)
+# =============================================================================
+#  ANIMATION
+# =============================================================================
 
-	# ── Breathing (always active, subtle in non-idle) ──────────────────────────
-	var breath_speed_mult := 1.0 if catch_state == CatchState.IDLE else 1.6  # breathe faster when stressed
-	anim_breath_phase = fmod(anim_breath_phase + BREATH_SPEED * breath_speed_mult * delta, TAU)
+func _update_animation(delta: float) -> void:
+	# Facing
+	facing_target = 1.0 if _player_chest().x > anchor_position.x else -1.0
+	facing = lerpf(facing, facing_target, FACING_LERP_SPEED * delta)
 
-	# ── Idle weight-shift sway ────────────────────────────────────────────────
+	# Lean (pulled back when catching)
+	var lean_tgt = 1.0 if catch_state in [CatchState.STRETCHING, CatchState.HELD] else 0.0
+	var lean_spd = LEAN_ATTACK if lean_tgt > anim_lean else LEAN_DECAY
+	anim_lean = move_toward(anim_lean, lean_tgt, lean_spd * delta)
+
+	# Breath & sway (faster when catching)
+	var breath_mult = 1.7 if catch_state != CatchState.IDLE else 1.0
+	anim_breath = fmod(anim_breath + BREATH_SPEED * breath_mult * delta, TAU)
 	if catch_state == CatchState.IDLE:
-		anim_sway_phase = fmod(anim_sway_phase + SWAY_SPEED * delta, TAU)
+		anim_sway = fmod(anim_sway + SWAY_SPEED * delta, TAU)
 	else:
-		# Sway freezes / decelerates when actively catching
-		anim_sway_phase = lerp(anim_sway_phase, 0.0, 3.0 * delta)
+		anim_sway = lerpf(anim_sway, 0.0, 3.0 * delta)
 
-	# ── Catch impact shake (decays exponentially) ──────────────────────────────
-	anim_catch_shake = move_toward(anim_catch_shake, 0.0, CATCH_SHAKE_DECAY * anim_catch_shake * delta + 0.5 * delta)
+	# Catch shake (decays naturally)
+	anim_catch_shake = move_toward(anim_catch_shake, 0.0,
+		CATCH_SHAKE_DECAY * anim_catch_shake * delta + 0.4 * delta)
 
-	# ── Held gentle sway ──────────────────────────────────────────────────────
-	if catch_state == CatchState.HELD:
-		anim_held_sway = fmod(anim_held_sway + HELD_SWAY_SPEED * delta, TAU)
-	else:
-		anim_held_sway = lerp(anim_held_sway, 0.0, 4.0 * delta)
+	# Head tilt toward climber
+	var chest    = _player_chest()
+	var tilt_tgt = clamp(-(chest - belayer_position).y / 350.0, 0.0, 1.0) * 0.3
+	anim_head_tilt = lerpf(anim_head_tilt, tilt_tgt, 3.0 * delta)
 
-	# ── Head tilt — look up toward anchor/climber ──────────────────────────────
-	if is_instance_valid(player):
-		var chest    := get_player_chest_position()
-		var to_climb := chest - belayer_position
-		var tilt_t   = clamp(-to_climb.y / 400.0, 0.0, 1.0)  # more upward = more tilt
-		var tilt_target = tilt_t * 0.35  # max ~20 deg effective tilt
-		anim_head_tilt = lerp(anim_head_tilt, tilt_target, 3.0 * delta)
-
-	# ── Idle slack bursts ─────────────────────────────────────────────────────
+	# Slack bursts (guide hand takes in rope while idle)
 	if catch_state == CatchState.IDLE:
-		if not slack_burst_active:
-			slack_between_bursts -= delta
-			guide_hand_pull = lerp(guide_hand_pull, 0.0, ARM_RETURN_SPEED * delta)
-			if slack_between_bursts <= 0.0:
-				slack_burst_active    = true
-				slack_burst_timer     = BURST_DURATION
-				slack_burst_intensity = randf_range(0.55, 1.0)
+		if burst_active:
+			burst_timer -= delta
+			anim_guide_pull = -sin((1.0 - burst_timer / BURST_DURATION) * PI) * BURST_MAGNITUDE * burst_intensity
+			if burst_timer <= 0.0:
+				burst_active  = false
+				burst_cooldown = randf_range(BURST_INTERVAL_MIN, BURST_INTERVAL_MAX)
 		else:
-			slack_burst_timer -= delta
-			guide_hand_pull    = (-sin((1.0 - slack_burst_timer / BURST_DURATION) * PI)
-								  * BURST_MAGNITUDE * slack_burst_intensity)
-			if slack_burst_timer <= 0.0:
-				slack_burst_active   = false
-				slack_between_bursts = randf_range(BURST_INTERVAL_MIN, BURST_INTERVAL_MAX)
+			burst_cooldown   -= delta
+			anim_guide_pull   = lerpf(anim_guide_pull, 0.0, ARM_RETURN_SPEED * delta)
+			if burst_cooldown <= 0.0:
+				burst_active    = true
+				burst_timer     = BURST_DURATION
+				burst_intensity = randf_range(0.5, 1.0)
 	else:
-		guide_hand_pull = lerp(guide_hand_pull, -BURST_MAGNITUDE * 1.8, 10.0 * delta)
+		anim_guide_pull = lerpf(anim_guide_pull, -BURST_MAGNITUDE * 1.5, 10.0 * delta)
 
-	# ── Smooth facing ─────────────────────────────────────────────────────────
-	if is_instance_valid(player):
-		belayer_facing_right = get_player_chest_position().x > anchor_position.x
-		var target := 1.0 if belayer_facing_right else -1.0
-		belayer_facing = lerp(belayer_facing, target, FACING_LERP_SPEED * delta)
+# =============================================================================
+#  POSE  (belayer joint positions, world-space)
+#  "near" side faces the wall.  "far" side is away from wall.
+#  Guide hand (near) feeds rope up toward anchor.
+#  Brake hand (far) holds rope down — classic ATC position.
+# =============================================================================
 
-	# ── Lowering animation phase ───────────────────────────────────────────────
-	_is_lowering = (catch_state == CatchState.HELD
-		and Input.is_action_pressed("ui_accept"))
-	if _is_lowering:
-		lower_anim_phase = fmod(lower_anim_phase + LOWER_ANIM_SPEED * delta, 1.0)
-	else:
-		lower_anim_phase = lerp(lower_anim_phase, 0.0, 5.0 * delta)
+func _update_pose() -> void:
+	var sm    := facing
+	var bob_y := sin(anim_breath) * 1.0
+	var sway  := sin(anim_sway) * 2.0
+	var shake := sin(anim_catch_shake * TAU * 8.0) * anim_catch_shake * 4.0 * anim_shake_dir
+	var lean  := -anim_lean * 8.0
 
-# ═══════════════════════════════════════════════════════════════════════════
-## Belayer joints — longer arms, proper proportions
-# ═══════════════════════════════════════════════════════════════════════════
+	var b    := belayer_position + Vector2(sway + shake, lean + bob_y)
+	var base := belayer_position
 
-func update_belayer_joints():
-	var sm     := belayer_facing
-	# Compose all animation offsets into the base position
-	var breath_y    := sin(anim_breath_phase) * 1.2
-	var sway_x      := sin(anim_sway_phase) * 2.5
-	var shake_x     := sin(anim_catch_shake * TAU * 8.0) * anim_catch_shake * 5.0 * anim_catch_shake_x
-	var shake_y     = abs(sin(anim_catch_shake * TAU * 8.0)) * anim_catch_shake * 3.0
-	var held_sway_x := sin(anim_held_sway) * 1.8
+	var neck      := b    + Vector2(0.0, -BODY_HEIGHT * 0.5)
+	var hips      := base + Vector2(0.0, HIP_DOWN)
+	var near_sh   := neck + Vector2( sm * SHOULDER_WIDTH, 2.0)
+	var far_sh    := neck + Vector2(-sm * SHOULDER_WIDTH, 2.0)
+	var near_hip  := hips + Vector2( sm * HIP_WIDTH, 0.0)
+	var far_hip   := hips + Vector2(-sm * HIP_WIDTH, 0.0)
 
-	var lean_y := -belayer_lean * 10.0   # slightly more dramatic lean
-	var b      := belayer_position + Vector2(sway_x + shake_x + held_sway_x, lean_y + breath_y + shake_y)
-	var b_base := belayer_position
+	# Guide hand — elbow forward-up, hand reaches toward rope
+	b_guide_hand_joint = near_sh + Vector2(sm * 14.0, -4.0)
+	b_guide_hand       = near_sh + Vector2(sm * 22.0, -20.0 + anim_guide_pull)
 
-	var near_shoulder := b      + Vector2( sm * 10.0, 0.0)
-	var far_shoulder  := b      + Vector2(-sm * 10.0, 0.0)
-	var near_hip      := b_base + Vector2( sm *  8.0, HIP_DOWN)
-	var far_hip       := b_base + Vector2(-sm *  8.0, HIP_DOWN)
+	# Brake hand — elbow down-back, hand at hip
+	var brake_drop = anim_lean * 18.0
+	b_brake_hand_joint = far_sh + Vector2(-sm * 12.0, 14.0 + brake_drop * 0.3)
+	b_brake_hand       = far_sh + Vector2(-sm * 16.0, 30.0 + brake_drop)
 
-	# ── Guide hand (rope hand, near side) — LONGER ARM ────────────────────────
-	# Elbow extends further out; wrist and hand reach up toward the anchor
-	var lower_guide_y := 0.0
-	var lower_guide_x := 0.0
-	if lower_anim_phase > 0.005:
-		var cycle     := sin(lower_anim_phase * TAU)
-		lower_guide_y  = cycle * 22.0
-		lower_guide_x  = abs(cycle) * sm * 6.0
-
-	var pull_offset         := Vector2(lower_guide_x, guide_hand_pull + lower_guide_y)
-	# Joint (elbow) — further from shoulder, angled toward anchor
-	b_right_hand_joint  = near_shoulder + Vector2( sm * 18.0, -8.0) + pull_offset * 0.35
-	# Hand — extended further still, reaching toward rope above
-	b_right_hand        = near_shoulder + Vector2( sm * 30.0, -28.0) + pull_offset
-
-	# ── Brake hand (far side) — LONGER ARM ────────────────────────────────────
-	var lower_brake_y := 0.0
-	if lower_anim_phase > 0.005:
-		var brake_cycle := sin(lower_anim_phase * TAU + PI)
-		lower_brake_y    = brake_cycle * 12.0
-
-	var brake_pull := belayer_lean * 22.0 + lower_brake_y
-	# Joint (elbow) — swings back and down for brake position
-	b_left_hand_joint  = far_shoulder + Vector2(-sm * 14.0, 10.0 + brake_pull * 0.35)
-	# Hand — extends further down and back (brake device position)
-	b_left_hand        = far_shoulder + Vector2(-sm * 22.0, 30.0 + brake_pull)
-
-	# ── Feet ──────────────────────────────────────────────────────────────────
-	var lr := deg_to_rad(LEG_NATURAL_SPLAY_DEG)
-	# Apply a subtle foot weight-shift driven by sway
-	var sway_lean_r := sin(anim_sway_phase) * 0.06
-	var sway_lean_l := sin(anim_sway_phase + PI) * 0.04
-	b_right_foot_joint = near_hip + Vector2( sm * LEG_UPPER_LENGTH * sin(lr + sway_lean_r),        LEG_UPPER_LENGTH * cos(lr + sway_lean_r))
-	b_right_foot       = b_right_foot_joint + Vector2( sm * 4.0, LEG_LOWER_LENGTH)
-	b_left_foot_joint  = far_hip  + Vector2(-sm * LEG_UPPER_LENGTH * sin(lr + sway_lean_l) * 0.7,  LEG_UPPER_LENGTH * cos(lr + sway_lean_l))
-	b_left_foot        = b_left_foot_joint  + Vector2(-sm * 2.0, LEG_LOWER_LENGTH)
+	# Feet — near slightly forward, far slightly back
+	var lr := deg_to_rad(10.0)
+	b_near_foot_joint = near_hip + Vector2( sm * LEG_UPPER * sin(lr),       LEG_UPPER * cos(lr))
+	b_near_foot       = b_near_foot_joint + Vector2( sm * 5.0, LEG_LOWER)
+	b_far_foot_joint  = far_hip  + Vector2(-sm * LEG_UPPER * sin(lr) * 0.6, LEG_UPPER * cos(lr))
+	b_far_foot        = b_far_foot_joint  + Vector2(-sm * 2.0, LEG_LOWER)
 
 
 func get_belayer_guide_hand_world() -> Vector2:
-	return b_right_hand
+	return b_guide_hand
 
-# ═══════════════════════════════════════════════════════════════════════════
-## Rope physics
-# ═══════════════════════════════════════════════════════════════════════════
+# =============================================================================
+#  ROPE PHYSICS
+# =============================================================================
 
-func simulate_rope_physics(delta: float):
-	if rope_points.size() < 3 or not is_instance_valid(player):
-		return
-
-	var belayer_hand := get_belayer_guide_hand_world()
-	var player_chest := get_player_chest_position()
+func _simulate_rope(delta: float) -> void:
+	if rope_points.size() < 3: return
+	var chest := _player_chest()
 
 	for i in range(1, rope_points.size() - 1):
-		rope_velocities[i].y += GRAVITY * delta
-		rope_velocities[i]   *= SEGMENT_DRAG
-		rope_points[i]       += rope_velocities[i] * delta
+		rope_velocities[i].y += ROPE_GRAVITY * delta
+		if catch_state == CatchState.FALLING:   rope_velocities[i].y += fall_vel * delta * 0.12
+		elif catch_state == CatchState.STRETCHING: rope_velocities[i].y += fall_vel * delta * 0.2
+		rope_velocities[i] *= SEGMENT_DRAG
+		rope_points[i]     += rope_velocities[i] * delta
 
-	if catch_state == CatchState.FALLING:
-		for i in range(1, rope_points.size() - 1):
-			rope_velocities[i].y += fall_vel * delta * 0.15
-	elif catch_state == CatchState.STRETCHING:
-		for i in range(1, rope_points.size() - 1):
-			rope_velocities[i].y += fall_vel * delta * 0.25
+	var ai := _anchor_index()
+	var up  := b_guide_hand.distance_to(anchor_position) / maxf(float(ai), 1.0)
+	var dn  := anchor_position.distance_to(chest)        / maxf(float(rope_points.size() - ai - 1), 1.0)
 
-	for _iter in range(15):
-		rope_points[0]                      = belayer_hand
-		rope_points[rope_points.size() - 1] = player_chest
+	for _pass in range(15):
+		rope_points[0]                        = b_guide_hand
+		rope_points[rope_points.size() - 1]  = chest
+		rope_points[ai]                       = anchor_position
+		_constrain_segment(0, ai, up)
+		_constrain_segment(ai, rope_points.size() - 1, dn)
 
-		var anchor_index := 0
-		var min_dist     := rope_points[0].distance_to(anchor_position)
-		for i in range(1, rope_points.size()):
-			var d := rope_points[i].distance_to(anchor_position)
-			if d < min_dist:
-				min_dist     = d
-				anchor_index = i
-		rope_points[anchor_index] = anchor_position
-
-		var up_seg = belayer_hand.distance_to(anchor_position) / max(1.0, float(anchor_index))
-		var dn_seg = anchor_position.distance_to(player_chest) / max(1.0, float(rope_points.size() - anchor_index - 1))
-
-		for i in range(anchor_index):
-			var dv := rope_points[i + 1] - rope_points[i]
-			var d  := dv.length()
-			if d < 0.1:
-				continue
-			var cv = dv.normalized() * (d - up_seg) * ROPE_STIFFNESS * 0.5
-			if i > 0:
-				rope_points[i] += cv
-			if i + 1 < rope_points.size() - 1 and i + 1 != anchor_index:
-				rope_points[i + 1] -= cv
-
-		for i in range(anchor_index, rope_points.size() - 1):
-			var dv := rope_points[i + 1] - rope_points[i]
-			var d  := dv.length()
-			if d < 0.1:
-				continue
-			var cv = dv.normalized() * (d - dn_seg) * ROPE_STIFFNESS * 0.5
-			if i != anchor_index:
-				rope_points[i] += cv
-			if i + 1 < rope_points.size() - 1:
-				rope_points[i + 1] -= cv
-
-	_smooth_rope()
+	_smooth_rope(ai)
 
 
-func _smooth_rope():
-	if rope_points.size() < 3:
-		return
+func _constrain_segment(from: int, to: int, seg_len: float) -> void:
+	for i in range(from, to):
+		var dv := rope_points[i + 1] - rope_points[i]
+		var d  := dv.length()
+		if d < 0.1: continue
+		var cv = dv.normalized() * (d - seg_len) * ROPE_STIFFNESS * 0.5
+		if i > from and rope_points[i].distance_to(anchor_position) >= 5.0:
+			rope_points[i] += cv
+		if i + 1 < to:
+			rope_points[i + 1] -= cv
+
+
+func _smooth_rope(ai: int) -> void:
 	for i in range(1, rope_points.size() - 1):
 		if rope_points[i].distance_to(anchor_position) >= 5.0:
-			rope_points[i] = (rope_points[i - 1] * 0.2
-							+ rope_points[i]       * 0.6
-							+ rope_points[i + 1]   * 0.2)
+			rope_points[i] = rope_points[i - 1] * 0.2 + rope_points[i] * 0.6 + rope_points[i + 1] * 0.2
 
-# ═══════════════════════════════════════════════════════════════════════════
-## Rope visual — split at anchor: upper segment in front, lower behind character
-# ═══════════════════════════════════════════════════════════════════════════
 
-func update_rope_visual():
-	if not is_instance_valid(rope_line) or rope_points.size() < 2:
-		return
-
-	# Find the anchor index (same logic as simulate_rope_physics)
-	var anchor_index := 0
-	var min_dist     := rope_points[0].distance_to(anchor_position)
+func _anchor_index() -> int:
+	var best := 0
+	var min_d := rope_points[0].distance_to(anchor_position)
 	for i in range(1, rope_points.size()):
 		var d := rope_points[i].distance_to(anchor_position)
-		if d < min_dist:
-			min_dist     = d
-			anchor_index = i
+		if d < min_d: min_d = d; best = i
+	return best
 
-	# Upper segment: belayer hand → anchor  (z_index 49, in front of wall/most things)
-	var upper_pts := PackedVector2Array()
-	for i in range(anchor_index + 1):
-		upper_pts.append(rope_points[i])
-	rope_line.points = upper_pts
+# =============================================================================
+#  ROPE VISUAL
+# =============================================================================
 
-	# Lower segment: anchor → climber chest  (z_index -1, behind character figure)
-	if is_instance_valid(rope_line_lower):
-		var lower_pts := PackedVector2Array()
-		for i in range(anchor_index, rope_points.size()):
-			lower_pts.append(rope_points[i])
-		rope_line_lower.points = lower_pts
+func _update_rope_visual() -> void:
+	if not is_instance_valid(rope_line) or rope_points.size() < 2: return
+	var ai := _anchor_index()
+	var up  := PackedVector2Array()
+	var dn  := PackedVector2Array()
+	for i in range(ai + 1):          up.append(rope_points[i])
+	for i in range(ai, rope_points.size()): dn.append(rope_points[i])
+	rope_line.points  = up
+	rope_lower.points = dn
 
-	# Always use the base rope_color — no tinting on catch state
-	rope_line.width             = rope_thickness
-	rope_line.default_color     = rope_color
-	if is_instance_valid(rope_line_lower):
-		rope_line_lower.width         = rope_thickness
-		rope_line_lower.default_color = rope_color
+# =============================================================================
+#  DRAW
+# =============================================================================
 
-# ═══════════════════════════════════════════════════════════════════════════
-## Draw
-# ═══════════════════════════════════════════════════════════════════════════
-
-func _draw():
-	if not is_setup:
-		return
+func _draw() -> void:
+	if not is_setup: return
 	_draw_anchor()
-	_draw_belayer_figure()
+	_draw_belayer()
 
 
-func _draw_anchor():
+func _draw_anchor() -> void:
 	var al := to_local(anchor_position)
-
-	# Anchor fill palette — warm steel matching harness/shoe gold family
-	var metal_dark   := Color("#2A2A30")   # deep charcoal outer ring
-	var metal_mid    := Color("#6E6E78")   # brushed steel body
-	var metal_light  := Color("#A8A8B2")   # highlight ring
-	var bolt_accent  := Color("#D4A84B")   # warm gold bolt head — echoes harness/shoe gold
-
-	# Tonal outline colors — hand-tuned so each is visibly darker than its fill,
-	# since _belayer_outline_color() produces near-identical values on dark colors.
-	var oc_dark   := Color("#141418")
-	var oc_mid    := Color("#3A3A42")
-	var oc_light  := Color("#5C5C66")
-	var oc_accent := Color("#8A6A18")
-
-	# Outline pass first (larger radius = rim visible around fill)
-	draw_circle(al, 14.0, oc_dark)    # rim around outer ring
-	draw_circle(al, 10.0, oc_mid)     # rim around steel body
-	draw_circle(al,  6.5, oc_light)   # rim around highlight
-	draw_circle(al,  4.0, oc_accent)  # rim around gold bolt
-
-	# Fill pass on top
-	draw_circle(al, 12.0, metal_dark)
-	draw_circle(al,  8.5, metal_mid)
-	draw_circle(al,  5.0, metal_light)
-	draw_circle(al,  2.8, bolt_accent)
-
-# ═══════════════════════════════════════════════════════════════════════════
-## Tonal outline helper — mirrors character.gd's _outline_color() exactly
-# ═══════════════════════════════════════════════════════════════════════════
-
-func _belayer_outline_color(col: Color) -> Color:
-	var lum := col.r * 0.299 + col.g * 0.587 + col.b * 0.114
-	var r   = lerp(col.r, lum, 0.3 * 0.3)
-	var g   = lerp(col.g, lum, 0.3 * 0.3)
-	var b   = lerp(col.b, lum, 0.3 * 0.3)
-	r = lerp(r, 0.0, 0.25)
-	g = lerp(g, 0.0, 0.25)
-	b = lerp(b, 0.0, 0.25)
-	return Color(r, g, b, 1.0)
+	draw_circle(al, 12.0, Color("#2A2A30"))
+	draw_circle(al,  8.5, Color("#6E6E78"))
+	draw_circle(al,  5.0, Color("#A8A8B2"))
+	draw_circle(al,  2.8, Color("#D4A84B"))
 
 
-func _draw_belayer_figure():
-	# ── Palette ────────────────────────────────────────────────────────────────
+func _draw_belayer() -> void:
 	var skin_color  := Color("#C68642")
 	var shirt_color := Color("#2E4A6B")
 	var pants_color := Color("#1A1A2E")
 	var shoe_color  := Color("#d89418ff")
+	const OW = 5.5
 
-	const OW := 5.5   # outline extra width
+	var sm    := facing
+	var bob_y := sin(anim_breath) * 1.0
+	var sway  := sin(anim_sway) * 2.0
+	var shake := sin(anim_catch_shake * TAU * 8.0) * anim_catch_shake * 4.0 * anim_shake_dir
+	var lean  := -anim_lean * 8.0
 
-	var sm := belayer_facing
+	var b     := to_local(belayer_position + Vector2(sway + shake, lean + bob_y))
+	var base  := to_local(belayer_position)
+	var neck  := b    + Vector2(0.0, -BODY_HEIGHT * 0.5)
+	var hips  := base + Vector2(0.0, HIP_DOWN)
 
-	# ── Local body landmarks ──────────────────────────────────────────────────
-	var breath_y    := sin(anim_breath_phase) * 1.2
-	var sway_x      := sin(anim_sway_phase) * 2.5
-	var shake_x     := sin(anim_catch_shake * TAU * 8.0) * anim_catch_shake * 5.0 * anim_catch_shake_x
-	var shake_y     = abs(sin(anim_catch_shake * TAU * 8.0)) * anim_catch_shake * 3.0
-	var held_sway_x := sin(anim_held_sway) * 1.8
+	var head_center  := neck + Vector2(sm * anim_head_tilt * 3.0, -HEAD_RADIUS - 2.0 - anim_head_tilt * 7.0)
+	var near_sh      := neck + Vector2( sm * SHOULDER_WIDTH, 2.0)
+	var far_sh       := neck + Vector2(-sm * SHOULDER_WIDTH, 2.0)
+	var near_hip     := hips + Vector2( sm * HIP_WIDTH, 0.0)
+	var far_hip      := hips + Vector2(-sm * HIP_WIDTH, 0.0)
 
-	var lean_y      := -belayer_lean * 10.0
-	var b           := to_local(belayer_position + Vector2(sway_x + shake_x + held_sway_x, lean_y + breath_y + shake_y))
-	var b_base      := to_local(belayer_position)
+	# Convert world joints to local
+	var ghj := to_local(b_guide_hand_joint)
+	var gh  := to_local(b_guide_hand)
+	var bhj := to_local(b_brake_hand_joint)
+	var bh  := to_local(b_brake_hand)
+	var nfj := to_local(b_near_foot_joint)
+	var nf  := to_local(b_near_foot)
+	var ffj := to_local(b_far_foot_joint)
+	var ff  := to_local(b_far_foot)
 
-	# Head tilts upward when looking at climber
-	var head_tilt_y := -anim_head_tilt * 8.0
-	var head_center := b      + Vector2(sm * anim_head_tilt * 4.0, HEAD_OFFSET + head_tilt_y)
-	var neck        := b      + Vector2(0, HEAD_OFFSET + 16.0)
-	var hips        := b_base + Vector2(0, HIP_DOWN)
+	var near_sl := near_sh.lerp(ghj, 0.35)
+	var far_sl  := far_sh.lerp(bhj, 0.35)
 
-	var near_shoulder := neck + Vector2( sm * 12.0, 4.0)
-	var far_shoulder  := neck + Vector2(-sm * 12.0, 4.0)
-	var near_hip      := hips + Vector2( sm *  9.0, 0.0)
-	var far_hip       := hips + Vector2(-sm *  9.0, 0.0)
+	var oc_skin  := _outline(skin_color)
+	var oc_shirt := _outline(shirt_color)
+	var oc_pants := _outline(pants_color)
+	var oc_shoe  := _outline(shoe_color)
 
-	var lhj := to_local(b_left_hand_joint)
-	var lh  := to_local(b_left_hand)
-	var rhj := to_local(b_right_hand_joint)
-	var rh  := to_local(b_right_hand)
-	var lfj := to_local(b_left_foot_joint)
-	var lf  := to_local(b_left_foot)
-	var rfj := to_local(b_right_foot_joint)
-	var rf  := to_local(b_right_foot)
-
-	# Sleeve transition points (0.35 lerp from shoulder to elbow)
-	var near_sl := near_shoulder.lerp(rhj, 0.35)
-	var far_sl  := far_shoulder.lerp(lhj, 0.35)
-
-	# ── Lowering hand highlights ──────────────────────────────────────────────
-	var guide_bright := 0.0
-	var brake_bright := 0.0
-	if lower_anim_phase > 0.005:
-		guide_bright = clamp(sin(lower_anim_phase * TAU),       0.0, 1.0)
-		brake_bright = clamp(sin(lower_anim_phase * TAU + PI),  0.0, 1.0)
-
-	var rope_hand_color  := skin_color.lerp(Color("#E8A020"), guide_bright * 0.55)
-	var brake_hand_color := skin_color.lerp(Color("#E8A020"), brake_bright * 0.55)
-
-	# Pre-compute tonal outline colors
-	var oc_pants  := _belayer_outline_color(pants_color)
-	var oc_shoe   := _belayer_outline_color(shoe_color)
-	var oc_shirt  := _belayer_outline_color(shirt_color)
-	var oc_skin   := _belayer_outline_color(skin_color)
-
-	# ══════════════════════════════════════════════════════════════════════════
-	# PASS 1 — tonal outline (behind fill)
-	# ══════════════════════════════════════════════════════════════════════════
-
-	# Far leg — thinner: 8.0 / 8.0 (was 12/11)
-	draw_line(far_hip,  lfj, oc_pants, 8.0 + OW)
-	draw_circle(lfj, 4.0 + OW * 0.5, oc_pants)
-	draw_line(lfj,      lf,  oc_pants, 8.0 + OW)
-	draw_circle(lf,  8.0 + OW * 0.5, oc_shoe)
-
-	# Near leg — thinner: 8.0 / 8.0
-	draw_line(near_hip, rfj, oc_pants, 8.0 + OW)
-	draw_circle(rfj, 4.0 + OW * 0.5, oc_pants)
-	draw_line(rfj,      rf,  oc_pants, 8.0 + OW)
-	draw_circle(rf,  8.0 + OW * 0.5, oc_shoe)
-
-	# Torso — hip span + shirt body (NO harness strip)
-	draw_line(far_hip,  near_hip,        oc_pants,  14.0 + OW)
-	draw_line(hips,     b,               oc_shirt,  16.0 + OW)
-	draw_line(b,        neck,            oc_shirt,  14.0 + OW)
-
-	# Far arm (brake hand)
-	draw_circle(far_shoulder,  5.0 + OW * 0.5, oc_shirt)
-	draw_line(far_shoulder,  far_sl,  oc_shirt, 10.0 + OW)
-	draw_line(far_sl,        lhj,     oc_skin,  10.0 + OW)
-	draw_circle(lhj, 5.0 + OW * 0.5, oc_skin)
-	draw_line(lhj,   lh,  oc_skin,    9.0 + OW)
-	draw_circle(lh,  7.0 + OW * 0.5, _belayer_outline_color(brake_hand_color))
-
-	# Near arm (rope/guide hand)
-	draw_circle(near_shoulder, 5.0 + OW * 0.5, oc_shirt)
-	draw_line(near_shoulder, near_sl, oc_shirt, 10.0 + OW)
-	draw_line(near_sl,       rhj,     oc_skin,  10.0 + OW)
-	draw_circle(rhj, 5.0 + OW * 0.5, oc_skin)
-	draw_line(rhj,   rh,  oc_skin,    9.0 + OW)
-	draw_circle(rh,  7.0 + OW * 0.5, _belayer_outline_color(rope_hand_color))
-
-	# Head + neck connector
-	draw_line(head_center + Vector2(0, 14.0), head_center + Vector2(0, 4.0), oc_skin, 10.0 + OW)
-	draw_circle(head_center, 16.0 + OW * 0.5, oc_skin)
-
-	# ══════════════════════════════════════════════════════════════════════════
-	# PASS 2 — color fill (on top)
-	# ══════════════════════════════════════════════════════════════════════════
-
+	# ── OUTLINE PASS ──────────────────────────────────────────────────────────
 	# Far leg
-	draw_line(far_hip,  lfj, pants_color, 8.0)
-	draw_circle(lfj,    4.0, pants_color)
-	draw_line(lfj,      lf,  pants_color, 8.0)
-	draw_circle(lf,     8.0, shoe_color)
-
+	draw_line(far_hip, ffj, oc_pants, 9.0 + OW); draw_circle(ffj, 4.5 + OW*0.5, oc_pants)
+	draw_line(ffj, ff, oc_pants, 9.0 + OW);       draw_circle(ff,  8.5 + OW*0.5, oc_shoe)
 	# Near leg
-	draw_line(near_hip, rfj, pants_color, 8.0)
-	draw_circle(rfj,    4.0, pants_color)
-	draw_line(rfj,      rf,  pants_color, 8.0)
-	draw_circle(rf,     8.0, shoe_color)
+	draw_line(near_hip, nfj, oc_pants, 9.0 + OW); draw_circle(nfj, 4.5 + OW*0.5, oc_pants)
+	draw_line(nfj, nf, oc_pants, 9.0 + OW);        draw_circle(nf,  8.5 + OW*0.5, oc_shoe)
+	# Torso
+	draw_line(far_hip, near_hip, oc_pants, 17.0 + OW)
+	draw_line(hips, neck, oc_shirt, 19.0 + OW)
+	# Brake arm (far)
+	draw_circle(far_sh, 6.5 + OW*0.5, oc_shirt)
+	draw_line(far_sh, far_sl, oc_shirt, 13.0 + OW); draw_line(far_sl, bhj, oc_skin, 12.0 + OW)
+	draw_circle(bhj, 5.5 + OW*0.5, oc_skin); draw_line(bhj, bh, oc_skin, 10.5 + OW)
+	draw_circle(bh, 8.5 + OW*0.5, oc_skin)
+	# Guide arm (near)
+	draw_circle(near_sh, 6.5 + OW*0.5, oc_shirt)
+	draw_line(near_sh, near_sl, oc_shirt, 13.0 + OW); draw_line(near_sl, ghj, oc_skin, 12.0 + OW)
+	draw_circle(ghj, 5.5 + OW*0.5, oc_skin); draw_line(ghj, gh, oc_skin, 10.5 + OW)
+	draw_circle(gh, 8.5 + OW*0.5, oc_skin)
+	# Head
+	draw_line(neck, head_center + Vector2(0, HEAD_RADIUS), oc_skin, 11.0 + OW)
+	draw_circle(head_center, HEAD_RADIUS + OW*0.5, oc_skin)
 
-	# Torso — hip span + shirt body (NO harness)
-	draw_line(far_hip,  near_hip,  pants_color, 14.0)
-	draw_line(hips,     b,         shirt_color, 16.0)
-	draw_line(b,        neck,      shirt_color, 14.0)
+	# ── FILL PASS ─────────────────────────────────────────────────────────────
+	# Far leg
+	draw_line(far_hip, ffj, pants_color, 9.0); draw_circle(ffj, 4.5, pants_color)
+	draw_line(ffj, ff, pants_color, 9.0);       draw_circle(ff,  8.5, shoe_color)
+	# Near leg
+	draw_line(near_hip, nfj, pants_color, 9.0); draw_circle(nfj, 4.5, pants_color)
+	draw_line(nfj, nf, pants_color, 9.0);        draw_circle(nf,  8.5, shoe_color)
+	# Torso
+	draw_line(far_hip, near_hip, pants_color, 17.0)
+	draw_line(hips, neck, shirt_color, 19.0)
+	# Brake arm
+	draw_circle(far_sh, 6.5, shirt_color)
+	draw_line(far_sh, far_sl, shirt_color, 13.0); draw_line(far_sl, bhj, skin_color, 12.0)
+	draw_circle(bhj, 5.5, skin_color); draw_line(bhj, bh, skin_color, 10.5)
+	draw_circle(bh, 8.5, skin_color)
+	# Guide arm
+	draw_circle(near_sh, 6.5, shirt_color)
+	draw_line(near_sh, near_sl, shirt_color, 13.0); draw_line(near_sl, ghj, skin_color, 12.0)
+	draw_circle(ghj, 5.5, skin_color); draw_line(ghj, gh, skin_color, 10.5)
+	draw_circle(gh, 8.5, skin_color)
+	# Head + neck
+	draw_line(neck, head_center + Vector2(0, HEAD_RADIUS), skin_color, 11.0)
+	draw_circle(head_center, HEAD_RADIUS, skin_color)
 
-	# Far arm (brake hand)
-	draw_circle(far_shoulder, 5, shirt_color)
-	draw_line(far_shoulder, far_sl,  shirt_color, 10.0)
-	draw_line(far_sl,       lhj,     skin_color,  10.0)
-	draw_circle(lhj, 5, skin_color)
-	draw_line(lhj,   lh,  skin_color,  9.0)
-	draw_circle(lh,  7, brake_hand_color)
 
-	# Near arm (rope/guide hand)
-	draw_circle(near_shoulder, 5, shirt_color)
-	draw_line(near_shoulder, near_sl, shirt_color, 10.0)
-	draw_line(near_sl,       rhj,     skin_color,  10.0)
-	draw_circle(rhj, 5, skin_color)
-	draw_line(rhj,   rh,  skin_color,  9.0)
-	draw_circle(rh,  7, rope_hand_color)
+func _outline(col: Color) -> Color:
+	var lum := col.r * 0.299 + col.g * 0.587 + col.b * 0.114
+	return Color(
+		lerpf(lerpf(col.r, lum, 0.09), 0.0, 0.30),
+		lerpf(lerpf(col.g, lum, 0.09), 0.0, 0.30),
+		lerpf(lerpf(col.b, lum, 0.09), 0.0, 0.30),
+		1.0)
 
-	# Head + neck connector
-	draw_line(head_center + Vector2(0, 14.0), head_center + Vector2(0, 4.0), skin_color, 10.0)
-	draw_circle(head_center, 16, skin_color)
+# =============================================================================
+#  HELPERS
+# =============================================================================
 
-# ═══════════════════════════════════════════════════════════════════════════
-## Anchor lookup
-# ═══════════════════════════════════════════════════════════════════════════
+func _has_hand_hold() -> bool:
+	if not is_instance_valid(player): return false
+	return player.lh.hold != null or player.rh.hold != null
 
-func find_top_anchor() -> Vector2:
-	var anchor_x := player.global_position.x if is_instance_valid(player) else 0.0
+
+func _player_chest() -> Vector2:
+	return player.global_position + Vector2(0, -10) if is_instance_valid(player) \
+		else belayer_position + Vector2(0, 100)
+
+
+func _find_anchor() -> Vector2:
 	for wall in get_tree().get_nodes_in_group("environment_walls"):
 		if wall.has_method("get_anchor_position_for_x"):
-			return wall.get_anchor_position_for_x(anchor_x)
-	return _find_highest_hold_anchor()
-
-
-func _find_highest_hold_anchor() -> Vector2:
+			return wall.get_anchor_position_for_x(player.global_position.x if is_instance_valid(player) else 0.0)
+	# Fall back to highest hold
 	var best_y   := INF
-	var best_pos := (belayer_position + Vector2(0, -200.0)) if belayer_position != Vector2.ZERO \
-				 else Vector2(0.0, -200.0)
+	var best_pos := belayer_position + Vector2(0, -200)
 	for hold in get_tree().get_nodes_in_group("holds"):
 		if hold.global_position.y < best_y:
-			best_y   = hold.global_position.y
-			best_pos = hold.global_position
-	return best_pos + Vector2(0, -30.0)
-
-# ═══════════════════════════════════════════════════════════════════════════
-
-func get_player_chest_position() -> Vector2:
-	if is_instance_valid(player):
-		return player.global_position + player_attach_offset
-	return belayer_position + Vector2(0, 100)
+			best_y = hold.global_position.y; best_pos = hold.global_position
+	return best_pos + Vector2(0, -30)
 
 
-func _init_rope_points(from: Vector2, mid: Vector2, to: Vector2):
-	rope_points.clear()
-	rope_velocities.clear()
-	var path      := [from, mid, to]
-	var total_len := 0.0
-	for i in range(path.size() - 1):
-		total_len += path[i].distance_to(path[i + 1])
-	var seg_len := total_len / float(ROPE_SEGMENTS - 1)
-	var cs  := 0
-	var dis := 0.0
-	var ss  = path[0]
-	var se  = path[1]
-	var sl  = ss.distance_to(se)
+func _init_rope() -> void:
+	rope_points.clear(); rope_velocities.clear()
+	var waypoints := [b_guide_hand, anchor_position, _player_chest()]
+	var total     := 0.0
+	for i in range(waypoints.size() - 1): total += waypoints[i].distance_to(waypoints[i + 1])
+	var seg_len := total / float(ROPE_SEGMENTS - 1)
+	var seg_i   := 0;  var accum := 0.0
+	var seg_s   = waypoints[0]; var seg_e = waypoints[1]; var seg_l = seg_s.distance_to(seg_e)
 	for i in range(ROPE_SEGMENTS):
 		var td := i * seg_len
-		while td > dis + sl and cs < path.size() - 2:
-			dis += sl
-			cs  += 1
-			ss   = path[cs]
-			se   = path[cs + 1]
-			sl   = ss.distance_to(se)
-		var t = (td - dis) / sl if sl > 0.0 else 0.0
-		rope_points.append(ss.lerp(se, t))
+		while td > accum + seg_l and seg_i < waypoints.size() - 2:
+			accum += seg_l; seg_i += 1
+			seg_s = waypoints[seg_i]; seg_e = waypoints[seg_i + 1]; seg_l = seg_s.distance_to(seg_e)
+		rope_points.append(seg_s.lerp(seg_e, clamp((td - accum) / maxf(seg_l, 0.001), 0.0, 1.0)))
 		rope_velocities.append(Vector2.ZERO)
 
-func cleanup():
+# =============================================================================
+#  EXTERNAL API
+# =============================================================================
+
+func apply_rope_force_to_player(vel: Vector2) -> Vector2:
+	return vel  # Hook for future tension feedback
+
+
+func cleanup() -> void:
 	is_setup = false
 	set_process(false)
-	set_physics_process(false)
-	if is_instance_valid(rope_line):
-		rope_line.queue_free()
-		rope_line = null
-	if is_instance_valid(rope_line_lower):
-		rope_line_lower.queue_free()
-		rope_line_lower = null
+	if is_instance_valid(rope_line):  rope_line.queue_free();  rope_line  = null
+	if is_instance_valid(rope_lower): rope_lower.queue_free(); rope_lower = null
