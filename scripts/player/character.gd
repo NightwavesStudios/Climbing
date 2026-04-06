@@ -205,6 +205,7 @@ const POOR_POSITION_PRESSURE_MULT    = 1.6
 const LOCK_OFF_PRESSURE_MULT         = 1.5
 const LOCK_OFF_THRESHOLD             = 0.7
 const SHAKE_OUT_RECOVERY_RATE        = 14.0
+const SHARED_HOLD_PRESSURE_MULT = 1.82
 
 # -- Exertion / catch ---------------------------------------------------------
 const UPWARD_VELOCITY_THRESHOLD    = -80.0
@@ -509,7 +510,6 @@ func update_grip_states(delta: float) -> void:
 	for s in _limbs:
 		_update_limb_grip(s, delta)
 
-
 func _update_limb_grip(s: LimbState, delta: float) -> void:
 	if s.hold != null and s not in selected_limbs:
 		s.static_time += delta
@@ -527,6 +527,11 @@ func _update_limb_grip(s: LimbState, delta: float) -> void:
 			hold_pressure = _apply_hand_pressure_mods(s as HandState, hold_pressure, loading_mult, body_offset, foot_support, delta)
 		else:
 			hold_pressure = _apply_foot_pressure_mods(hold_pressure, loading_mult, body_offset, delta)
+
+		# Apply shared hold pressure penalty
+		var sharing = _limbs.any(func(o): return o != s and o.hold == s.hold)
+		if sharing:
+			hold_pressure *= SHARED_HOLD_PRESSURE_MULT
 
 		hold_pressure *= _leg_bonus_smooth
 		s.pressure     = clamp(s.pressure + hold_pressure, 0.0, PRESSURE_FAIL)
@@ -557,7 +562,6 @@ func _update_limb_grip(s: LimbState, delta: float) -> void:
 	if s.pressure >= PRESSURE_PUMPED:    s.grip = GripState.PUMPED
 	elif s.pressure >= PRESSURE_ENGAGED: s.grip = GripState.ENGAGED
 	else:                                s.grip = GripState.RELAXED
-
 
 func _apply_hand_pressure_mods(s: HandState, p: float, loading_mult: float,
 		body_offset: float, foot_support: float, delta: float) -> float:
@@ -1118,6 +1122,11 @@ func attempt_grab(s: LimbState) -> void:
 		if m < bd: bd = m; best = hold; bp = hp.global_position
 	if best == null: return
 
+	# Count how many other limbs are already on this hold
+	var occupants = _limbs.filter(func(o): return o != s and o.hold == best)
+	if occupants.size() >= 2:
+		return
+
 	var grab_pos = _calculate_grab_position(s, best, bp) if best.get("snap_to_point") else s.node.global_position
 	if not best.try_claim(s.node, is_foot, grab_pos): return
 
@@ -1130,7 +1139,6 @@ func attempt_grab(s: LimbState) -> void:
 		climb_started = true
 		var gs = get_tree().get_current_scene()
 		if gs and gs.has_method("on_climb_start"): gs.on_climb_start()
-
 
 func _calculate_grab_position(s: LimbState, hold: Area2D, hold_point: Vector2) -> Vector2:
 	var others = _limbs.filter(func(o): return o != s and o.hold == hold and not o.is_grabbing)
@@ -1545,6 +1553,12 @@ func _draw_stick_figure() -> void:
 	var lh_skin = skin_color
 	var rh_skin = skin_color
 
+	# Scale multiplier for free/selected limbs
+	var lh_scale = 1.15 if (lh.hold == null or lh in selected_limbs) else 1.0
+	var rh_scale = 1.15 if (rh.hold == null or rh in selected_limbs) else 1.0
+	var lf_scale = 1.15 if (lf.hold == null or lf in selected_limbs) else 1.0
+	var rf_scale = 1.15 if (rf.hold == null or rf in selected_limbs) else 1.0
+
 	var lhd = lh.node.position + lh.shake_offset + lh.visual_offset
 	var rhd = rh.node.position + rh.shake_offset + rh.visual_offset
 	var lfd = lf.node.position + lf.shake_offset + lf.visual_offset
@@ -1570,14 +1584,14 @@ func _draw_stick_figure() -> void:
 		var oc_skin    = _outline_color(skin_color)
 
 		# Legs
-		draw_line(left_hip,  _lf_joint.position, oc_pants, 12.0 + ow)
-		draw_circle(_lf_joint.position, 5.0 + ow * 0.5, oc_pants)
-		draw_line(_lf_joint.position, lfd, oc_pants, 11.0 + ow)
-		draw_circle(lfd, 9.0 + ow * 0.5, oc_shoe)
-		draw_line(right_hip, _rf_joint.position, oc_pants, 12.0 + ow)
-		draw_circle(_rf_joint.position, 5.0 + ow * 0.5, oc_pants)
-		draw_line(_rf_joint.position, rfd, oc_pants, 11.0 + ow)
-		draw_circle(rfd, 9.0 + ow * 0.5, oc_shoe)
+		draw_line(left_hip,  _lf_joint.position, oc_pants, (12.0 + ow) * lf_scale)
+		draw_circle(_lf_joint.position, (5.0 + ow * 0.5) * lf_scale, oc_pants)
+		draw_line(_lf_joint.position, lfd, oc_pants, (11.0 + ow) * lf_scale)
+		draw_circle(lfd, (9.0 + ow * 0.5) * lf_scale, oc_shoe)
+		draw_line(right_hip, _rf_joint.position, oc_pants, (12.0 + ow) * rf_scale)
+		draw_circle(_rf_joint.position, (5.0 + ow * 0.5) * rf_scale, oc_pants)
+		draw_line(_rf_joint.position, rfd, oc_pants, (11.0 + ow) * rf_scale)
+		draw_circle(rfd, (9.0 + ow * 0.5) * rf_scale, oc_shoe)
 		# Torso
 		draw_line(left_hip,  right_hip,        oc_pants,   17.0 + ow)
 		draw_line(left_hip,  right_hip,        oc_harness,  4.0 + ow * 0.5)
@@ -1586,30 +1600,30 @@ func _draw_stick_figure() -> void:
 		# Arms
 		for pt in [left_sh, right_sh, _lh_joint.position, _rh_joint.position]:
 			draw_circle(pt, 5.0 + ow * 0.5, oc_shirt)
-		draw_line(left_sh,   left_sl,            oc_shirt, 12.0 + ow)
-		draw_line(left_sl,   _lh_joint.position, oc_skin,  12.0 + ow)
-		draw_circle(_lh_joint.position, 5.0 + ow * 0.5, oc_skin)
-		draw_line(_lh_joint.position, lhd, oc_skin, 10.0 + ow)
-		draw_circle(lhd, 8.0 + ow * 0.5, _outline_color(lh_skin))
-		draw_line(right_sh,  right_sl,           oc_shirt, 12.0 + ow)
-		draw_line(right_sl,  _rh_joint.position, oc_skin,  12.0 + ow)
-		draw_circle(_rh_joint.position, 5.0 + ow * 0.5, oc_skin)
-		draw_line(_rh_joint.position, rhd, oc_skin, 10.0 + ow)
-		draw_circle(rhd, 8.0 + ow * 0.5, _outline_color(rh_skin))
+		draw_line(left_sh,   left_sl,            oc_shirt, (12.0 + ow) * lh_scale)
+		draw_line(left_sl,   _lh_joint.position, oc_skin,  (12.0 + ow) * lh_scale)
+		draw_circle(_lh_joint.position, (5.0 + ow * 0.5) * lh_scale, oc_skin)
+		draw_line(_lh_joint.position, lhd, oc_skin, (10.0 + ow) * lh_scale)
+		draw_circle(lhd, (8.0 + ow * 0.5) * lh_scale, _outline_color(lh_skin))
+		draw_line(right_sh,  right_sl,           oc_shirt, (12.0 + ow) * rh_scale)
+		draw_line(right_sl,  _rh_joint.position, oc_skin,  (12.0 + ow) * rh_scale)
+		draw_circle(_rh_joint.position, (5.0 + ow * 0.5) * rh_scale, oc_skin)
+		draw_line(_rh_joint.position, rhd, oc_skin, (10.0 + ow) * rh_scale)
+		draw_circle(rhd, (8.0 + ow * 0.5) * rh_scale, _outline_color(rh_skin))
 		# Head
 		draw_line(head_pos + Vector2(0, 14), head_pos + Vector2(0, 4), oc_skin, 10.0 + ow)
 		draw_circle(head_pos, 16.0 + ow * 0.5, oc_skin)
 
 	# ── FILL PASS (on top) ────────────────────────────────────────────────────
 	# Legs
-	draw_line(left_hip,  _lf_joint.position, pants_color, 12.0)
-	draw_circle(_lf_joint.position, 5, pants_color)
-	draw_line(_lf_joint.position, lfd, pants_color, 11.0)
-	draw_circle(lfd, 9, shoe_color)
-	draw_line(right_hip, _rf_joint.position, pants_color, 12.0)
-	draw_circle(_rf_joint.position, 5, pants_color)
-	draw_line(_rf_joint.position, rfd, pants_color, 11.0)
-	draw_circle(rfd, 9, shoe_color)
+	draw_line(left_hip,  _lf_joint.position, pants_color, 12.0 * lf_scale)
+	draw_circle(_lf_joint.position, 5 * lf_scale, pants_color)
+	draw_line(_lf_joint.position, lfd, pants_color, 11.0 * lf_scale)
+	draw_circle(lfd, 9 * lf_scale, shoe_color)
+	draw_line(right_hip, _rf_joint.position, pants_color, 12.0 * rf_scale)
+	draw_circle(_rf_joint.position, 5 * rf_scale, pants_color)
+	draw_line(_rf_joint.position, rfd, pants_color, 11.0 * rf_scale)
+	draw_circle(rfd, 9 * rf_scale, shoe_color)
 	# Torso
 	draw_line(left_hip,  right_hip,        pants_color,   17.0)
 	draw_line(left_hip,  right_hip,        harness_color,  4.0)
@@ -1617,17 +1631,17 @@ func _draw_stick_figure() -> void:
 	draw_line(Vector2.ZERO, head_pos + Vector2(0, 16), shirt_color, 17.0)
 	# Arms
 	draw_circle(left_sh,  5, shirt_color)
-	draw_line(left_sh,   left_sl,            shirt_color, 12.0)
-	draw_line(left_sl,   _lh_joint.position, skin_color,  12.0)
-	draw_circle(_lh_joint.position, 5, skin_color)
-	draw_line(_lh_joint.position, lhd, skin_color, 10.0)
-	draw_circle(lhd, 8, lh_skin)
+	draw_line(left_sh,   left_sl,            shirt_color, 12.0 * lh_scale)
+	draw_line(left_sl,   _lh_joint.position, skin_color,  12.0 * lh_scale)
+	draw_circle(_lh_joint.position, 5 * lh_scale, skin_color)
+	draw_line(_lh_joint.position, lhd, skin_color, 10.0 * lh_scale)
+	draw_circle(lhd, 8 * lh_scale, lh_skin)
 	draw_circle(right_sh, 5, shirt_color)
-	draw_line(right_sh,  right_sl,           shirt_color, 12.0)
-	draw_line(right_sl,  _rh_joint.position, skin_color,  12.0)
-	draw_circle(_rh_joint.position, 5, skin_color)
-	draw_line(_rh_joint.position, rhd, skin_color, 10.0)
-	draw_circle(rhd, 8, rh_skin)
+	draw_line(right_sh,  right_sl,           shirt_color, 12.0 * rh_scale)
+	draw_line(right_sl,  _rh_joint.position, skin_color,  12.0 * rh_scale)
+	draw_circle(_rh_joint.position, 5 * rh_scale, skin_color)
+	draw_line(_rh_joint.position, rhd, skin_color, 10.0 * rh_scale)
+	draw_circle(rhd, 8 * rh_scale, rh_skin)
 	# Head
 	draw_line(head_pos + Vector2(0, 14), head_pos + Vector2(0, 4), skin_color, 10.0)
 	draw_circle(head_pos, 16, skin_color)
