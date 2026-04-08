@@ -133,19 +133,12 @@ class FootState extends LimbState:
 @export var GRAB_RADIUS:   float = 35.0
 
 # =============================================================================
-#  OUTLINE EXPORTS  (character stick figure)
+#  OUTLINE EXPORTS
 # =============================================================================
 @export_group("Outline")
-## Draw a subtle tonal outline rim around each body segment.
-## Uses each segment's own color, slightly darkened — very similar hue.
 @export var figure_outline_enabled: bool = true
-## Extra pixel width added to each stroke for the outline pass (world-space).
-## 1.0-2.0 gives a thin, clean rim. Larger = bolder.
 @export var figure_outline_width: float = 5.5
-## Opacity of the outline pass. 0.18-0.30 is subtle; 0.5+ is visible.
 @export_range(0.0, 1.0, 0.01) var figure_outline_alpha: float = 1
-## How much darker/deeper the outline color is versus the fill color.
-## 0.0 = identical hue, 1.0 = black. Recommended: 0.20-0.30.
 @export_range(0.0, 1.0, 0.01) var figure_outline_darken: float = 0.25
 @export_group("")
 
@@ -205,7 +198,7 @@ const POOR_POSITION_PRESSURE_MULT    = 1.6
 const LOCK_OFF_PRESSURE_MULT         = 1.5
 const LOCK_OFF_THRESHOLD             = 0.7
 const SHAKE_OUT_RECOVERY_RATE        = 14.0
-const SHARED_HOLD_PRESSURE_MULT = 1.82
+const SHARED_HOLD_PRESSURE_MULT      = 1.82
 
 # -- Exertion / catch ---------------------------------------------------------
 const UPWARD_VELOCITY_THRESHOLD    = -80.0
@@ -279,9 +272,24 @@ const FALL_VELOCITY_THRESHOLD = 400.0
 # -- Visual -------------------------------------------------------------------
 const VISUAL_ANIMATION_SPEED = 0.25
 
+# -- Draw scale / hover jitter ------------------------------------------------
+const LIMB_FREE_SCALE_TARGET = 1.15
+const LIMB_SCALE_LERP_SPEED  = 8.0
+const HOVER_JITTER_RADIUS    = 60.0
+const HOVER_JITTER_AMP       = 1.6
+const HOVER_JITTER_FREQ      = 22.0
+
 # =============================================================================
 #  RUNTIME STATE
 # =============================================================================
+
+# At the top of runtime state vars, add:
+var _lh_press_time: float = 0.0
+var _rh_press_time: float = 0.0
+var _lf_press_time: float = 0.0
+var _rf_press_time: float = 0.0
+
+const QUICK_TAP_THRESHOLD: float = 0.18  # seconds — tune to taste
 
 var lh: HandState
 var rh: HandState
@@ -324,6 +332,17 @@ var speed_timer:        Node   = null
 var speed_climb_active: bool   = false
 var _weather_modifier:  Node   = null
 var _spotlight:         Node   = null
+
+# -- Draw scale & hover jitter ------------------------------------------------
+var _lh_draw_scale:   float   = 1.0
+var _rh_draw_scale:   float   = 1.0
+var _lf_draw_scale:   float   = 1.0
+var _rf_draw_scale:   float   = 1.0
+
+var _lh_hover_jitter: Vector2 = Vector2.ZERO
+var _rh_hover_jitter: Vector2 = Vector2.ZERO
+var _lf_hover_jitter: Vector2 = Vector2.ZERO
+var _rf_hover_jitter: Vector2 = Vector2.ZERO
 
 # =============================================================================
 #  INIT
@@ -397,6 +416,7 @@ func _process(delta: float) -> void:
 	update_camera()
 	_update_spotlight()
 	_update_weather_modifier()
+	_update_draw_scales(delta)
 	queue_redraw()
 	if _shadow_node and is_instance_valid(_shadow_node):
 		_shadow_node.queue_redraw()
@@ -439,10 +459,23 @@ func handle_input() -> void:
 	_sel_release("select_left_foot",  lf, shift_held, true)
 	_sel_release("select_right_foot", rf, shift_held, true)
 
+func _set_press_time(s: LimbState, t: float) -> void:
+	if   s == lh: _lh_press_time = t
+	elif s == rh: _rh_press_time = t
+	elif s == lf: _lf_press_time = t
+	elif s == rf: _rf_press_time = t
+
+func _get_press_time(s: LimbState) -> float:
+	if   s == lh: return _lh_press_time
+	elif s == rh: return _rh_press_time
+	elif s == lf: return _lf_press_time
+	elif s == rf: return _rf_press_time
+	return 0.0
 
 func _sel_press(action: String, s: LimbState, shift_held: bool, is_foot: bool) -> void:
 	if not Input.is_action_just_pressed(action):
 		return
+	_set_press_time(s, Time.get_ticks_msec() * 0.001)
 	if is_foot:
 		if shift_held:
 			_toggle_sel(s)
@@ -469,11 +502,17 @@ func _sel_release(action: String, s: LimbState, shift_held: bool, is_foot: bool)
 	if not Input.is_action_just_released(action):
 		return
 	if s in selected_limbs:
-		if s.is_hand():
-			_fire_dyno_impulse()
-		attempt_grab(s)
-		if is_foot:
-			(s as FootState).manual = true
+		var held_secs: float = Time.get_ticks_msec() * 0.001 - _get_press_time(s)
+		if held_secs < QUICK_TAP_THRESHOLD:
+			# Quick tap → drop the hold and go free; don't snap to a new one
+			release_limb(s)
+			s.is_grabbing = false
+		else:
+			if s.is_hand():
+				_fire_dyno_impulse()
+			attempt_grab(s)
+			if is_foot:
+				(s as FootState).manual = true
 	if not shift_held:
 		if is_foot:
 			if not (lh in selected_limbs) and not (rh in selected_limbs):
@@ -528,7 +567,6 @@ func _update_limb_grip(s: LimbState, delta: float) -> void:
 		else:
 			hold_pressure = _apply_foot_pressure_mods(hold_pressure, loading_mult, body_offset, delta)
 
-		# Apply shared hold pressure penalty
 		var sharing = _limbs.any(func(o): return o != s and o.hold == s.hold)
 		if sharing:
 			hold_pressure *= SHARED_HOLD_PRESSURE_MULT
@@ -726,6 +764,50 @@ func _get_limb_color(pressure: float) -> Color:
 	return Color.BLACK.lerp(P2_DARK_COLOR, blend)
 
 # =============================================================================
+#  DRAW SCALE & HOVER JITTER
+# =============================================================================
+
+func _update_draw_scales(delta: float) -> void:
+	var t_now    = Time.get_ticks_msec() * 0.001
+	var mouse_gp = get_global_mouse_position()
+	_update_one_draw_scale(lh, delta, t_now, mouse_gp, 0.0)
+	_update_one_draw_scale(rh, delta, t_now, mouse_gp, 1.1)
+	_update_one_draw_scale(lf, delta, t_now, mouse_gp, 2.2)
+	_update_one_draw_scale(rf, delta, t_now, mouse_gp, 3.3)
+
+
+func _update_one_draw_scale(s: LimbState, delta: float, t_now: float,
+		mouse_gp: Vector2, phase: float) -> void:
+	var is_free = (s.hold == null or s in selected_limbs)
+	var tgt     = LIMB_FREE_SCALE_TARGET if is_free else 1.0
+
+	match s:
+		lh: _lh_draw_scale = lerp(_lh_draw_scale, tgt, LIMB_SCALE_LERP_SPEED * delta)
+		rh: _rh_draw_scale = lerp(_rh_draw_scale, tgt, LIMB_SCALE_LERP_SPEED * delta)
+		lf: _lf_draw_scale = lerp(_lf_draw_scale, tgt, LIMB_SCALE_LERP_SPEED * delta)
+		rf: _rf_draw_scale = lerp(_rf_draw_scale, tgt, LIMB_SCALE_LERP_SPEED * delta)
+
+	var jitter = Vector2.ZERO
+	if s in selected_limbs:
+		var dist_to_mouse = s.node.global_position.distance_to(mouse_gp)
+		# Inner deadzone: no jitter when mouse is very close (steady placement zone)
+		var inner_dead = MOUSE_DEADZONE * 1.8
+		var jitter_dist = max(dist_to_mouse - inner_dead, 0.0)
+		var proximity   = clamp(1.0 - jitter_dist / HOVER_JITTER_RADIUS, 0.0, 1.0)
+		if proximity > 0.01:
+			var amp = proximity * HOVER_JITTER_AMP
+			jitter = Vector2(
+				sin(t_now * HOVER_JITTER_FREQ + phase) * amp,
+				sin(t_now * HOVER_JITTER_FREQ * 1.37 + phase + 0.8) * amp
+			)
+
+	match s:
+		lh: _lh_hover_jitter = jitter
+		rh: _rh_hover_jitter = jitter
+		lf: _lf_hover_jitter = jitter
+		rf: _rf_hover_jitter = jitter
+
+# =============================================================================
 #  PHYSICS
 # =============================================================================
 
@@ -756,7 +838,7 @@ func simulate_physics(delta: float) -> void:
 				if s.hold: release_limb(s)
 
 	if rope_system != null and not is_instance_valid(rope_system):
-		rope_system = null   # self-heal stale reference
+		rope_system = null
 		if current_discipline == 1 and rope_system != null:
 			if rope_system.has_method("apply_rope_force_to_player"):
 				com_velocity = rope_system.apply_rope_force_to_player(com_velocity)
@@ -889,7 +971,7 @@ func _apply_foot_support(delta: float) -> void:
 	var reach_factor = smoothstep(0.0, 0.6, hand_reach_sum / max(hand_count, 1) + 0.25)
 
 	if not has_meta("foot_push_smooth"): set_meta("foot_push_smooth", reach_factor)
-	var prev_smooth: float = get_meta("foot_push_smooth")
+	var prev_smooth: float = float(get_meta("foot_push_smooth"))  # FIXED: cast to float
 	var smoothed_reach = lerp(prev_smooth, reach_factor, (0.6 if reach_factor > prev_smooth else 0.35) * delta)
 	set_meta("foot_push_smooth", smoothed_reach)
 
@@ -907,7 +989,6 @@ func _apply_foot_support(delta: float) -> void:
 
 	support_force.y  = max(support_force.y, -max(0.0, com_velocity.y * 0.6))
 	com_velocity    += support_force
-
 
 func _apply_mouse_control(delta: float) -> void:
 	for s in _limbs:
@@ -1122,7 +1203,6 @@ func attempt_grab(s: LimbState) -> void:
 		if m < bd: bd = m; best = hold; bp = hp.global_position
 	if best == null: return
 
-	# Count how many other limbs are already on this hold
 	var occupants = _limbs.filter(func(o): return o != s and o.hold == best)
 	if occupants.size() >= 2:
 		return
@@ -1259,6 +1339,12 @@ func reset_climb() -> void:
 	climb_started = false; climb_completed = false
 	rest_mode_active = false; _leg_bonus_smooth = 1.0
 	_load = [0.0, 0.0, 0.0, 0.0]; selected_limbs.clear(); use_mouse_aim = false
+	_lh_draw_scale = 1.0; _rh_draw_scale = 1.0
+	_lf_draw_scale = 1.0; _rf_draw_scale = 1.0
+	_lh_hover_jitter = Vector2.ZERO; _rh_hover_jitter = Vector2.ZERO
+	_lf_hover_jitter = Vector2.ZERO; _rf_hover_jitter = Vector2.ZERO
+	_lh_press_time = 0.0; _rh_press_time = 0.0
+	_lf_press_time = 0.0; _rf_press_time = 0.0
 	for s in _limbs:
 		if s.hold: s.hold.release(s.node)
 		s.reset_all()
@@ -1543,6 +1629,7 @@ func _outline_color(col: Color) -> Color:
 	b = lerp(b, 0.0, figure_outline_darken)
 	return Color(r, g, b, figure_outline_alpha)
 
+
 func _draw_stick_figure() -> void:
 	var skin_color    = Color("#C68642")
 	var shirt_color   = Color("#2E4A6B")
@@ -1553,16 +1640,15 @@ func _draw_stick_figure() -> void:
 	var lh_skin = skin_color
 	var rh_skin = skin_color
 
-	# Scale multiplier for free/selected limbs
-	var lh_scale = 1.15 if (lh.hold == null or lh in selected_limbs) else 1.0
-	var rh_scale = 1.15 if (rh.hold == null or rh in selected_limbs) else 1.0
-	var lf_scale = 1.15 if (lf.hold == null or lf in selected_limbs) else 1.0
-	var rf_scale = 1.15 if (rf.hold == null or rf in selected_limbs) else 1.0
+	var lh_scale = _lh_draw_scale
+	var rh_scale = _rh_draw_scale
+	var lf_scale = _lf_draw_scale
+	var rf_scale = _rf_draw_scale
 
-	var lhd = lh.node.position + lh.shake_offset + lh.visual_offset
-	var rhd = rh.node.position + rh.shake_offset + rh.visual_offset
-	var lfd = lf.node.position + lf.shake_offset + lf.visual_offset
-	var rfd = rf.node.position + rf.shake_offset + rf.visual_offset
+	var lhd = lh.node.position + lh.shake_offset + lh.visual_offset + _lh_hover_jitter
+	var rhd = rh.node.position + rh.shake_offset + rh.visual_offset + _rh_hover_jitter
+	var lfd = lf.node.position + lf.shake_offset + lf.visual_offset + _lf_hover_jitter
+	var rfd = rf.node.position + rf.shake_offset + rf.visual_offset + _rf_hover_jitter
 
 	var head_pos  = Vector2(0, HEAD_OFFSET)
 	var left_sh   = Vector2(-SHOULDER_OFFSET, 0)
@@ -1575,7 +1661,7 @@ func _draw_stick_figure() -> void:
 
 	var ow = figure_outline_width
 
-	# ── OUTLINE PASS (behind fill) ────────────────────────────────────────────
+	# ── OUTLINE PASS ─────────────────────────────────────────────────────────
 	if figure_outline_enabled:
 		var oc_pants   = _outline_color(pants_color)
 		var oc_shoe    = _outline_color(shoe_color)
@@ -1583,7 +1669,6 @@ func _draw_stick_figure() -> void:
 		var oc_harness = _outline_color(harness_color)
 		var oc_skin    = _outline_color(skin_color)
 
-		# Legs
 		draw_line(left_hip,  _lf_joint.position, oc_pants, (12.0 + ow) * lf_scale)
 		draw_circle(_lf_joint.position, (5.0 + ow * 0.5) * lf_scale, oc_pants)
 		draw_line(_lf_joint.position, lfd, oc_pants, (11.0 + ow) * lf_scale)
@@ -1592,12 +1677,10 @@ func _draw_stick_figure() -> void:
 		draw_circle(_rf_joint.position, (5.0 + ow * 0.5) * rf_scale, oc_pants)
 		draw_line(_rf_joint.position, rfd, oc_pants, (11.0 + ow) * rf_scale)
 		draw_circle(rfd, (9.0 + ow * 0.5) * rf_scale, oc_shoe)
-		# Torso
-		draw_line(left_hip,  right_hip,        oc_pants,   17.0 + ow)
-		draw_line(left_hip,  right_hip,        oc_harness,  4.0 + ow * 0.5)
-		draw_line(hip_pos,   Vector2.ZERO,     oc_shirt,   19.0 + ow)
+		draw_line(left_hip,  right_hip,        oc_pants,    17.0 + ow)
+		draw_line(left_hip,  right_hip,        oc_harness,   4.0 + ow * 0.5)
+		draw_line(hip_pos,   Vector2.ZERO,     oc_shirt,    19.0 + ow)
 		draw_line(Vector2.ZERO, head_pos + Vector2(0, 16), oc_shirt, 17.0 + ow)
-		# Arms
 		for pt in [left_sh, right_sh, _lh_joint.position, _rh_joint.position]:
 			draw_circle(pt, 5.0 + ow * 0.5, oc_shirt)
 		draw_line(left_sh,   left_sl,            oc_shirt, (12.0 + ow) * lh_scale)
@@ -1610,12 +1693,10 @@ func _draw_stick_figure() -> void:
 		draw_circle(_rh_joint.position, (5.0 + ow * 0.5) * rh_scale, oc_skin)
 		draw_line(_rh_joint.position, rhd, oc_skin, (10.0 + ow) * rh_scale)
 		draw_circle(rhd, (8.0 + ow * 0.5) * rh_scale, _outline_color(rh_skin))
-		# Head
 		draw_line(head_pos + Vector2(0, 14), head_pos + Vector2(0, 4), oc_skin, 10.0 + ow)
 		draw_circle(head_pos, 16.0 + ow * 0.5, oc_skin)
 
-	# ── FILL PASS (on top) ────────────────────────────────────────────────────
-	# Legs
+	# ── FILL PASS ─────────────────────────────────────────────────────────────
 	draw_line(left_hip,  _lf_joint.position, pants_color, 12.0 * lf_scale)
 	draw_circle(_lf_joint.position, 5 * lf_scale, pants_color)
 	draw_line(_lf_joint.position, lfd, pants_color, 11.0 * lf_scale)
@@ -1624,12 +1705,10 @@ func _draw_stick_figure() -> void:
 	draw_circle(_rf_joint.position, 5 * rf_scale, pants_color)
 	draw_line(_rf_joint.position, rfd, pants_color, 11.0 * rf_scale)
 	draw_circle(rfd, 9 * rf_scale, shoe_color)
-	# Torso
 	draw_line(left_hip,  right_hip,        pants_color,   17.0)
 	draw_line(left_hip,  right_hip,        harness_color,  4.0)
 	draw_line(hip_pos,   Vector2.ZERO,     shirt_color,   19.0)
 	draw_line(Vector2.ZERO, head_pos + Vector2(0, 16), shirt_color, 17.0)
-	# Arms
 	draw_circle(left_sh,  5, shirt_color)
 	draw_line(left_sh,   left_sl,            shirt_color, 12.0 * lh_scale)
 	draw_line(left_sl,   _lh_joint.position, skin_color,  12.0 * lh_scale)
@@ -1642,10 +1721,8 @@ func _draw_stick_figure() -> void:
 	draw_circle(_rh_joint.position, 5 * rh_scale, skin_color)
 	draw_line(_rh_joint.position, rhd, skin_color, 10.0 * rh_scale)
 	draw_circle(rhd, 8 * rh_scale, rh_skin)
-	# Head
 	draw_line(head_pos + Vector2(0, 14), head_pos + Vector2(0, 4), skin_color, 10.0)
 	draw_circle(head_pos, 16, skin_color)
-	# Rest mode glow
 	if rest_mode_active:
 		var alpha = 0.5 + sin(Time.get_ticks_msec() * 0.004) * 0.25
 		draw_circle(Vector2.ZERO, 10, Color(0.4, 0.8, 1.0, alpha))
@@ -1688,24 +1765,24 @@ func _get_light_info() -> Dictionary:
 	var env: Dictionary = env_wall.get("_env") if env_wall.get("_env") != null else {}
 	var wmod: Node        = _weather_modifier
 	var weather_type: int = 0
-	if wmod and "weather" in wmod: weather_type = wmod.weather
+	if wmod and "weather" in wmod: weather_type = int(wmod.weather)  # FIXED: cast to int
 	if weather_type == 2:
-		var blend: float = wmod.get_blend() if wmod.has_method("get_blend") else 1.0
+		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 1.0  # FIXED
 		return {"direction": Vector2(0.0, 1.0), "intensity": 0.05 * blend, "ambient": 0.02}
 	if weather_type == 5:
-		var blend: float = wmod.get_blend() if wmod.has_method("get_blend") else 1.0
+		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 1.0  # FIXED
 		return {"direction": Vector2(0.0, 1.0), "intensity": lerp(0.34, 0.07, blend), "ambient": lerp(0.12, 0.20, blend)}
 	var weather_shadow_mult: float = 1.0
 	if weather_type in [1, 4, 6]:
-		var blend: float = wmod.get_blend() if wmod.has_method("get_blend") else 0.0
+		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 0.0  # FIXED
 		weather_shadow_mult = lerp(1.0, 0.42, blend)
 	if not env.get("has_sun", true):
 		return {"direction": Vector2(0.0, 1.0), "intensity": 0.11 * weather_shadow_mult, "ambient": 0.07}
-	var sun_color: Color = env.get("sun_color", Color(1.0, 0.95, 0.70))
+	var sun_color: Color = env.get("sun_color", Color(1.0, 0.95, 0.70)) as Color  # FIXED: cast
 	var sun_lum:   float = sun_color.r * 0.299 + sun_color.g * 0.587 + sun_color.b * 0.114
-	var sky_top:   Color = env.get("sky_top",   Color(0.20, 0.45, 0.78))
+	var sky_top:   Color = env.get("sky_top",   Color(0.20, 0.45, 0.78)) as Color  # FIXED: cast
 	var sky_lum:   float = sky_top.r * 0.299 + sky_top.g * 0.587 + sky_top.b * 0.114
-	var sky_horiz: Color = env.get("sky_horizon", Color(0.72, 0.85, 0.95))
+	var sky_horiz: Color = env.get("sky_horizon", Color(0.72, 0.85, 0.95)) as Color  # FIXED: cast
 	var is_dusk:   bool  = sky_horiz.r > sky_horiz.b + 0.15
 	var direction: Vector2; var intensity: float; var ambient: float
 	if is_dusk:
@@ -1731,5 +1808,6 @@ func set_rope_system(rope: Node2D) -> void:
 		rope_system = null
 	else:
 		rope_system = rope
+
 func set_speed_timer(timer: Node) -> void:    speed_timer = timer
 func get_climbing_discipline() -> int:        return current_discipline
