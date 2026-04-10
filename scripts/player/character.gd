@@ -289,7 +289,7 @@ var _rh_press_time: float = 0.0
 var _lf_press_time: float = 0.0
 var _rf_press_time: float = 0.0
 
-const QUICK_TAP_THRESHOLD: float = 0.18  # seconds — tune to taste
+const QUICK_TAP_THRESHOLD: float = 0.1  # seconds — tune to taste
 
 var lh: HandState
 var rh: HandState
