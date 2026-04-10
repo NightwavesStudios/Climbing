@@ -45,7 +45,6 @@ script = ExtResource("5_imvie")
 
 [node name="LevelEditor" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
-disabled = true
 text = "Level Editor"
 script = ExtResource("5_imvie")
 
