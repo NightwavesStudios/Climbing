@@ -25,6 +25,7 @@ Transition="*res://scripts/menus/transition.gd"
 LevelTransition="*res://scripts/levels/level_transition.gd"
 EnvironmentConfig="*res://scripts/levels/enviornment_config.gd"
 HoldRegistry="*res://scripts/holds/hold-registry.gd"
+MusicPlayer="*res://scripts/systems/music_player.gd"
 
 [display]
 

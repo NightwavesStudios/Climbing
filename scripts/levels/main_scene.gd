@@ -20,11 +20,6 @@ var current_discipline: int = 0
 
 var level_complete_overlay: CanvasLayer = null
 
-# Music
-var music_player: AudioStreamPlayer = null
-const MUSIC_LOOP_END   : float = 82.3  # 1:22.3 — jump point
-const MUSIC_LOOP_START : float = 13.7  # 0:13.7 — loop-back target
-
 const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
 const INSTRUCTIONS_SECTION  := "instructions"
 const INSTRUCTIONS_KEY      := "shown"
@@ -196,36 +191,7 @@ func _ready():
 	await get_tree().process_frame
 	_show_popup_for_level(initial_level)
 
-	_setup_music()
-
 	print("=== MAIN SCENE READY COMPLETE ===")
-
-# =============================================================================
-# MUSIC
-# =============================================================================
-
-func _setup_music() -> void:
-	music_player = AudioStreamPlayer.new()
-	music_player.name = "MusicPlayer"
-	add_child(music_player)
-
-	# Adjust the path and extension (.ogg / .mp3 / .wav) to match your file.
-	var stream = load("res://assets/audio/music/Track_1.mp3")
-	if not stream:
-		push_error("Music: could not load Track1 — check the file path and extension")
-		return
-
-	# Disable Godot's built-in loop so we can manage the loop point manually.
-	if stream is AudioStreamOggVorbis:
-		stream.loop = false
-	elif stream is AudioStreamMP3:
-		stream.loop = false
-	elif stream is AudioStreamWAV:
-		stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
-
-	music_player.stream = stream
-	music_player.play(0.0)   # start from the very beginning (full intro plays once)
-	print("  [Music] Track1 playing — will loop ", MUSIC_LOOP_START, "s → ", MUSIC_LOOP_END, "s")
 
 # =============================================================================
 # POPUP ENTRY POINT
@@ -519,10 +485,6 @@ func check_player_top_out() -> bool:
 # =============================================================================
 
 func _process(_delta: float) -> void:
-	# ── Music loop check ──────────────────────────────────────────────────────
-	if music_player and music_player.playing:
-		if music_player.get_playback_position() >= MUSIC_LOOP_END:
-			music_player.seek(MUSIC_LOOP_START)
 
 	# ── Top-out check ─────────────────────────────────────────────────────────
 	if check_player_top_out():
