@@ -15,7 +15,7 @@
 	],
 	"discipline": "roped",
 	"environment": "granite",
-	"grade": "5.12a",
+	"grade": "5.10b",
 	"holds": [
 		{
 			"type": "START",
@@ -33,26 +33,12 @@
 			"y": 48.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "CRIMP",
+			"type": "JUG",
 			"x": -64.0,
 			"y": -80.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "CRIMP",
+			"type": "JUG",
 			"x": 64.0,
 			"y": -160.0
 		},
@@ -77,13 +63,6 @@
 			"y": -208.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
 			"type": "SLOPER",
 			"x": -48.0,
 			"y": -416.0
@@ -114,26 +93,12 @@
 			"y": -448.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "CRIMP",
+			"type": "JUG",
 			"x": -64.0,
 			"y": -608.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "POCKET",
+			"type": "JUG",
 			"x": 64.0,
 			"y": -672.0
 		},
@@ -148,13 +113,6 @@
 			"y": -592.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
 			"type": "SLOPER",
 			"x": -32.0,
 			"y": -752.0
@@ -170,26 +128,12 @@
 			"y": -800.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "CRIMP",
+			"type": "JUG",
 			"x": -64.0,
 			"y": -896.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "CRIMP",
+			"type": "JUG",
 			"x": 64.0,
 			"y": -960.0
 		},
@@ -219,9 +163,9 @@
 			"y": -768.0
 		},
 		{
-			"type": "CRIMP",
-			"x": 62.7811279296875,
-			"y": -359.684356689453
+			"type": "JUG",
+			"x": 62.78,
+			"y": -359.68
 		}
 	],
 	"name": "Unnamed Route",

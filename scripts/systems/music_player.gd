@@ -14,11 +14,11 @@ const TRACKS: Array[String] = [
 # ─── Timing ───────────────────────────────────────────────────────────────────
 ## Seconds of silence between tracks.
 const SILENCE_MIN: float = 5.0
-const SILENCE_MAX: float = 60.0
+const SILENCE_MAX: float = 30.0
 
 ## First track delay — shorter so the game doesn't feel dead on launch.
 const FIRST_DELAY_MIN: float = 2.0
-const FIRST_DELAY_MAX: float = 20.0
+const FIRST_DELAY_MAX: float = 5.0
 
 # ─── Repeat avoidance ────────────────────────────────────────────────────────
 ## How many recent tracks to remember. With 3 tracks this is capped to 1

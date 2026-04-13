@@ -228,6 +228,10 @@ func _process(delta: float) -> void:
 # =============================================================================
 
 func _update_catch(delta: float) -> void:
+	# How far above ground the climber is (ground = belayer_position.y)
+	var ground_y     := belayer_position.y - 20.0
+	var height_above = ground_y - player.com_position.y   # positive = above ground
+
 	match catch_state:
 
 		CatchState.IDLE:
@@ -238,48 +242,52 @@ func _update_catch(delta: float) -> void:
 
 		CatchState.FALLING:
 			fall_vel = player.com_velocity.y
-			# FLOOR GUARD: catch immediately if about to hit ground
-			var floor_y := belayer_position.y - 20.0   # belayer stands at ground level
-			if player.com_position.y >= floor_y - 30.0:
+
+			# Fall budget: scales with height. Close to ground = nearly zero fall distance.
+			# At 0px above ground: 0px budget. At 400px+: full rope_stretch_distance.
+			var fall_budget = rope_stretch_distance * clamp(height_above / 350.0, 0.0, 1.0)
+			fall_budget      = maxf(fall_budget, 5.0)   # always at least a tiny catch
+
+			var fallen = player.com_position.y - fall_origin_y
+
+			# Also hard-stop before hitting ground
+			var space_to_ground = ground_y - player.com_position.y - 15.0
+
+			if (fallen >= fall_budget and fall_vel > 0.0) or space_to_ground <= 0.0:
 				catch_state      = CatchState.STRETCHING
-				fall_vel         = minf(fall_vel, 60.0)   # cap velocity at near-floor catch
+				fall_vel         = minf(fall_vel, space_to_ground / maxf(delta, 0.001))
 				anim_lean        = 1.0
-				anim_catch_shake = 0.5
+				anim_catch_shake = clamp(fall_vel / 280.0, 0.3, 1.0)
 				anim_shake_dir   = randf_range(-1.0, 1.0)
 				emit_signal("player_caught")
-				return
-			if player.com_position.y - fall_origin_y >= rope_stretch_distance and fall_vel > 0.0:
-				catch_state      = CatchState.STRETCHING
-				fall_vel         = player.com_velocity.y
-				anim_lean        = 1.0
-				anim_catch_shake = clamp(fall_vel / 280.0, 0.5, 1.0)
-				anim_shake_dir   = randf_range(-1.0, 1.0)
-				emit_signal("player_caught")
+
 			if _has_hand_hold():
 				catch_state = CatchState.IDLE
 
 		CatchState.STRETCHING:
+			# Decelerate to a stop
 			fall_vel = move_toward(fall_vel, 0.0, catch_decel_rate * delta * fall_vel + 35.0 * delta)
-			var new_pos = player.com_position + Vector2(0, fall_vel * delta)
-			# Hard floor clamp during stretch
-			var floor_y := belayer_position.y - 20.0
-			new_pos.y    = minf(new_pos.y, floor_y)
+			var new_pos    = player.com_position + Vector2(0, fall_vel * delta)
+			new_pos.y       = minf(new_pos.y, ground_y - 15.0)
 			_set_player_pos(new_pos)
-			if fall_vel <= 1.5 or new_pos.y >= floor_y:
+
+			if fall_vel <= 1.5:
 				held_y      = player.com_position.y
 				catch_state = CatchState.HELD
 
 		CatchState.HELD:
+			# Can re-grab holds from here — just touching one exits held state
 			if _has_hand_hold():
 				catch_state = CatchState.IDLE
 				return
-			player.com_velocity.y  = minf(player.com_velocity.y, 0.0)
-			_is_lowering = Input.is_action_pressed("ui_accept")
-			if _is_lowering:
-				held_y += lower_speed * delta
-			# Clamp held position to floor
-			var floor_y := belayer_position.y - 20.0
-			held_y       = minf(held_y, floor_y)
+
+			player.com_velocity.y = minf(player.com_velocity.y, 0.0)
+
+			# Very slow lower — just gravity drift, not player-controlled speed
+			held_y += lower_speed * 0.18 * delta * 60.0
+
+			# Hard floor clamp
+			held_y = minf(held_y, ground_y - 15.0)
 			_set_player_pos(Vector2(player.com_position.x, held_y))
 
 func _set_player_pos(pos: Vector2) -> void:

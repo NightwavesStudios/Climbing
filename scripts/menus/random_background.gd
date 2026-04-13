@@ -104,23 +104,22 @@ func _randomize_environment() -> void:
 	if env_types.is_empty():
 		return
 
-	# Build a weighted list that makes "Building" / urban environments
-	# extremely rare (1-in-20 chance) compared to all other environments.
-	# We do this by repeating non-building types 20× and building types 1×.
+	# Exclude "Building" / urban environments entirely.
 	const BUILDING_KEYWORDS: Array = ["Building", "Urban", "City"]
-	var weighted: Array = []
+	var filtered: Array = []
 	for env in env_types:
-		var name: String = str(env)
+		var env_name: String = str(env)
 		var is_building: bool = false
 		for kw in BUILDING_KEYWORDS:
-			if name.containsn(kw):
+			if env_name.containsn(kw):
 				is_building = true
 				break
-		var weight: int = 1 if is_building else 20
-		for _i in range(weight):
-			weighted.append(env)
+		if not is_building:
+			filtered.append(env)
 
-	EnvironmentConfig.current_environment = weighted[randi() % weighted.size()]
+	if filtered.is_empty():
+		return
+	EnvironmentConfig.current_environment = filtered[randi() % filtered.size()]
 
 
 func _setup_background_wall() -> void:
@@ -187,26 +186,26 @@ func _maybe_set_weather() -> void:
 		return
 
 	# ── Weather rarity table ──────────────────────────────────────────────
-	# ~75% chance of no weather, remaining 25% split across effect types.
+	# ~90% chance of no weather, remaining 10% split across effect types.
 	# Rare/dramatic effects (lightning, hail) remain least likely.
 	# NIGHT is excluded from random rolls.
 	#
-	#  0.00 – 0.75  →  NONE       (75 %)
-	#  0.75 – 0.86  →  RAIN       (11 %)
-	#  0.86 – 0.92  →  SNOW       ( 6 %)
-	#  0.92 – 0.96  →  FOG        ( 4 %)
-	#  0.96 – 0.99  →  LIGHTNING  ( 3 %)
+	#  0.00 – 0.90  →  NONE       (90 %)
+	#  0.90 – 0.95  →  RAIN       ( 5 %)
+	#  0.95 – 0.97  →  SNOW       ( 2 %)
+	#  0.97 – 0.98  →  FOG        ( 1 %)
+	#  0.98 – 0.99  →  LIGHTNING  ( 1 %)
 	#  0.99 – 1.00  →  HAIL       ( 1 %)
 	var roll := randf()
-	if roll < 0.75:
+	if roll < 0.90:
 		wm.set_weather(WeatherType.NONE)
-	elif roll < 0.86:
+	elif roll < 0.95:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.RAIN)
-	elif roll < 0.92:
+	elif roll < 0.97:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.SNOW)
-	elif roll < 0.96:
+	elif roll < 0.98:
 		wm.intensity = randf_range(0.3, 1.0)
 		wm.set_weather(WeatherType.FOG)
 	elif roll < 0.99:
