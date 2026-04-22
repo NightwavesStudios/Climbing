@@ -17,24 +17,25 @@ const ROPE_GRAVITY   = 60.0
 const SEGMENT_DRAG   = 0.94
 
 # -- Fall catch ---------------------------------------------------------------
-@export var fall_trigger_velocity : float = 120.0
-@export var rope_stretch_distance : float = 120.0
-@export var catch_decel_rate      : float = 6.0
-@export var lower_speed           : float = 55.0
+@export var fall_trigger_velocity : float = 60.0    # catch sooner
+@export var rope_stretch_distance : float = 60.0    # short sharp fall
+@export var catch_decel_rate      : float = 18.0    # snap to stop quickly
+@export var lower_speed           : float = 18.0    # very slow lower
+@export var crashpad_offset       : float = 80.0    # px above ground_y considered "crashpad zone"
 
 # -- Belayer anatomy (mirrors character.gd scale exactly) --------------------
 #    character uses ARM_UPPER=50, ARM_LOWER=50, LEG_UPPER=45, LEG_LOWER=45
 #    belayer is a bystander so slightly smaller feels right
 const BODY_HEIGHT    = 44.0
 const HEAD_RADIUS    = 14.0
-const SHOULDER_OFF   = 12.0   # half shoulder width (character uses SHOULDER_OFFSET=0 but draws offset)
+const SHOULDER_OFF   = 12.0
 const HIP_OFF        = 8.0
 const HIP_DOWN       = 20.0
 const ARM_UPPER      = 38.0
 const ARM_LOWER      = 36.0
 const LEG_UPPER      = 32.0
 const LEG_LOWER      = 30.0
-const HEAD_OFFSET_Y  = -20.0  # neck-to-head, matches character HEAD_OFFSET
+const HEAD_OFFSET_Y  = -20.0
 
 # -- Outline (matches character.gd export values) ----------------------------
 const OUTLINE_WIDTH  = 5.5
@@ -43,7 +44,7 @@ const OUTLINE_ALPHA  = 1.0
 
 # -- Colors (identical palette to character.gd) ------------------------------
 const SKIN_COLOR    = Color("#C68642")
-const SHIRT_COLOR   = Color("#8B3A3A")   # different shirt so they read as separate people
+const SHIRT_COLOR   = Color("#8B3A3A")
 const PANTS_COLOR   = Color("#1A1A2E")
 const SHOE_COLOR    = Color("#d89418ff")
 const HARNESS_COLOR = Color("#E8A020")
@@ -60,7 +61,7 @@ const HEAD_TRACK_SPEED     = 5.0
 const ROPE_TENSION_SPEED   = 6.0
 const ALERT_SPEED          = 4.5
 const BRACE_FOOT_SPREAD    = 16.0
-const HIGH_CLIMBER_LEAN    = 0.30   # extra lean when climber is far above
+const HIGH_CLIMBER_LEAN    = 0.30
 
 # -- Slack burst (belayer takes in rope rhythmically) ------------------------
 const BURST_INTERVAL_MIN = 1.8
@@ -83,15 +84,15 @@ var held_y        : float = 0.0
 var _is_lowering  : bool  = false
 
 # -- Reactive animation scalars -----------------------------------------------
-var _rope_tension       : float = 0.0   # 0-1; how taut the rope feels right now
-var _alert_level        : float = 0.0   # 0-1; 0=relaxed watching, 1=full brace
-var _anticipation       : float = 0.0   # 0-1; reads climber fail_stage before fall
-var _weight_shift       : float = 0.0   # -1=near side, +1=far side
-var _foot_brace_lerp    : float = 0.0   # 0-1; feet spread wider under load
-var _guide_elbow_raise  : float = 0.0   # 0-1; guide elbow lifts as climber goes up
-var _brake_tension_pull : float = 0.0   # px; brake hand pulled further down/back
-var _climber_height_t   : float = 0.0   # 0=level, 1=climber far above
-var _head_look_angle    : float = 0.0   # radians; actual look direction
+var _rope_tension       : float = 0.0
+var _alert_level        : float = 0.0
+var _anticipation       : float = 0.0
+var _weight_shift       : float = 0.0
+var _foot_brace_lerp    : float = 0.0
+var _guide_elbow_raise  : float = 0.0
+var _brake_tension_pull : float = 0.0
+var _climber_height_t   : float = 0.0
+var _head_look_angle    : float = 0.0
 var _last_climber_vel_y : float = 0.0
 
 # -- Base animation phases ----------------------------------------------------
@@ -112,7 +113,7 @@ var facing        : float = 1.0
 var facing_target : float = 1.0
 
 # -- Computed world-space joint positions (set by _update_pose each frame) ----
-var _b_root            : Vector2   # body root (with bob/sway/lean applied)
+var _b_root            : Vector2
 var _b_neck            : Vector2
 var _b_hips            : Vector2
 var _b_near_sh         : Vector2
@@ -228,9 +229,9 @@ func _process(delta: float) -> void:
 # =============================================================================
 
 func _update_catch(delta: float) -> void:
-	# How far above ground the climber is (ground = belayer_position.y)
-	var ground_y     := belayer_position.y - 20.0
-	var height_above = ground_y - player.com_position.y   # positive = above ground
+	var ground_y    := belayer_position.y - 20.0
+	var crashpad_y  := ground_y - crashpad_offset   # anything below this = crashpad zone
+	var route_start_y := belayer_position.y - 40.0  # lowest point player should ever be lowered to
 
 	match catch_state:
 
@@ -243,19 +244,25 @@ func _update_catch(delta: float) -> void:
 		CatchState.FALLING:
 			fall_vel = player.com_velocity.y
 
-			# Fall budget: scales with height. Close to ground = nearly zero fall distance.
-			# At 0px above ground: 0px budget. At 400px+: full rope_stretch_distance.
-			var fall_budget = rope_stretch_distance * clamp(height_above / 350.0, 0.0, 1.0)
-			fall_budget      = maxf(fall_budget, 5.0)   # always at least a tiny catch
+			# If the full fall distance would carry them into the crashpad zone,
+			# skip the drop entirely and go straight to a slow lower.
+			var would_land_y = player.com_position.y + rope_stretch_distance
+			if would_land_y >= crashpad_y:
+				held_y           = player.com_position.y
+				catch_state      = CatchState.HELD
+				anim_lean        = 0.4
+				anim_catch_shake = 0.2
+				anim_shake_dir   = randf_range(-1.0, 1.0)
+				emit_signal("player_caught")
+				return
 
-			var fallen = player.com_position.y - fall_origin_y
+			# Normal fall: allow rope_stretch_distance of drop then catch.
+			var fallen         = player.com_position.y - fall_origin_y
+			var space_to_crash = crashpad_y - player.com_position.y - 15.0
 
-			# Also hard-stop before hitting ground
-			var space_to_ground = ground_y - player.com_position.y - 15.0
-
-			if (fallen >= fall_budget and fall_vel > 0.0) or space_to_ground <= 0.0:
+			if (fallen >= rope_stretch_distance and fall_vel > 0.0) or space_to_crash <= 0.0:
 				catch_state      = CatchState.STRETCHING
-				fall_vel         = minf(fall_vel, space_to_ground / maxf(delta, 0.001))
+				fall_vel         = minf(fall_vel, space_to_crash / maxf(delta, 0.001))
 				anim_lean        = 1.0
 				anim_catch_shake = clamp(fall_vel / 280.0, 0.3, 1.0)
 				anim_shake_dir   = randf_range(-1.0, 1.0)
@@ -265,30 +272,32 @@ func _update_catch(delta: float) -> void:
 				catch_state = CatchState.IDLE
 
 		CatchState.STRETCHING:
-			# Decelerate to a stop
-			fall_vel = move_toward(fall_vel, 0.0, catch_decel_rate * delta * fall_vel + 35.0 * delta)
-			var new_pos    = player.com_position + Vector2(0, fall_vel * delta)
-			new_pos.y       = minf(new_pos.y, ground_y - 15.0)
+			# Hard decel — feels like the rope snapping taut.
+			fall_vel = move_toward(fall_vel, 0.0, catch_decel_rate * fall_vel * delta + 60.0 * delta)
+			var new_pos  = player.com_position + Vector2(0, fall_vel * delta)
+			new_pos.y     = minf(new_pos.y, crashpad_y - 15.0)
 			_set_player_pos(new_pos)
 
-			if fall_vel <= 1.5:
+			if fall_vel <= 1.0:
 				held_y      = player.com_position.y
 				catch_state = CatchState.HELD
 
 		CatchState.HELD:
-			# Can re-grab holds from here — just touching one exits held state
+			# Re-grabbing a hold exits immediately.
 			if _has_hand_hold():
 				catch_state = CatchState.IDLE
 				return
 
 			player.com_velocity.y = minf(player.com_velocity.y, 0.0)
 
-			# Very slow lower — just gravity drift, not player-controlled speed
-			held_y += lower_speed * 0.18 * delta * 60.0
+			# Very slow drift downward — player has time to read the wall.
+			held_y += lower_speed * delta
 
-			# Hard floor clamp
-			held_y = minf(held_y, ground_y - 15.0)
+			# Never lower past the very start of the route.
+			held_y = minf(held_y, route_start_y)
+
 			_set_player_pos(Vector2(player.com_position.x, held_y))
+
 
 func _set_player_pos(pos: Vector2) -> void:
 	player.com_position    = pos
@@ -308,41 +317,38 @@ func _update_animation(delta: float) -> void:
 	_last_climber_vel_y = climber_vel_y
 
 	# ── Climber height: how far above the belayer, normalized ────────────────
-	var height_diff   := belayer_position.y - chest.y  # positive = above
+	var height_diff   := belayer_position.y - chest.y
 	_climber_height_t  = clamp(height_diff / 380.0, 0.0, 1.0)
 
-	# ── Rope tension: driven by fall speed, catch state, and climber height ──
+	# ── Rope tension ─────────────────────────────────────────────────────────
 	var raw_tension := 0.0
 	match catch_state:
 		CatchState.FALLING:    raw_tension = clamp(climber_vel_y / 300.0, 0.0, 1.0)
 		CatchState.STRETCHING: raw_tension = 1.0
 		CatchState.HELD:       raw_tension = 0.85
 		CatchState.IDLE:
-			# Light tension when climber is high and on the rope
 			raw_tension = clamp(_climber_height_t * 0.35, 0.0, 0.35)
 	_rope_tension = lerpf(_rope_tension, raw_tension, ROPE_TENSION_SPEED * delta)
 
-	# ── Anticipation: belayer reads climber's grip failure before it happens ─
+	# ── Anticipation ─────────────────────────────────────────────────────────
 	var anticipate_target := 0.0
 	if is_instance_valid(player):
 		for hand in [player.lh, player.rh]:
 			if hand.hold != null:
 				match hand.fail_stage:
-					1: anticipate_target = maxf(anticipate_target, 0.35)  # SLIP
-					2: anticipate_target = maxf(anticipate_target, 0.65)  # STRUGGLE
-					3: anticipate_target = maxf(anticipate_target, 0.90)  # FALLING
+					1: anticipate_target = maxf(anticipate_target, 0.35)
+					2: anticipate_target = maxf(anticipate_target, 0.65)
+					3: anticipate_target = maxf(anticipate_target, 0.90)
 	_anticipation = lerpf(_anticipation, anticipate_target, 3.5 * delta)
 
-	# ── Alert level: composite of all stress signals ─────────────────────────
+	# ── Alert level ──────────────────────────────────────────────────────────
 	var alert_target := 0.0
 	match catch_state:
 		CatchState.FALLING:    alert_target = clamp(climber_vel_y / fall_trigger_velocity, 0.4, 1.0)
 		CatchState.STRETCHING: alert_target = 1.0
 		CatchState.HELD:       alert_target = 0.8
 		CatchState.IDLE:
-			# Anticipation bleeds into alert level
 			alert_target = _anticipation * 0.85
-			# Sudden downward acceleration (unexpected slip)
 			if climber_accel > 250.0 and not _has_hand_hold():
 				alert_target = maxf(alert_target, 0.55)
 	var alert_spd  := ALERT_SPEED if alert_target > _alert_level else ALERT_SPEED * 0.35
@@ -359,7 +365,7 @@ func _update_animation(delta: float) -> void:
 	_head_look_angle    = lerpf(_head_look_angle, look_angle_tgt, HEAD_TRACK_SPEED * delta)
 	anim_head_tilt      = clamp(_climber_height_t * 0.5 + _alert_level * 0.15, 0.0, 0.65)
 
-	# ── Lean back: rope tension pulls belayer away from wall ─────────────────
+	# ── Lean back ────────────────────────────────────────────────────────────
 	var lean_tgt := (
 		_alert_level      * 0.50 +
 		_rope_tension     * 0.28 +
@@ -368,38 +374,38 @@ func _update_animation(delta: float) -> void:
 	var lean_spd := LEAN_ATTACK if lean_tgt > anim_lean else LEAN_DECAY
 	anim_lean     = lerpf(anim_lean, lean_tgt, lean_spd * delta)
 
-	# ── Weight shift: hips slide to far foot when bracing ────────────────────
+	# ── Weight shift ─────────────────────────────────────────────────────────
 	var shift_tgt := lerpf(-0.12, 0.72, _alert_level)
 	_weight_shift  = lerpf(_weight_shift, shift_tgt, WEIGHT_SHIFT_SPEED * delta)
 
 	# ── Foot brace spread ────────────────────────────────────────────────────
 	_foot_brace_lerp = lerpf(_foot_brace_lerp, _alert_level, WEIGHT_SHIFT_SPEED * delta)
 
-	# ── Guide arm: elbow rises as climber goes up and rope loads ─────────────
+	# ── Guide arm ────────────────────────────────────────────────────────────
 	_guide_elbow_raise = lerpf(_guide_elbow_raise,
 		_climber_height_t * 0.65 + _rope_tension * 0.35,
 		ROPE_TENSION_SPEED * delta)
 
-	# ── Brake arm: hand pulled further down/back under tension ───────────────
+	# ── Brake arm ────────────────────────────────────────────────────────────
 	var brake_tgt       := _rope_tension * 30.0 + _alert_level * 14.0
 	_brake_tension_pull  = lerpf(_brake_tension_pull, brake_tgt, ROPE_TENSION_SPEED * delta)
 
-	# ── Breath: faster and shallower when stressed ───────────────────────────
+	# ── Breath ───────────────────────────────────────────────────────────────
 	var breath_mult := 1.0 + _alert_level * 1.3
 	anim_breath      = fmod(anim_breath + BREATH_SPEED * breath_mult * delta, TAU)
 
-	# ── Sway: only present when relaxed ──────────────────────────────────────
+	# ── Sway ─────────────────────────────────────────────────────────────────
 	var sway_amt := 1.0 - _alert_level
 	anim_sway     = fmod(anim_sway + SWAY_SPEED * sway_amt * delta, TAU)
 
-	# ── Catch shake (impact reaction) ────────────────────────────────────────
+	# ── Catch shake ──────────────────────────────────────────────────────────
 	if catch_state == CatchState.STRETCHING and anim_catch_shake < 0.1:
 		anim_catch_shake = clamp(climber_vel_y / 280.0, 0.5, 1.0)
 		anim_shake_dir   = randf_range(-1.0, 1.0)
 	anim_catch_shake = move_toward(anim_catch_shake, 0.0,
 		CATCH_SHAKE_DECAY * anim_catch_shake * delta + 0.3 * delta)
 
-	# ── Slack bursts: guide hand takes in rope while relaxed ─────────────────
+	# ── Slack bursts ─────────────────────────────────────────────────────────
 	if catch_state == CatchState.IDLE and _alert_level < 0.22:
 		if burst_active:
 			burst_timer -= delta
@@ -415,7 +421,6 @@ func _update_animation(delta: float) -> void:
 				burst_timer     = BURST_DURATION
 				burst_intensity = randf_range(0.5, 1.0)
 	else:
-		# Alert or catching: arms commit, no bursts
 		anim_guide_pull = lerpf(anim_guide_pull,
 			-BURST_MAGNITUDE * (0.9 + _alert_level * 0.8), 9.0 * delta)
 		if burst_active:
@@ -424,7 +429,6 @@ func _update_animation(delta: float) -> void:
 
 # =============================================================================
 #  POSE — all joint positions in world space
-#  Follows the same two-segment IK logic as character.gd's _constrain_arm.
 # =============================================================================
 
 func _update_pose() -> void:
@@ -433,40 +437,31 @@ func _update_pose() -> void:
 
 	var root := belayer_position + Vector2(0, bob_y + shake)
 
-	# Torso spine — neck is top, hips is bottom
 	_b_neck = root + Vector2(0, -20)
 	_b_hips = root + Vector2(0,  22)
 
-	# Head flush on neck top
 	_b_head_center = _b_neck + Vector2(0, -HEAD_RADIUS)
 
-	# Shoulders: partway DOWN the torso (not at neck), inside torso width
-	# Torso is TW=28 wide => half = 14px. Shoulders at ±9 so torso overdraw covers root.
-	var shoulder_y := _b_neck.y + 10.0   # 10px below neck = upper chest
+	var shoulder_y := _b_neck.y + 10.0
 	_b_near_sh = Vector2(belayer_position.x - 9,  shoulder_y)
 	_b_far_sh  = Vector2(belayer_position.x + 9,  shoulder_y)
 
-	# Hips: inside torso width
 	_b_near_hip = Vector2(belayer_position.x - 8, _b_hips.y)
 	_b_far_hip  = Vector2(belayer_position.x + 8, _b_hips.y)
 
-	# Guide arm (left): elbow out-left and down from shoulder, hand up toward rope
 	var guide_raise := lerpf(0.0, -24.0, _guide_elbow_raise + _rope_tension * 0.4)
 	_b_guide_elbow = _b_near_sh + Vector2(-20, 16)
 	_b_guide_hand  = _b_near_sh + Vector2(-22, guide_raise + anim_guide_pull)
 
-	# Brake arm (right): elbow out-right and down, hand lower
 	_b_brake_elbow = _b_far_sh + Vector2( 20, 16)
 	_b_brake_hand  = _b_far_sh + Vector2( 16, 28 + _brake_tension_pull)
 
-	# Legs: down from hips, feet slightly wider than hips
 	var spread := lerpf(8.0, 14.0, _foot_brace_lerp)
 	_b_near_knee = _b_near_hip + Vector2(-2, LEG_UPPER - 6)
 	_b_near_foot = _b_near_hip + Vector2(-spread, LEG_UPPER + LEG_LOWER - 10)
 	_b_far_knee  = _b_far_hip  + Vector2( 2, LEG_UPPER - 6)
 	_b_far_foot  = _b_far_hip  + Vector2( spread, LEG_UPPER + LEG_LOWER - 10)
 
-	# Sync legacy names
 	b_guide_hand_joint = _b_guide_elbow
 	b_guide_hand       = _b_guide_hand
 	b_brake_hand_joint = _b_brake_elbow
@@ -476,17 +471,13 @@ func _update_pose() -> void:
 	b_far_foot_joint   = _b_far_knee
 	b_far_foot         = _b_far_foot
 
-# Two-segment IK — identical law-of-cosines math to character.gd _constrain_arm.
-# bend_sign: which side the elbow/knee pops out to.
-#   +1 = pops to the RIGHT of the shoulder→hand vector
-#   -1 = pops to the LEFT
+
 func _solve_elbow(shoulder: Vector2, hand: Vector2, upper: float, lower: float, bend_sign: float) -> Vector2:
 	var to_h := hand - shoulder
 	var dist  = clamp(to_h.length(), abs(upper - lower) + 0.5, upper + lower - 0.5)
 	var dir   := to_h.normalized()
 	var ca    = clamp((upper * upper + dist * dist - lower * lower) / (2.0 * upper * dist), -1.0, 1.0)
 	var ang   := acos(ca)
-	# Perpendicular: Vector2(-dir.y, dir.x) is 90° CCW from dir
 	return shoulder + dir * (upper * cos(ang)) + Vector2(-dir.y, dir.x) * (upper * sin(ang)) * bend_sign
 
 
@@ -587,21 +578,7 @@ func _draw_anchor() -> void:
 	draw_circle(al,  2.8, Color("#D4A84B"))
 
 # =============================================================================
-#  BELAYER DRAW — two-pass outline+fill, identical visual grammar to character.gd
-#
-#  character.gd reference weights:
-#    torso:      19px fill,  (19+ow) outline
-#    upper arm:  12px fill,  (12+ow) outline
-#    lower arm:  10px fill,  (10+ow) outline
-#    upper leg:  12px fill,  (12+ow) outline
-#    lower leg:  11px fill,  (11+ow) outline
-#    hand:        8px circle fill,  (8+ow*0.5) outline
-#    foot:        9px circle fill,  (9+ow*0.5) outline
-#    elbow/knee:  5px circle
-#    shoulder:    5px circle
-#    head:       16px circle
-#
-#  Belayer is drawn at ~80% of those weights to feel like a background figure.
+#  BELAYER DRAW
 # =============================================================================
 
 func _draw_belayer() -> void:
@@ -630,7 +607,6 @@ func _draw_belayer() -> void:
 
 	# ── OUTLINE ───────────────────────────────────────────────────────────────
 
-	# Legs
 	draw_line(nhip, nk,  oc_pants, 13.0 + OW)
 	draw_circle(nk,  6.0 + OW * 0.5, oc_pants)
 	draw_line(nk,   nf,  oc_pants, 12.0 + OW)
@@ -640,7 +616,6 @@ func _draw_belayer() -> void:
 	draw_line(fk,   ff,  oc_pants, 12.0 + OW)
 	draw_circle(ff,  9.0 + OW * 0.5, oc_shoe)
 
-	# Arms
 	draw_line(nsh,  gej, oc_skin, 13.0 + OW)
 	draw_circle(gej, 6.5 + OW * 0.5, oc_skin)
 	draw_line(gej,  gh,  oc_skin, 11.0 + OW)
@@ -650,15 +625,11 @@ func _draw_belayer() -> void:
 	draw_line(bej,  bh,  oc_skin, 11.0 + OW)
 	draw_circle(bh,  7.0 + OW * 0.5, oc_skin)
 
-	# Torso over arm/leg roots
 	draw_line(hips, neck, oc_shirt, TW + OW)
-
-	# Head over torso top
 	draw_circle(head, HEAD_RADIUS + OW * 0.5, oc_skin)
 
 	# ── FILL ──────────────────────────────────────────────────────────────────
 
-	# Legs
 	draw_line(nhip, nk,  PANTS_COLOR, 13.0)
 	draw_circle(nk,  6.0, PANTS_COLOR)
 	draw_line(nk,   nf,  PANTS_COLOR, 12.0)
@@ -668,11 +639,9 @@ func _draw_belayer() -> void:
 	draw_line(fk,   ff,  PANTS_COLOR, 12.0)
 	draw_circle(ff,  9.0, SHOE_COLOR)
 
-	# Hip harness
 	draw_line(nhip, fhip, PANTS_COLOR,   18.0)
 	draw_line(nhip, fhip, HARNESS_COLOR,  4.0)
 
-	# Arms
 	draw_line(nsh,  gej, SKIN_COLOR, 13.0)
 	draw_circle(gej, 6.5, SKIN_COLOR)
 	draw_line(gej,  gh,  SKIN_COLOR, 11.0)
@@ -682,10 +651,7 @@ func _draw_belayer() -> void:
 	draw_line(bej,  bh,  SKIN_COLOR, 11.0)
 	draw_circle(bh,  7.0, SKIN_COLOR)
 
-	# Torso over arm/leg roots
 	draw_line(hips, neck, SHIRT_COLOR, TW)
-
-	# Head over torso top
 	draw_circle(head, HEAD_RADIUS, SKIN_COLOR)
 
 	if _rope_tension > 0.05:
@@ -694,7 +660,7 @@ func _draw_belayer() -> void:
 		draw_circle(bh, 4.5, device_color)
 
 # =============================================================================
-#  OUTLINE HELPER — matches character.gd _outline_color exactly
+#  OUTLINE HELPER
 # =============================================================================
 
 func _outline_color(col: Color) -> Color:
@@ -766,7 +732,7 @@ func get_belayer_guide_hand_world() -> Vector2:
 
 
 func apply_rope_force_to_player(vel: Vector2) -> Vector2:
-	return vel  # hook for future tension feedback
+	return vel
 
 
 func cleanup() -> void:
