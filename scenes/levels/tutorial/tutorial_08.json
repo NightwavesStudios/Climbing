@@ -347,7 +347,7 @@
 			"y": -1472.0
 		}
 	],
-	"name": "Unnamed Route",
+	"name": "Wander",
 	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,

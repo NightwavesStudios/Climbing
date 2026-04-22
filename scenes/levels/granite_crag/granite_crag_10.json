@@ -7,7 +7,7 @@
 		{
 			"x": -96.0,
 			"y": 224.0
-		},
+		}, 
 		{
 			"x": 128.0,
 			"y": 224.0
@@ -168,7 +168,7 @@
 			"y": -359.68
 		}
 	],
-	"name": "Unnamed Route",
+	"name": "Rhythm Section",
 	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,

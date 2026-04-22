@@ -104,17 +104,17 @@ func _randomize_environment() -> void:
 	if env_types.is_empty():
 		return
 
-	# Exclude "Building" / urban environments entirely.
-	const BUILDING_KEYWORDS: Array = ["Building", "Urban", "City"]
+	# Exclude "Building" / urban environments and dark environments entirely.
+	const EXCLUDED_KEYWORDS: Array = ["Building", "Urban", "City", "Dark"]
 	var filtered: Array = []
 	for env in env_types:
 		var env_name: String = str(env)
-		var is_building: bool = false
-		for kw in BUILDING_KEYWORDS:
+		var is_excluded: bool = false
+		for kw in EXCLUDED_KEYWORDS:
 			if env_name.containsn(kw):
-				is_building = true
+				is_excluded = true
 				break
-		if not is_building:
+		if not is_excluded:
 			filtered.append(env)
 
 	if filtered.is_empty():
