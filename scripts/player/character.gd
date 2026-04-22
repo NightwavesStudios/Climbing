@@ -1031,22 +1031,13 @@ func _apply_natural_limb_positions(_delta: float) -> void:
 	for s in _hands:
 		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
 		var shoulder  = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
-		var angle_rad = deg_to_rad(ARM_NATURAL_ANGLE_DEG)
 		var sx        = -1.0 if s.is_left else 1.0
-		var tgt_elbow = shoulder + Vector2(sx * ARM_UPPER_LENGTH * sin(angle_rad), ARM_UPPER_LENGTH * cos(angle_rad))
+		# Elbow sits slightly out to the side and down — gives a consistent bent hang
+		var tgt_elbow = shoulder + Vector2(sx * 18.0, ARM_UPPER_LENGTH * 0.85)
+		var tgt_hand  = tgt_elbow + Vector2(sx * 6.0, ARM_LOWER_LENGTH * 0.90)
 		s.joint.global_position = s.joint.global_position.lerp(tgt_elbow, relax)
-		s.node.global_position  = s.node.global_position.lerp(tgt_elbow + Vector2(0, ARM_LOWER_LENGTH), relax)
+		s.node.global_position  = s.node.global_position.lerp(tgt_hand,  relax)
 		s.reset_velocity()
-	var leg_splay = 8.0
-	for s in _feet:
-		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
-		var hip      = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
-		var sx       = -1.0 if s.is_left else 1.0
-		var tgt_knee = hip + Vector2(sx * leg_splay, LEG_UPPER_LENGTH)
-		s.joint.global_position = s.joint.global_position.lerp(tgt_knee, relax)
-		s.node.global_position  = s.node.global_position.lerp(tgt_knee + Vector2(sx * leg_splay * 0.5, LEG_LOWER_LENGTH), relax)
-		s.reset_velocity()
-
 
 func _update_grab_animations() -> void:
 	for s in _limbs:
