@@ -572,10 +572,8 @@ func _draw() -> void:
 
 func _draw_anchor() -> void:
 	var al := to_local(anchor_position)
-	draw_circle(al, 12.0, Color("#2A2A30"))
-	draw_circle(al,  8.5, Color("#6E6E78"))
-	draw_circle(al,  5.0, Color("#A8A8B2"))
-	draw_circle(al,  2.8, Color("#D4A84B"))
+	draw_circle(al, 10.0, Color("867b41ff"))
+	draw_circle(al,  7.0, Color("c9ad52ff"))
 
 # =============================================================================
 #  BELAYER DRAW
