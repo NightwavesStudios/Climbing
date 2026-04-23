@@ -10,6 +10,8 @@ extends Node2D
 @onready var instructions: CanvasLayer = $Instructions
 @onready var instructions_root: ColorRect = $Instructions/ColorRect
 @onready var popup_sprite: Sprite2D = $Instructions/Sprite2D
+@onready var skip_level_container: Control = $SkipLevel
+@onready var skip_level_btn: Button = $SkipLevel/CanvasLayer/SkipLevel
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
@@ -24,19 +26,14 @@ const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
 const INSTRUCTIONS_SECTION  := "instructions"
 const INSTRUCTIONS_KEY      := "shown"
 
+const SKIP_THRESHOLD : int    = 5
+const SKIP_SECTION   : String = "skip"
+var   _reset_count   : int    = 0
+
 # =============================================================================
 # POPUP SYSTEM
 # =============================================================================
-# Each entry describes one popup condition.
-# Fields:
-#   image_path  – texture loaded onto the Sprite2D (or TextureRect)
-#   condition   – callable that returns true when this popup should show;
-#                 it receives the level path as its only argument.
-#   save_key    – unique key written to prefs.cfg so the popup only fires once.
-#   priority    – higher wins when multiple conditions match simultaneously.
-#
-# Add new popups inside _build_popup_configs() — no changes needed anywhere else.
-# ─────────────────────────────────────────────────────────────────────────────
+
 var POPUP_CONFIGS: Array = []
 
 func _build_popup_configs() -> void:
@@ -53,46 +50,28 @@ func _build_popup_configs() -> void:
 			"save_key":   "granite_topping_out_popup",
 			"priority":   10,
 		},
-		# ── Add more popups below ─────────────────────────────────────────────
-		# {
-		#     "image_path": "res://assets/images/popups/speed_tips.png",
-		#     "condition":  _popup_cond_first_speed,
-		#     "save_key":   "speed_tips_popup",
-		#     "priority":   5,
-		# },
 	]
 
-# ── Condition callables ───────────────────────────────────────────────────────
-
-## Tutorial popup — always a valid trigger; once-only gating is handled
-## entirely by save_key inside _resolve_popup, not here.
 static func _popup_cond_first_launch(_level_path: String) -> bool:
 	return true
 
-## Granite topping-out popup — fires whenever a granite_crag level loads.
-## _resolve_popup skips it automatically after the first dismissal.
 static func _popup_cond_first_granite(level_path: String) -> bool:
 	return "granite_crag" in level_path
 
-# ─────────────────────────────────────────────────────────────────────────────
-
-## Returns the highest-priority popup config that should fire for *level_path*,
-## or an empty Dictionary if none applies.
 func _resolve_popup(level_path: String) -> Dictionary:
 	var cfg := ConfigFile.new()
-	cfg.load(INSTRUCTIONS_SAVE_PATH)   # OK to fail — missing keys default to false
+	cfg.load(INSTRUCTIONS_SAVE_PATH)
 
 	var best: Dictionary = {}
 	for entry in POPUP_CONFIGS:
 		var key: String = entry["save_key"]
 		if cfg.get_value("popups", key, false):
-			continue   # already shown
+			continue
 		if entry["condition"].call(level_path):
 			if best.is_empty() or entry["priority"] > best["priority"]:
 				best = entry
 	return best
 
-## Swap the Sprite2D texture and fade the overlay in.
 func show_popup_image(image_path: String) -> void:
 	if not instructions or not instructions_root:
 		push_error("show_popup_image: Instructions nodes are null!")
@@ -108,7 +87,6 @@ func show_popup_image(image_path: String) -> void:
 		else:
 			push_error("show_popup_image: Failed to load texture: " + image_path)
 
-	# Fade in
 	instructions_root.modulate.a = 0.0
 	instructions.show()
 	instructions_root.show()
@@ -117,7 +95,6 @@ func show_popup_image(image_path: String) -> void:
 	tween.tween_property(instructions_root, "modulate:a", 1.0, 0.6) \
 		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 
-## Mark a popup's save_key as seen so it never fires again.
 func _mark_popup_seen(save_key: String) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(INSTRUCTIONS_SAVE_PATH)
@@ -173,6 +150,7 @@ func _ready():
 	if instructions_root:
 		instructions_root.modulate.a = 0.0
 
+	_setup_skip_level()
 	_setup_level_complete_overlay()
 	_setup_pause_menu()
 	_check_paths()
@@ -197,8 +175,6 @@ func _ready():
 # POPUP ENTRY POINT
 # =============================================================================
 
-## Called after every level load. Resolves which popup (if any) to show,
-## swaps the image, and fades it in.
 func _show_popup_for_level(level_path: String) -> void:
 	var entry = _resolve_popup(level_path)
 	if entry.is_empty():
@@ -208,10 +184,116 @@ func _show_popup_for_level(level_path: String) -> void:
 	print("  [Popup] Showing: ", entry["image_path"], " (key: ", entry["save_key"], ")")
 	show_popup_image(entry["image_path"])
 
-	# Store the active key so _on_hide_instructions_pressed knows what to mark.
 	_active_popup_key = entry["save_key"]
 
 var _active_popup_key: String = ""
+
+# =============================================================================
+# SKIP LEVEL
+# =============================================================================
+
+func _setup_skip_level() -> void:
+	if not skip_level_container or not skip_level_btn:
+		push_error("SkipLevel nodes not found — check scene tree paths ($SkipLevel and $SkipLevel/SkipLevel)")
+		return
+
+	skip_level_container.modulate.a = 0.0
+	skip_level_container.visible    = false
+	skip_level_container.scale      = Vector2.ONE
+
+	skip_level_btn.pressed.connect(_on_skip_level_pressed)
+
+
+func _increment_reset_count() -> void:
+	if _is_level_skipped(_current_level_path):
+		return
+
+	_reset_count += 1
+	print("  [Skip] Reset count: %d / %d" % [_reset_count, SKIP_THRESHOLD])
+
+	if _reset_count >= SKIP_THRESHOLD:
+		_show_skip_button()
+
+
+func _show_skip_button() -> void:
+	if not skip_level_container or skip_level_container.visible:
+		return
+
+	skip_level_container.visible    = true
+	skip_level_container.scale      = Vector2(0.5, 0.5)
+	skip_level_container.modulate.a = 0.0
+
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(skip_level_container, "modulate:a", 1.0, 0.25) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(skip_level_container, "scale", Vector2(1.05, 1.05), 0.20) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tw.chain().tween_property(skip_level_container, "scale", Vector2.ONE, 0.10) \
+		.set_ease(Tween.EASE_IN_OUT)
+
+
+func _hide_skip_button(instant: bool = false) -> void:
+	if not skip_level_container or not skip_level_container.visible:
+		return
+
+	if instant:
+		skip_level_container.visible    = false
+		skip_level_container.modulate.a = 0.0
+		return
+
+	var tw := create_tween()
+	tw.tween_property(skip_level_container, "modulate:a", 0.0, 0.2) \
+		.set_ease(Tween.EASE_IN)
+	tw.tween_callback(func(): skip_level_container.visible = false)
+
+
+func _reset_skip_state() -> void:
+	_reset_count = 0
+	_hide_skip_button(true)
+
+
+func _mark_level_skipped(level_path: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(INSTRUCTIONS_SAVE_PATH)
+	cfg.set_value(SKIP_SECTION, level_path.md5_text(), true)
+	cfg.save(INSTRUCTIONS_SAVE_PATH)
+
+	var gs := get_node_or_null("/root/GameState")
+	if gs and gs.has_method("record_level_skip"):
+		gs.record_level_skip(level_path)
+
+
+func _is_level_skipped(level_path: String) -> bool:
+	var cfg := ConfigFile.new()
+	cfg.load(INSTRUCTIONS_SAVE_PATH)
+	return cfg.get_value(SKIP_SECTION, level_path.md5_text(), false)
+
+
+func _get_next_level_path(current_path: String) -> String:
+	var gs := get_node_or_null("/root/GameState")
+	if gs and gs.has_method("get_next_level"):
+		var nxt: String = gs.get_next_level(current_path)
+		if nxt != "":
+			return nxt
+
+	if level_loader and level_loader.has_method("get_next_level_path"):
+		return level_loader.get_next_level_path()
+
+	return ""
+
+
+func _on_skip_level_pressed() -> void:
+	print("  [Skip] Player skipped: ", _current_level_path)
+	_mark_level_skipped(_current_level_path)
+	_hide_skip_button(true)
+
+	var next_path := _get_next_level_path(_current_level_path)
+	if next_path == "":
+		_on_level_complete_menu_requested()
+		return
+
+	_on_next_level_requested(next_path)
 
 # =============================================================================
 # PAUSE MENU
@@ -298,6 +380,8 @@ func _load_initial_level(path: String) -> void:
 
 	await get_tree().process_frame
 	center_camera_on_route()
+
+	_reset_skip_state()
 
 	print("  ✓ Level ready: ", path)
 
@@ -485,8 +569,6 @@ func check_player_top_out() -> bool:
 # =============================================================================
 
 func _process(_delta: float) -> void:
-
-	# ── Top-out check ─────────────────────────────────────────────────────────
 	if check_player_top_out():
 		pass
 
@@ -514,6 +596,8 @@ func on_level_complete():
 	if pause_menu and pause_menu.visible:
 		pause_menu.hide_pause_menu()
 
+	_hide_skip_button(true)
+
 	var completion_time := 0.0
 	if current_discipline == ClimbingDiscipline.Type.SPEED and speed_timer:
 		if speed_timer.has_method("get_time_remaining"):
@@ -532,6 +616,8 @@ func on_level_complete():
 		Transition.to("res://scenes/menus/level_completed.tscn")
 
 func on_player_reset():
+	_increment_reset_count()
+
 	if player and not player._grab_initialized:
 		return
 
@@ -705,12 +791,10 @@ func _on_level_loaded():
 # =============================================================================
 
 func _on_hide_instructions_pressed() -> void:
-	# Mark whichever popup is currently showing as seen
 	if _active_popup_key != "":
 		_mark_popup_seen(_active_popup_key)
 		_active_popup_key = ""
 
-	# Also mark the legacy "shown" flag for backwards-compat
 	var cfg := ConfigFile.new()
 	cfg.load(INSTRUCTIONS_SAVE_PATH)
 	cfg.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, true)
