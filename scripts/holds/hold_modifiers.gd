@@ -233,6 +233,11 @@ class FallingHoldModifier extends HoldModifierBase:
 		for limb in _claimed_limbs.duplicate():
 			if is_instance_valid(limb) and hold.has_method("release"):
 				hold.release(limb)
+				# Walk up to the climber and reset this limb's ghost so the
+				# reaching arm doesn't snap from the old falling-hold position.
+				var climber = limb.get_parent()
+				if climber and climber.has_method("_reset_limb_ghost"):
+					climber._reset_limb_ghost(limb)
 		_claimed_limbs.clear()
 
 	func _set_collision_enabled(enabled: bool) -> void:

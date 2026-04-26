@@ -1131,19 +1131,28 @@ func _check_leg_overstretch() -> void:
 	var max_safe = (LEG_UPPER_LENGTH + LEG_LOWER_LENGTH) * LEG_FORCE_RELEASE_THRESHOLD
 	for s in _feet:
 		if s.hold and not s.is_grabbing:
+			if s.hold.has_method("is_top_out") and s.hold.is_top_out():
+				continue
 			var hip = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
-			if hip.distance_to(s.hold.get_limb_anchor(s.node)) > max_safe: release_limb(s)
-
+			if hip.distance_to(s.hold.get_limb_anchor(s.node)) > max_safe:
+				release_limb(s)
 
 func _check_limb_overload() -> void:
 	for s in _hands:
 		if s.hold:
+			# Never rip hands off a finish hold regardless of velocity
+			if s.hold.has_method("is_top_out") and s.hold.is_top_out():
+				continue
 			var shoulder = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
-			if shoulder.distance_to(s.hold.get_limb_anchor(s.node)) > (ARM_UPPER_LENGTH + ARM_LOWER_LENGTH) * HAND_LOAD_TOLERANCE: release_limb(s)
+			if shoulder.distance_to(s.hold.get_limb_anchor(s.node)) > (ARM_UPPER_LENGTH + ARM_LOWER_LENGTH) * HAND_LOAD_TOLERANCE:
+				release_limb(s)
 	for s in _feet:
 		if s.hold:
+			if s.hold.has_method("is_top_out") and s.hold.is_top_out():
+				continue
 			var hip = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
-			if hip.distance_to(s.hold.get_limb_anchor(s.node)) > (LEG_UPPER_LENGTH + LEG_LOWER_LENGTH) * FOOT_RELEASE_THRESHOLD: release_limb(s)
+			if hip.distance_to(s.hold.get_limb_anchor(s.node)) > (LEG_UPPER_LENGTH + LEG_LOWER_LENGTH) * FOOT_RELEASE_THRESHOLD:
+				release_limb(s)
 
 # =============================================================================
 #  LOAD DISTRIBUTION
@@ -1212,6 +1221,11 @@ func attempt_grab(s: LimbState) -> void:
 	var resolved  = best.get_limb_anchor(s.node)
 	s.hold        = best; s.grab_target = resolved; s.pin = resolved
 	s.is_grabbing = true; s.reset_velocity()
+
+	# Sync ghost to the actual grab point — prevents the stretched-arm
+	# snap that occurs when the ghost is still at the pre-fall position.
+	s.ghost      = resolved
+	s.ghost_init = true
 
 	if s.is_hand(): _apply_catch_penalty(s as HandState)
 	if not climb_started:
@@ -1370,6 +1384,13 @@ func _zero_all() -> void:
 
 func _reset_ghost_targets() -> void:
 	for s in _limbs: s.ghost = s.node.global_position; s.ghost_init = true
+
+func _reset_limb_ghost(limb_node: Node2D) -> void:
+	for s in _limbs:
+		if s.node == limb_node:
+			s.ghost      = limb_node.global_position
+			s.ghost_init = true
+			return
 
 # =============================================================================
 #  HOLD QUERIES

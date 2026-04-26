@@ -72,6 +72,7 @@ script = ExtResource("8_a4cr6")
 stream = ExtResource("9_0jrka")
 
 [node name="SkipLevel" type="Control" parent="."]
+visible = false
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0

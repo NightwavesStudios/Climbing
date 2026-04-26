@@ -219,7 +219,7 @@ var _hail_udy: float = 0.0
 # =============================================================================
 
 func _ready() -> void:
-	z_index = 20
+	z_index = 0
 	add_to_group("weather_modifier")
 	_wall_ref = get_parent() if get_parent().has_method("get_bounds") else null
 	_drop_rng.randomize()
