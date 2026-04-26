@@ -91,13 +91,21 @@ class FallingHoldModifier extends HoldModifierBase:
 	var _origin_set:    bool    = false
 	var _claimed_limbs: Array[Node2D] = []
 
+	# FIX 1: Cache the visual root once so it never changes between calls.
+	# Previously _get_visual_root() re-evaluated the parent's script on every
+	# call, meaning a script added after _ready() would silently switch the
+	# target node mid-fall, writing positions to one node while _origin was
+	# captured from another.
+	var _visual_root_cache: Node2D = null
+
 	# ── Lifecycle ─────────────────────────────────────────────────────────────
 
 	func _ready() -> void:
 		modifier_type = "falling"
 		super._ready()
 
-	func _get_visual_root() -> Node2D:
+	func _compute_visual_root() -> Node2D:
+		# Identical heuristic as before, but called exactly once and cached.
 		if hold == null:
 			return null
 		var parent = hold.get_parent()
@@ -105,7 +113,18 @@ class FallingHoldModifier extends HoldModifierBase:
 			return parent as Node2D
 		return hold
 
+	func _get_visual_root() -> Node2D:
+		# FIX 1 (continued): Always return the cached root.  If it has somehow
+		# become invalid (e.g. the scene was freed), fall back to hold so we
+		# never return null and crash callers.
+		if _visual_root_cache != null and is_instance_valid(_visual_root_cache):
+			return _visual_root_cache
+		return hold
+
 	func on_hold_ready() -> void:
+		# FIX 1 (continued): Compute and cache the visual root here, before we
+		# capture _origin, so both always refer to the same node.
+		_visual_root_cache = _compute_visual_root()
 		if hold != null and hold.is_inside_tree():
 			_origin     = _get_visual_root().global_position
 			_origin_set = true
@@ -115,6 +134,10 @@ class FallingHoldModifier extends HoldModifierBase:
 	func _capture_origin_deferred() -> void:
 		await hold.get_tree().process_frame
 		if hold != null and is_instance_valid(hold):
+			# FIX 1 (continued): Re-compute cache here too in case the node
+			# wasn't fully set up when on_hold_ready() ran.
+			if _visual_root_cache == null or not is_instance_valid(_visual_root_cache):
+				_visual_root_cache = _compute_visual_root()
 			_origin     = _get_visual_root().global_position
 			_origin_set = true
 
@@ -122,6 +145,8 @@ class FallingHoldModifier extends HoldModifierBase:
 
 	func on_process(delta: float) -> void:
 		if not _origin_set and hold != null and is_instance_valid(hold):
+			if _visual_root_cache == null or not is_instance_valid(_visual_root_cache):
+				_visual_root_cache = _compute_visual_root()
 			_origin     = _get_visual_root().global_position
 			_origin_set = true
 
@@ -140,6 +165,8 @@ class FallingHoldModifier extends HoldModifierBase:
 
 	func on_grab(limb_node: Node2D) -> void:
 		if not _origin_set and hold != null and is_instance_valid(hold):
+			if _visual_root_cache == null or not is_instance_valid(_visual_root_cache):
+				_visual_root_cache = _compute_visual_root()
 			_origin     = _get_visual_root().global_position
 			_origin_set = true
 
@@ -150,10 +177,15 @@ class FallingHoldModifier extends HoldModifierBase:
 
 	func on_release(limb_node: Node2D) -> void:
 		_claimed_limbs.erase(limb_node)
+
+		# FIX 5: Use a minimum calm window (0.3 s) so that on very short
+		# fall_delay values the calm mechanic is still reachable within a
+		# normal input polling cycle.
+		var calm_window = max(fall_delay * 0.5, 0.3)
 		if calm_if_released \
 				and _state == _State.SHAKING \
 				and _claimed_limbs.is_empty() \
-				and _shake_timer < fall_delay * 0.5:
+				and _shake_timer < calm_window:
 			_enter_idle_calm()
 
 	# ── State ticks ───────────────────────────────────────────────────────────
@@ -199,9 +231,13 @@ class FallingHoldModifier extends HoldModifierBase:
 		_state         = _State.FALLING
 		_fall_timer    = 0.0
 		_fall_velocity = 0.0
+		# FIX 2: Do NOT reset position to _origin here.  The hold should
+		# continue falling from wherever the shake animation left it.
+		# Resetting to _origin caused the hold to visibly snap back before
+		# dropping, and also silently broke the fall when _origin was wrong
+		# (the hold would teleport to an off-screen position and appear frozen).
 		_force_release_all()
 		_set_collision_enabled(false)
-		_get_visual_root().global_position = _origin
 
 	func _enter_idle_calm() -> void:
 		_state                             = _State.IDLE
@@ -230,15 +266,23 @@ class FallingHoldModifier extends HoldModifierBase:
 	# ── Helpers ───────────────────────────────────────────────────────────────
 
 	func _force_release_all() -> void:
-		for limb in _claimed_limbs.duplicate():
+		# FIX 3: Clear _claimed_limbs BEFORE calling hold.release() on each
+		# limb.  hold.release() fires on_release() on this modifier, which
+		# previously called _claimed_limbs.erase() — benign but redundant —
+		# but more importantly, if the climber AI immediately re-targets the
+		# hold in the same frame, on_grab() would fire before _state was fully
+		# FALLING, re-adding the limb to _claimed_limbs and leaving it in an
+		# inconsistent claimed state.  Clearing first makes the list authorita-
+		# tively empty before any re-entrant callbacks can run.
+		var to_release := _claimed_limbs.duplicate()
+		_claimed_limbs.clear()
+
+		for limb in to_release:
 			if is_instance_valid(limb) and hold.has_method("release"):
 				hold.release(limb)
-				# Walk up to the climber and reset this limb's ghost so the
-				# reaching arm doesn't snap from the old falling-hold position.
 				var climber = limb.get_parent()
 				if climber and climber.has_method("_reset_limb_ghost"):
 					climber._reset_limb_ghost(limb)
-		_claimed_limbs.clear()
 
 	func _set_collision_enabled(enabled: bool) -> void:
 		for child in hold.get_children():
