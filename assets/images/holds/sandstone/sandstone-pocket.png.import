@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://jatnxtbee7os"
-path="res://.godot/imported/sandstone-jug.png-fcd895226991ae8603392f8879f4ec8d.ctex"
+uid="uid://5x1uhdpg3iiu"
+path="res://.godot/imported/sandstone-pocket.png-e564bcf09b645c8d1c82e81c36fdb55c.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/holds/sandstone/sandstone-jug.png"
-dest_files=["res://.godot/imported/sandstone-jug.png-fcd895226991ae8603392f8879f4ec8d.ctex"]
+source_file="res://assets/images/holds/sandstone/sandstone-pocket.png"
+dest_files=["res://.godot/imported/sandstone-pocket.png-e564bcf09b645c8d1c82e81c36fdb55c.ctex"]
 
 [params]
 

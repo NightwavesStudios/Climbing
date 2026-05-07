@@ -55,12 +55,24 @@ const COLLECTIONS = {
 			"res://scenes/levels/granite_crag/granite_crag_10.json",
 		]
 	},
+	"sandstone": {
+	"name": "Sandstone",
+	"description": "",
+	"unlock_requirement": {
+		"type": "collection_complete",
+		"collection": "intro-gym"  # or whatever should gate it
+	},
+	"levels": [
+		"res://scenes/levels/sandstone/sandstone_01.json",
+		# etc.
+	]
+},
 	"building": {
 		"name": "Building",
 		"description": "",
 		"unlock_requirement": {
 			"type": "collection_complete",
-			"collection": "granite-crag"
+			"collection": "sandstone"
 		},
 		"levels": [
 			"res://scenes/levels/building/building_01.json"

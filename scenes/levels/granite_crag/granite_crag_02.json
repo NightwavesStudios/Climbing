@@ -1,293 +1,277 @@
 {
-	"belayer_position": {
-		"x": -64.0,
-		"y": 128.0
-	},
 	"crashpads": [
 		{
-			"x": -96.0,
-			"y": 224.0
+			"x": -96,
+			"y": 224
 		},
 		{
-			"x": 128.0,
-			"y": 224.0
+			"x": 128,
+			"y": 224
 		}
 	],
-	"discipline": "roped",
+	"discipline": "bouldering",
 	"environment": "granite",
-	"grade": "5.7",
+	"grade": "VB",
 	"holds": [
 		{
 			"type": "START",
-			"x": 0.0,
-			"y": 0.0
-		},
-		{
-			"type": "SLOPER",
-			"x": 0.0,
-			"y": -1184.0
-		},
-		{
-			"type": "SLOPER",
-			"x": 64.0,
-			"y": -1056.0
-		},
-		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "SLOPER",
-			"x": 32.0,
-			"y": -800.0
-		},
-		{
-			"type": "SLOPER",
-			"x": 32.0,
-			"y": -480.0
-		},
-		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "SLOPER",
-			"x": -32.0,
-			"y": -288.0
-		},
-		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "SLOPER",
-			"x": 32.0,
-			"y": -128.0
-		},
-		{
-			"type": "SLOPER",
-			"x": -64.0,
-			"y": -64.0
+			"x": 0,
+			"y": -3200
 		},
 		{
 			"type": "CRIMP",
-			"x": -96.0,
-			"y": -736.0
-		},
-		{
-			"type": "CRIMP",
-			"x": -96.0,
-			"y": -1088.0
-		},
-		{
-			"type": "CRIMP",
-			"x": -64.0,
-			"y": -416.0
-		},
-		{
-			"type": "CRIMP",
-			"x": 64.0,
-			"y": -256.0
-		},
-		{
+			"x": -104,
+			"y": -3077,
 			"modifiers": [
 				{
 					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
+					"fall_gravity": 1800,
 					"type": "falling"
 				}
-			],
-			"type": "JUG",
-			"x": -64.0,
-			"y": -992.0
+			]
 		},
 		{
-			"type": "JUG",
-			"x": 0.0,
-			"y": -864.0
-		},
-		{
-			"type": "JUG",
-			"x": 32.0,
-			"y": -704.0
-		},
-		{
+			"type": "PINCH",
+			"x": -64,
+			"y": -2803,
 			"modifiers": [
 				{
 					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
+					"fall_gravity": 1800,
 					"type": "falling"
 				}
-			],
-			"type": "JUG",
-			"x": 0.0,
-			"y": -544.0
+			]
 		},
 		{
-			"type": "JUG",
-			"x": 64.0,
-			"y": -352.0
-		},
-		{
-			"type": "JUG",
-			"x": -32.0,
-			"y": -128.0
-		},
-		{
-			"type": "JUG",
-			"x": -64.0,
-			"y": -224.0
-		},
-		{
-			"type": "FOOT",
-			"x": 32.0,
-			"y": -64.0
-		},
-		{
-			"type": "FOOT",
-			"x": 64.0,
-			"y": -192.0
-		},
-		{
-			"type": "FOOT",
-			"x": 0.0,
-			"y": -352.0
-		},
-		{
-			"type": "FOOT",
-			"x": -64.0,
-			"y": -480.0
-		},
-		{
-			"type": "FOOT",
-			"x": -64.0,
-			"y": -576.0
-		},
-		{
-			"type": "FOOT",
-			"x": 0.0,
-			"y": -768.0
-		},
-		{
+			"type": "PINCH",
+			"x": 32,
+			"y": -2594,
 			"modifiers": [
 				{
 					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
+					"fall_gravity": 1800,
 					"type": "falling"
 				}
-			],
-			"type": "FOOT",
-			"x": 64.0,
-			"y": -864.0
-		},
-		{
-			"type": "FOOT",
-			"x": -96.0,
-			"y": -896.0
-		},
-		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "FOOT",
-			"x": 0.0,
-			"y": -1088.0
-		},
-		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
-			"type": "FOOT",
-			"x": 64.0,
-			"y": -1152.0
-		},
-		{
-			"type": "FOOT",
-			"x": -128.0,
-			"y": -1024.0
-		},
-		{
-			"type": "FOOT",
-			"x": -64.0,
-			"y": -1184.0
-		},
-		{
-			"type": "FOOT",
-			"x": 64.0,
-			"y": -608.0
-		},
-		{
-			"type": "FOOT",
-			"x": 96.0,
-			"y": -416.0
-		},
-		{
-			"type": "FOOT",
-			"x": 0.0,
-			"y": 64.0
-		},
-		{
-			"type": "CRIMP",
-			"x": 32.0,
-			"y": -960.0
+			]
 		},
 		{
 			"type": "SLOPER",
-			"x": -32.0,
-			"y": -640.0
+			"x": -32,
+			"y": -2370
+		},
+		{
+			"type": "SLOPER",
+			"x": -64,
+			"y": -2185,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "SLOPER",
+			"x": 0,
+			"y": -1995,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "JUG",
+			"x": 96,
+			"y": -1810,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "JUG",
+			"x": 96,
+			"y": -1591
+		},
+		{
+			"type": "JUG",
+			"x": 32,
+			"y": -1361,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "CRIMP",
+			"x": -32,
+			"y": -1036,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "SLOPER",
+			"x": 96,
+			"y": -898
+		},
+		{
+			"type": "PINCH",
+			"x": -96,
+			"y": -734,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "SLOPER",
+			"x": -32,
+			"y": -537,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "JUG",
+			"x": -64,
+			"y": -326
+		},
+		{
+			"type": "JUG",
+			"x": 32,
+			"y": -155,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "FOOT",
+			"x": -64,
+			"y": -2396.3,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "FOOT",
+			"x": -96,
+			"y": -1258.6
+		},
+		{
+			"type": "FOOT",
+			"x": -128,
+			"y": -1222.7
+		},
+		{
+			"type": "FOOT",
+			"x": -64,
+			"y": -1075.4
+		},
+		{
+			"type": "FOOT",
+			"x": -64,
+			"y": -2976.6,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
+		},
+		{
+			"type": "FOOT",
+			"x": 32,
+			"y": -2573.2
+		},
+		{
+			"type": "FOOT",
+			"x": -64,
+			"y": -2641.1
+		},
+		{
+			"type": "FOOT",
+			"x": 128,
+			"y": -253.9
+		},
+		{
+			"type": "FOOT",
+			"x": 96,
+			"y": -1012
+		},
+		{
+			"type": "FOOT",
+			"x": -128,
+			"y": -663,
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800,
+					"type": "falling"
+				}
+			]
 		}
 	],
-	"name": "Slippery When Wet",
-	"speed_time_limit": 60.0,
+	"name": "The Long Way Down",
+	"speed_time_limit": 120,
 	"wall_polygon": {
 		"enabled": true,
-		"ground_left_index": 6,
-		"ground_right_index": 5,
+		"ground_left_index": 5,
+		"ground_right_index": 4,
 		"points": [
 			{
-				"x": -146.805969238281,
-				"y": -1192.49389648438
+				"x": -160,
+				"y": -3260
 			},
 			{
-				"x": -75.4935913085938,
-				"y": -1223.71765136719
+				"x": -80,
+				"y": -3290
 			},
 			{
-				"x": 63.7642822265625,
-				"y": -1241.63903808594
+				"x": 80,
+				"y": -3280
 			},
 			{
-				"x": 109.723999023438,
-				"y": -1208.09399414062
+				"x": 150,
+				"y": -3250
 			},
 			{
-				"x": 150.748779296875,
-				"y": -1175.39440917969
+				"x": 160,
+				"y": 224
 			},
 			{
-				"x": 123.2216796875,
-				"y": 214.0
-			},
-			{
-				"x": -155.731811523438,
-				"y": 214.0
+				"x": -160,
+				"y": 224
 			}
 		],
 		"top_edge_indices": [
@@ -298,5 +282,5 @@
 		]
 	},
 	"weather": 0,
-	"weather_intensity": 1.0
+	"weather_intensity": 1
 }

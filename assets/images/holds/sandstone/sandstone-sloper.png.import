@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://jatnxtbee7os"
-path="res://.godot/imported/sandstone-jug.png-fcd895226991ae8603392f8879f4ec8d.ctex"
+uid="uid://ip0cr2t17pnh"
+path="res://.godot/imported/sandstone-sloper.png-662e14267751175235f74d369c2777b9.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/holds/sandstone/sandstone-jug.png"
-dest_files=["res://.godot/imported/sandstone-jug.png-fcd895226991ae8603392f8879f4ec8d.ctex"]
+source_file="res://assets/images/holds/sandstone/sandstone-sloper.png"
+dest_files=["res://.godot/imported/sandstone-sloper.png-662e14267751175235f74d369c2777b9.ctex"]
 
 [params]
 

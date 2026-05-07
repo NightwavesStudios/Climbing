@@ -4,7 +4,7 @@ extends Node
 ## to ENVIRONMENTS dict. Everything else (wall rendering, editor dropdown,
 ## hold sprites) picks it up automatically.
 
-enum EnvironmentType { GYM, GRANITE, SANDSTONE, BUILDING }
+enum EnvironmentType { GYM, GRANITE, SANDSTONE, BUILDING, ICE }
 
 var current_environment: EnvironmentType = EnvironmentType.GYM
 
@@ -35,16 +35,21 @@ const ENVIRONMENTS = {
 	},
 	EnvironmentType.BUILDING: {
 		"name": "Building",
-		# Concrete / precast wall colour
 		"wall_color": Color(0.52, 0.52, 0.54, 1.0),
-		# Sky colour used as fallback if the theme system isn't running
 		"background_color": Color(0.16, 0.38, 0.70, 1.0),
 		"show_bolt_holes": false,
 		"show_granite_texture": false,
-		# Reuse Sandstone sprites until Building-specific art is added.
-		# Swap to "Building" once res://assets/holds/Building/ exists.
 		"sprite_suffix": "Sandstone"
-	}
+	},
+	# ── ICE — frozen alpine face ───────────────────────────────────────────────
+	EnvironmentType.ICE: {
+		"name": "Ice",
+		"wall_color": Color(0.72, 0.88, 0.96, 1.0),   # pale glacial blue
+		"background_color": Color(0.62, 0.80, 0.92, 1.0),
+		"show_bolt_holes": false,
+		"show_granite_texture": false,
+		"sprite_suffix": "Granite"  # reuse until Ice-specific art exists
+	},
 }
 
 func _ready() -> void:

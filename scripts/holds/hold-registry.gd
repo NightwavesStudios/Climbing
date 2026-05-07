@@ -44,7 +44,7 @@ const HOLD_CONFIGS = {
 	},
 	"TOP": {
 		"difficulty": 0.0,
-		"rest_value": 10.0,
+		"rest_value": 100.0,
 		"snap_to_point": true,
 		"is_pocket": false,
 		"is_foothold": false,
@@ -142,7 +142,7 @@ const HOLD_CONFIGS = {
 
 # Default config used when a hold type has no explicit entry
 const DEFAULT_CONFIG = {
-	"difficulty": 1.0,
+	"difficulty": 0.0,
 	"rest_value": 0.0,
 	"snap_to_point": true,
 	"is_pocket": false,

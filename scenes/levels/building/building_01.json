@@ -1,5 +1,22 @@
 {
-	"crashpads": [],
+	"crashpads": [
+		{
+			"x": -32.0,
+			"y": 160.0
+		},
+		{
+			"x": 192.0,
+			"y": 160.0
+		},
+		{
+			"x": 416.0,
+			"y": 160.0
+		},
+		{
+			"x": 640.0,
+			"y": 160.0
+		}
+	],
 	"discipline": "bouldering",
 	"environment": "building",
 	"grade": "VB",

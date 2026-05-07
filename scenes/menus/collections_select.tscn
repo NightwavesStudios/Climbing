@@ -56,7 +56,6 @@ vertical_icon_alignment = 0
 script = ExtResource("2_rcboh")
 
 [node name="Sandstone" type="Button" parent="HBoxContainer"]
-visible = false
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
@@ -64,7 +63,6 @@ text = "Sandstone"
 script = ExtResource("2_rcboh")
 
 [node name="Building" type="Button" parent="HBoxContainer"]
-visible = false
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4

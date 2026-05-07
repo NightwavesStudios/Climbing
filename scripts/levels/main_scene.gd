@@ -2,7 +2,8 @@ extends Node2D
 ## Main game scene with dynamic wall integration and climbing disciplines
 
 @export var default_level_path: String = "res://scenes/levels/tutorial/ladder.json"
-
+var camera_owned_by_main: bool = false
+var _preview_complete: bool = false
 @onready var level_loader: LevelLoader = $LevelLoader
 @onready var player: CharacterBody2D = $Character
 @onready var camera: Camera2D = $Camera2D
@@ -31,7 +32,130 @@ const SKIP_SECTION   : String = "skip"
 var   _reset_count   : int    = 0
 
 # =============================================================================
-# POPUP SYSTEM
+#  ROUTE PREVIEW CAMERA
+# =============================================================================
+
+enum CameraMode { FOLLOW_PLAYER, ROUTE_PREVIEW }
+
+var _cam_mode: CameraMode = CameraMode.FOLLOW_PLAYER
+var _preview_tween: Tween = null
+var _preview_zoom_normal := Vector2(1.0, 1.0)
+
+const PREVIEW_ZOOM_MIN      := 0.22
+const PREVIEW_ZOOM_MAX      := 0.55
+
+## Auto-preview timings — starts zoomed out, holds, then zooms back in
+const PREVIEW_HOLD_TIME     := 5    # seconds to linger at the overview
+const PREVIEW_RETURN_TIME   := 3    # seconds to pan+zoom back to player
+const PREVIEW_ZOOM_TIME     := 2.5    # seconds for the initial zoom-out
+
+## Tab-toggle timings — slower and more deliberate
+const TAB_ZOOM_OUT_TIME     := 2.5
+const TAB_ZOOM_IN_TIME      := 2.5
+
+
+func _get_route_overview_position() -> Vector2:
+	if dynamic_wall and dynamic_wall.has_method("get_bounds"):
+		var bounds = dynamic_wall.get_bounds()
+		if bounds.valid:
+			return Vector2(
+				(bounds.min.x + bounds.max.x) * 0.5,
+				(bounds.min.y + bounds.max.y) * 0.5
+			)
+	if player:
+		return player.global_position + Vector2(0.0, -400.0)
+	return camera.global_position
+
+
+func _get_route_zoom() -> Vector2:
+	if dynamic_wall and dynamic_wall.has_method("get_bounds"):
+		var bounds = dynamic_wall.get_bounds()
+		if bounds.valid:
+			var route_h = bounds.max.y - bounds.min.y + 200.0
+			var route_w = bounds.max.x - bounds.min.x + 200.0
+			var vp      := get_viewport().get_visible_rect().size
+			var zoom_v  = vp.y / route_h
+			var zoom_h  = vp.x / route_w
+			return Vector2.ONE * clamp(min(zoom_v, zoom_h), PREVIEW_ZOOM_MIN, PREVIEW_ZOOM_MAX)
+	return Vector2.ONE * PREVIEW_ZOOM_MIN
+
+
+func start_route_preview() -> void:
+	camera_owned_by_main = true
+	if not camera or not is_instance_valid(camera):
+		camera_owned_by_main = false
+		return
+
+	_cam_mode = CameraMode.ROUTE_PREVIEW
+
+	if _preview_tween and _preview_tween.is_valid():
+		_preview_tween.kill()
+
+	var overview_pos  := _get_route_overview_position()
+	var overview_zoom := _get_route_zoom()
+	var player_pos    := player.global_position if player else camera.global_position
+
+	# Snap immediately to zoomed-out overview — no tween, happens before fade-in
+	camera.global_position = overview_pos
+	camera.zoom            = overview_zoom
+
+	_preview_tween = create_tween() \
+		.set_ease(Tween.EASE_IN_OUT) \
+		.set_trans(Tween.TRANS_CUBIC)
+
+	# 1. Hold at the overview so the player can read the route
+	_preview_tween.tween_interval(PREVIEW_HOLD_TIME)
+
+	# 2. Zoom back in to the player
+	_preview_tween.set_parallel(true)
+	_preview_tween.tween_property(camera, "zoom", _preview_zoom_normal, PREVIEW_RETURN_TIME)
+	_preview_tween.tween_property(camera, "global_position", player_pos, PREVIEW_RETURN_TIME)
+	_preview_tween.set_parallel(false)
+
+	# 3. Hand camera back
+	_preview_tween.tween_callback(_finish_preview)
+
+func _finish_preview() -> void:
+	_preview_complete = true
+	_cam_mode = CameraMode.FOLLOW_PLAYER
+	camera_owned_by_main = false
+
+func toggle_route_view() -> void:
+	if not camera:
+		return
+
+	if _preview_tween and _preview_tween.is_valid():
+		_preview_tween.kill()
+
+	_preview_tween = create_tween() \
+		.set_ease(Tween.EASE_IN_OUT) \
+		.set_trans(Tween.TRANS_CUBIC)
+
+	if _cam_mode == CameraMode.FOLLOW_PLAYER:
+		_cam_mode = CameraMode.ROUTE_PREVIEW
+		camera_owned_by_main = true
+		var overview_pos  := _get_route_overview_position()
+		var overview_zoom := _get_route_zoom()
+		_preview_tween.set_parallel(true)
+		_preview_tween.tween_property(camera, "global_position", overview_pos, TAB_ZOOM_OUT_TIME)
+		_preview_tween.tween_property(camera, "zoom", overview_zoom, TAB_ZOOM_OUT_TIME)
+	else:
+		_cam_mode = CameraMode.FOLLOW_PLAYER
+		camera_owned_by_main = false
+		var player_pos := player.global_position if player else camera.global_position
+		_preview_tween.set_parallel(true)
+		_preview_tween.tween_property(camera, "zoom", _preview_zoom_normal, TAB_ZOOM_IN_TIME)
+		_preview_tween.tween_property(camera, "global_position", player_pos, TAB_ZOOM_IN_TIME)
+		_preview_tween.set_parallel(false)
+		_preview_tween.tween_callback(func(): camera_owned_by_main = false)
+
+
+func _set_player_input(enabled: bool) -> void:
+	if player and player.has_method("set_input_enabled"):
+		player.set_input_enabled(enabled)
+
+# =============================================================================
+#  POPUP SYSTEM
 # =============================================================================
 
 var POPUP_CONFIGS: Array = []
@@ -102,7 +226,7 @@ func _mark_popup_seen(save_key: String) -> void:
 	cfg.save(INSTRUCTIONS_SAVE_PATH)
 
 # =============================================================================
-# PATH CHECK (dev helper)
+#  PATH CHECK (dev helper)
 # =============================================================================
 
 func _check_paths() -> void:
@@ -129,7 +253,7 @@ func _check_paths() -> void:
 		print("EXISTS ", path, ": ", FileAccess.file_exists(path) or ResourceLoader.exists(path))
 
 # =============================================================================
-# READY
+#  READY
 # =============================================================================
 
 func _ready():
@@ -172,7 +296,7 @@ func _ready():
 	print("=== MAIN SCENE READY COMPLETE ===")
 
 # =============================================================================
-# POPUP ENTRY POINT
+#  POPUP ENTRY POINT
 # =============================================================================
 
 func _show_popup_for_level(level_path: String) -> void:
@@ -189,7 +313,7 @@ func _show_popup_for_level(level_path: String) -> void:
 var _active_popup_key: String = ""
 
 # =============================================================================
-# SKIP LEVEL
+#  SKIP LEVEL
 # =============================================================================
 
 func _setup_skip_level() -> void:
@@ -296,7 +420,7 @@ func _on_skip_level_pressed() -> void:
 	_on_next_level_requested(next_path)
 
 # =============================================================================
-# PAUSE MENU
+#  PAUSE MENU
 # =============================================================================
 
 func _setup_pause_menu() -> void:
@@ -308,6 +432,17 @@ func _setup_pause_menu() -> void:
 	pause_menu.visible = false
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Tab → toggle route view (Option A).
+	# ui_focus_next is Tab by default; rename to "route_view" in Input Map if preferred.
+	if event.is_action_pressed("ui_focus_next"):
+		# Don't allow toggling while the auto-preview tween is still running
+		# in its zoom-out or hold phase (only the return phase allows it).
+		if _preview_tween == null or not _preview_tween.is_valid() \
+				or _cam_mode == CameraMode.ROUTE_PREVIEW \
+				or _cam_mode == CameraMode.FOLLOW_PLAYER:
+			toggle_route_view()
+		return
+
 	if event.is_action_pressed("ui_cancel"):
 		if pause_menu and not pause_menu.visible:
 			_open_pause_menu()
@@ -326,7 +461,7 @@ func _on_pause_resumed() -> void:
 		player.set_input_enabled(true)
 
 # =============================================================================
-# LEVEL COMPLETE OVERLAY
+#  LEVEL COMPLETE OVERLAY
 # =============================================================================
 
 func _setup_level_complete_overlay() -> void:
@@ -343,7 +478,7 @@ func _setup_level_complete_overlay() -> void:
 	level_complete_overlay.restart_requested.connect(_on_level_complete_restart_requested)
 
 # =============================================================================
-# LEVEL LOADING
+#  LEVEL LOADING
 # =============================================================================
 
 func _get_initial_level() -> String:
@@ -383,10 +518,16 @@ func _load_initial_level(path: String) -> void:
 
 	_reset_skip_state()
 
+	# ── Route preview (Option B) ──────────────────────────────────────────────
+	# Wait one more frame so the camera is positioned before the tween fires.
+	await get_tree().process_frame
+	start_route_preview()
+	# ─────────────────────────────────────────────────────────────────────────
+
 	print("  ✓ Level ready: ", path)
 
 # =============================================================================
-# DISCIPLINE SYSTEM SETUP
+#  DISCIPLINE SYSTEM SETUP
 # =============================================================================
 
 func setup_discipline_systems():
@@ -491,7 +632,7 @@ func setup_speed_climbing(loader, plyr):
 	print("  ✓ Speed timer ready: ", time_limit, "s")
 
 # =============================================================================
-# SPEED CALLBACKS
+#  SPEED CALLBACKS
 # =============================================================================
 
 func _on_speed_time_expired():
@@ -507,7 +648,7 @@ func _on_speed_timer_started():
 	print("🏃 Speed climb started!")
 
 # =============================================================================
-# PLAYER SPAWN
+#  PLAYER SPAWN
 # =============================================================================
 
 func position_player_at_spawn():
@@ -529,7 +670,7 @@ func position_player_at_spawn():
 	print("Player spawned at: ", spawn_pos)
 
 # =============================================================================
-# CAMERA
+#  CAMERA
 # =============================================================================
 
 func center_camera_on_route():
@@ -549,7 +690,7 @@ func center_camera_on_route():
 	camera.zoom = Vector2(1.0, 1.0)
 
 # =============================================================================
-# TOP-OUT DETECTION
+#  TOP-OUT DETECTION
 # =============================================================================
 
 func check_player_top_out() -> bool:
@@ -565,7 +706,7 @@ func check_player_top_out() -> bool:
 	return player.global_position.y < (dynamic_wall.get_top_edge_y() + 50.0)
 
 # =============================================================================
-# PROCESS
+#  PROCESS
 # =============================================================================
 
 func _process(_delta: float) -> void:
@@ -573,7 +714,7 @@ func _process(_delta: float) -> void:
 		pass
 
 # =============================================================================
-# PUBLIC API
+#  PUBLIC API
 # =============================================================================
 
 func get_current_level_path() -> String:
@@ -583,7 +724,7 @@ func set_current_level_path(path: String) -> void:
 	_current_level_path = path
 
 # =============================================================================
-# LEVEL EVENTS
+#  LEVEL EVENTS
 # =============================================================================
 
 func on_level_complete():
@@ -592,6 +733,11 @@ func on_level_complete():
 	if _current_level_path == "":
 		push_error("_current_level_path is empty!")
 		return
+
+	# Abort any active route preview so the overlay isn't blocked
+	if _preview_tween and _preview_tween.is_valid():
+		_preview_tween.kill()
+	_cam_mode = CameraMode.FOLLOW_PLAYER
 
 	if pause_menu and pause_menu.visible:
 		pause_menu.hide_pause_menu()
@@ -634,6 +780,14 @@ func on_player_reset():
 func on_climb_start():
 	print("🎬 Climb started!")
 
+	# If the player grabs before the auto-preview finishes, abort it cleanly
+	# Only abort preview if enough time has passed (ignore the spawn grab)
+	if _preview_tween and _preview_tween.is_valid() and _cam_mode == CameraMode.ROUTE_PREVIEW:
+		var elapsed = _preview_tween.get_total_elapsed_time()
+		if elapsed > PREVIEW_HOLD_TIME * 0.5:
+			_preview_tween.kill()
+			_finish_preview()
+
 	if current_discipline == ClimbingDiscipline.Type.SPEED:
 		if speed_timer and speed_timer.has_method("start_timer"):
 			speed_timer.start_timer()
@@ -648,7 +802,7 @@ func reset_level():
 		await _load_initial_level(_current_level_path)
 
 # =============================================================================
-# OVERLAY SIGNAL HANDLERS
+#  OVERLAY SIGNAL HANDLERS
 # =============================================================================
 
 func _on_next_level_requested(next_level_path: String) -> void:
@@ -719,7 +873,7 @@ func _on_level_complete_restart_requested() -> void:
 		player.set_input_enabled(true)
 
 # =============================================================================
-# DISCIPLINE CLEANUP
+#  DISCIPLINE CLEANUP
 # =============================================================================
 
 func _force_free_node(node: Node) -> void:
@@ -732,6 +886,12 @@ func _force_free_node(node: Node) -> void:
 	node.free()
 
 func cleanup_discipline_systems():
+	# Kill any active preview tween before cleanup so it doesn't reference
+	# nodes that are about to be freed
+	if _preview_tween and _preview_tween.is_valid():
+		_preview_tween.kill()
+	_cam_mode = CameraMode.FOLLOW_PLAYER
+
 	if rope_system != null:
 		if is_instance_valid(rope_system):
 			if rope_system.has_method("cleanup"):
@@ -751,7 +911,7 @@ func cleanup_discipline_systems():
 	current_discipline = 0
 
 # =============================================================================
-# MESSAGES
+#  MESSAGES
 # =============================================================================
 
 func show_message(text: String, color: Color = Color.WHITE):
@@ -768,7 +928,7 @@ func show_message(text: String, color: Color = Color.WHITE):
 		label.queue_free()
 
 # =============================================================================
-# TRANSITION CALLBACKS
+#  TRANSITION CALLBACKS
 # =============================================================================
 
 func _on_transition_started():
@@ -787,7 +947,7 @@ func _on_level_loaded():
 	pass
 
 # =============================================================================
-# INSTRUCTIONS / POPUP DISMISS
+#  INSTRUCTIONS / POPUP DISMISS
 # =============================================================================
 
 func _on_hide_instructions_pressed() -> void:

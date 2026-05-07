@@ -1,10 +1,11 @@
-[gd_scene load_steps=8 format=3 uid="uid://dbyu6py4a276m"]
+[gd_scene load_steps=9 format=3 uid="uid://dbyu6py4a276m"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_6lxc5"]
-[ext_resource type="Texture2D" uid="uid://bu2ve6bewtc4r" path="res://assets/images/holds/gym/sloper.png" id="2_6ows1"]
+[ext_resource type="Texture2D" uid="uid://fc7hycrrbkr7" path="res://assets/images/holds/gym/sloper.png" id="2_6ows1"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_js2ht"]
 [ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_3yt30"]
-[ext_resource type="Texture2D" uid="uid://d3v6svbttwmwg" path="res://assets/images/holds/granite/granite-sloper.png" id="5_3yt30"]
+[ext_resource type="Texture2D" uid="uid://c7f21ysun8i7t" path="res://assets/images/holds/granite/granite-sloper.png" id="5_3yt30"]
+[ext_resource type="Texture2D" uid="uid://ip0cr2t17pnh" path="res://assets/images/holds/sandstone/sandstone-sloper.png" id="6_f3fsl"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_7irpt"]
 radius = 115.00001
@@ -43,3 +44,9 @@ material = SubResource("ShaderMaterial_f3fsl")
 position = Vector2(-1.9073486e-06, 0)
 scale = Vector2(0.2, 0.2)
 texture = ExtResource("5_3yt30")
+
+[node name="SandstoneHold" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_f3fsl")
+position = Vector2(-1.9073486e-06, 0)
+scale = Vector2(0.2, 0.2)
+texture = ExtResource("6_f3fsl")

@@ -1,10 +1,11 @@
-[gd_scene load_steps=9 format=3 uid="uid://dqhr36thr4xmq"]
+[gd_scene load_steps=11 format=3 uid="uid://dqhr36thr4xmq"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_v3b5j"]
 [ext_resource type="Texture2D" uid="uid://dtltrw7gwrdk1" path="res://assets/images/holds/gym/finish_hold.png" id="2_gtesf"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_vxhxt"]
 [ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_gw716"]
-[ext_resource type="Texture2D" uid="uid://hqdm2hg1mgb8" path="res://assets/images/holds/granite/granite-jug.png" id="5_gw716"]
+[ext_resource type="Texture2D" uid="uid://bfn1dt2gdxa5r" path="res://assets/images/holds/granite/granite-jug.png" id="5_gw716"]
+[ext_resource type="Texture2D" uid="uid://jatnxtbee7os" path="res://assets/images/holds/sandstone/sandstone-jug.png" id="6_am2c4"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_4yv0c"]
 radius = 65.00001
@@ -16,6 +17,12 @@ shader_parameter/wear_strength = 0.30000001425
 shader_parameter/grunge_scale = 1.00000004424012
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_gw716"]
+shader = ExtResource("2_vxhxt")
+shader_parameter/grunge_mask = ExtResource("3_gw716")
+shader_parameter/wear_strength = 0.30000001425
+shader_parameter/grunge_scale = 1.00000004424012
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_a0vnb"]
 shader = ExtResource("2_vxhxt")
 shader_parameter/grunge_mask = ExtResource("3_gw716")
 shader_parameter/wear_strength = 0.30000001425
@@ -48,3 +55,9 @@ material = SubResource("ShaderMaterial_gw716")
 position = Vector2(-5.0000153, -10.0000305)
 scale = Vector2(0.1625, 0.1625)
 texture = ExtResource("5_gw716")
+
+[node name="SandstoneHold" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_a0vnb")
+position = Vector2(-5.0000153, -10.0000305)
+scale = Vector2(0.1625, 0.1625)
+texture = ExtResource("6_am2c4")

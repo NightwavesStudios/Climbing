@@ -32,7 +32,7 @@ alignment = 1
 
 [node name="Story" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
-text = "Story
+text = "Levels
 "
 script = ExtResource("5_imvie")
 

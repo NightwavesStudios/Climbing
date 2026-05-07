@@ -148,8 +148,8 @@ func _get_weather_blend() -> float:
 	return 0.0
 
 func _get_rain_override() -> Dictionary:
-	if weather_modifier and weather_modifier.has_method("get_rain_sky_override"):
-		return weather_modifier.get_rain_sky_override()
+	if weather_modifier and weather_modifier.has_method("get_active_sky_override"):
+		return weather_modifier.get_active_sky_override()
 	return {}
 
 func _rain_lerp_color(base: Color, key: String, blend: float) -> Color:
@@ -303,7 +303,7 @@ func update_environment_settings():
 
 func _apply_environment_theme():
 	match current_environment:
-		"granite", "sandstone", "night":
+		"granite", "night":
 			var time_of_day = (abs((_scenery_seed ^ 0x9E3779B9) * 1664525 + 1013904223) >> 7) % 3
 			match time_of_day:
 				1:
@@ -351,6 +351,119 @@ func _apply_environment_theme():
 						"ground_detail": "rocks",
 						"fog_color": Color(0.65, 0.80, 0.95, 0.0),
 					}
+
+		# ── SANDSTONE — desert canyon ─────────────────────────────────────────
+		"sandstone":
+			var sand_tod = (abs((_scenery_seed ^ 0x4E2A9F3B) * 1664525 + 1013904223) >> 7) % 3
+			match sand_tod:
+				1:  # dusk — amber canyon
+					_env = {
+						"sky_top":       Color(0.14, 0.09, 0.22),
+						"sky_horizon":   Color(0.96, 0.46, 0.12),
+						"cloud_color":   Color(1.00, 0.60, 0.28, 0.90),
+						"cloud_shadow":  Color(0.68, 0.28, 0.10),
+						"has_sun":       false,
+						"has_mountains": true,
+						"ground_type":   "sand_dusk",
+						"ground_top":    Color(0.72, 0.44, 0.18),
+						"ground_mid":    Color(0.54, 0.30, 0.10),
+						"ground_deep":   Color(0.36, 0.18, 0.06),
+						"fog_color":     Color(0.88, 0.42, 0.12, 0.10),
+						"has_sand_wind": true,
+					}
+				2:  # night — cool starlit desert
+					_env = {
+						"sky_top":       Color(0.03, 0.03, 0.10),
+						"sky_horizon":   Color(0.10, 0.10, 0.22),
+						"cloud_color":   Color(0.18, 0.20, 0.32, 0.55),
+						"cloud_shadow":  Color(0.08, 0.08, 0.18),
+						"has_sun":       false,
+						"has_moon":      true,
+						"has_stars":     true,
+						"has_mountains": true,
+						"ground_type":   "sand_night",
+						"ground_top":    Color(0.44, 0.28, 0.10),
+						"ground_mid":    Color(0.28, 0.16, 0.06),
+						"ground_deep":   Color(0.16, 0.09, 0.03),
+						"fog_color":     Color(0.06, 0.06, 0.16, 0.10),
+						"has_sand_wind": false,
+					}
+				_:  # day — warm ochre canyon sky
+					_env = {
+						"sky_top":       Color(0.48, 0.32, 0.14),
+						"sky_horizon":   Color(0.88, 0.70, 0.40),
+						"cloud_color":   Color(1.00, 0.92, 0.78, 0.70),
+						"cloud_shadow":  Color(0.80, 0.64, 0.40),
+						"has_sun":       true,
+						"sun_color":     Color(1.00, 0.88, 0.54),
+						"has_mountains": true,
+						"ground_type":   "sand",
+						"ground_top":    Color(0.82, 0.62, 0.32),
+						"ground_mid":    Color(0.62, 0.40, 0.16),
+						"ground_deep":   Color(0.42, 0.24, 0.08),
+						"fog_color":     Color(0.90, 0.72, 0.40, 0.07),
+						"has_sand_wind": true,
+					}
+
+		# ── ICE — frozen alpine face ──────────────────────────────────────────
+		"ice":
+			var ice_tod = (abs((_scenery_seed ^ 0xC7D3E1F2) * 22695477 + 1) >> 9) % 3
+			match ice_tod:
+				1:  # alpenglow dusk — rose and violet
+					_env = {
+						"sky_top":          Color(0.18, 0.10, 0.30),
+						"sky_horizon":      Color(0.94, 0.44, 0.52),
+						"cloud_color":      Color(1.00, 0.62, 0.70, 0.85),
+						"cloud_shadow":     Color(0.60, 0.22, 0.38),
+						"has_sun":          false,
+						"has_mountains":    true,
+						"ground_type":      "ice_snow",
+						"ground_top":       Color(0.78, 0.84, 0.90),
+						"ground_mid":       Color(0.60, 0.70, 0.80),
+						"ground_deep":      Color(0.38, 0.48, 0.62),
+						"ground_detail":    "snow",
+						"fog_color":        Color(0.80, 0.60, 0.70, 0.08),
+						"has_ice_sheen":    true,
+						"ice_sheen_color":  Color(0.94, 0.72, 0.82),
+					}
+				2:  # night — deep blue glacial darkness
+					_env = {
+						"sky_top":          Color(0.02, 0.03, 0.10),
+						"sky_horizon":      Color(0.06, 0.10, 0.24),
+						"cloud_color":      Color(0.12, 0.16, 0.30, 0.65),
+						"cloud_shadow":     Color(0.04, 0.06, 0.14),
+						"has_sun":          false,
+						"has_moon":         true,
+						"has_stars":        true,
+						"has_mountains":    true,
+						"ground_type":      "ice_snow",
+						"ground_top":       Color(0.56, 0.66, 0.80),
+						"ground_mid":       Color(0.34, 0.44, 0.60),
+						"ground_deep":      Color(0.16, 0.22, 0.38),
+						"ground_detail":    "snow",
+						"fog_color":        Color(0.04, 0.06, 0.18, 0.14),
+						"has_ice_sheen":    true,
+						"ice_sheen_color":  Color(0.40, 0.58, 0.90),
+					}
+				_:  # day — crisp arctic blue sky
+					_env = {
+						"sky_top":          Color(0.12, 0.36, 0.72),
+						"sky_horizon":      Color(0.70, 0.88, 0.98),
+						"cloud_color":      Color(1.00, 1.00, 1.00, 0.92),
+						"cloud_shadow":     Color(0.76, 0.84, 0.94),
+						"has_sun":          true,
+						"sun_color":        Color(1.00, 0.98, 0.90),
+						"has_mountains":    true,
+						"ground_type":      "ice_snow",
+						"ground_top":       Color(0.90, 0.94, 0.98),
+						"ground_mid":       Color(0.70, 0.80, 0.92),
+						"ground_deep":      Color(0.46, 0.60, 0.78),
+						"ground_detail":    "snow",
+						"fog_color":        Color(0.72, 0.88, 0.98, 0.05),
+						"has_ice_sheen":    true,
+						"ice_sheen_color":  Color(0.82, 0.94, 1.00),
+					}
+
 		"gym":
 			var gym_tod = (abs((_scenery_seed ^ 0x6B43FA1D) * 22695477 + 1) >> 9) % 3
 			match gym_tod:
@@ -428,6 +541,7 @@ func _apply_environment_theme():
 						"ground_mid": Color(0.16, 0.16, 0.18),
 						"ground_deep": Color(0.11, 0.11, 0.12),
 					}
+
 		"deep_water_solo":
 			_env = {
 				"sky_top": Color(0.18, 0.42, 0.72),
@@ -444,6 +558,7 @@ func _apply_environment_theme():
 				"fog_color": Color(0.50, 0.75, 0.90, 0.06),
 				"has_sea_cliffs": true,
 			}
+
 		"building":
 			var bld_tod = (abs((_scenery_seed ^ 0x3F7A2B1C) * 1664525 + 1013904223) >> 7) % 3
 			match bld_tod:
@@ -499,6 +614,7 @@ func _apply_environment_theme():
 						"ground_deep":  Color(0.13, 0.13, 0.14),
 						"fog_color":    Color(0.60, 0.76, 0.94, 0.04),
 					}
+
 		_:
 			_env = {
 				"sky_top": background_color.darkened(0.25),
@@ -615,6 +731,9 @@ func _draw():
 	else: _draw_rectangle_wall()
 	_draw_wall_depth_shading()
 	_draw_wall_tonal_outline()
+	# Ice sheen rendered on top of wall, before bolt holes / granite
+	if current_environment == "ice" and _env.get("has_ice_sheen", false):
+		_draw_ice_wall_sheen()
 	if _env.get("has_water", false): _draw_underwater_wall_depth()
 	if show_bolt_holes:
 		if use_polygon_mode and control_points.size() >= 3: draw_bolt_holes_on_polygon()
@@ -746,7 +865,7 @@ func _draw_hill_layer(left: float, right: float, base_y: float,
 		draw_colored_polygon(pts, color)
 
 # =============================================================================
-# CITY SILHOUETTE — improved depth, rooftop variation, window lights
+# CITY SILHOUETTE
 # =============================================================================
 
 func _draw_city_silhouette() -> void:
@@ -770,7 +889,6 @@ func _draw_city_silhouette() -> void:
 	for i in range(sil_colors.size()):
 		sil_colors[i] = (sil_colors[i] as Color).lerp(Color(0.18, 0.20, 0.24), rb * 0.4)
 
-	# Layer configs: [depth_fraction, h_min, h_max, w_min, w_max, seed]
 	var layer_configs: Array = [
 		[0.72, 100.0, 280.0,  55.0,  95.0, 0xA1B2C3],
 		[0.62, 150.0, 360.0,  65.0, 120.0, 0xD4E5F6],
@@ -786,9 +904,8 @@ func _draw_city_silhouette() -> void:
 		var col       : Color = sil_colors[li]
 		var x = bl; var bldg_idx = 0
 
-		# Window light colors per time-of-day
-		var win_warm  = Color(1.00, 0.86, 0.48, 0.55)  # incandescent
-		var win_cool  = Color(0.82, 0.90, 1.00, 0.50)  # fluorescent / blue-white
+		var win_warm  = Color(1.00, 0.86, 0.48, 0.55)
+		var win_cool  = Color(0.82, 0.90, 1.00, 0.50)
 		var lit_prob  = 0.0
 		if tod == 1: lit_prob = 0.38
 		if tod == 2: lit_prob = 0.68
@@ -799,36 +916,28 @@ func _draw_city_silhouette() -> void:
 			var bh   = h_min + _hf(bldg_seed + 1) * (h_max - h_min)
 			var bx   = x + (_hf(bldg_seed + 2) - 0.5) * 20.0
 
-			# Main building body with subtle left-face brightening for depth
 			draw_rect(Rect2(bx, ground_y - bh, bw, bh), col, true)
 			draw_rect(Rect2(bx, ground_y - bh, 2.5, bh),
 					  Color(col.r + 0.07, col.g + 0.07, col.b + 0.08, col.a * 0.55), true)
 
-			# Rooftop setback on ~40% of buildings — breaks up flat skyline
 			if _hf(bldg_seed + 9) > 0.58:
 				var sb_w = bw * (0.52 + _hf(bldg_seed + 10) * 0.32)
 				var sb_h = bh * (0.07 + _hf(bldg_seed + 11) * 0.13)
 				var sb_x = bx + (bw - sb_w) * 0.5
-				draw_rect(Rect2(sb_x, ground_y - bh - sb_h, sb_w, sb_h),
-						  col.darkened(0.06), true)
-				# Setback edge highlight
+				draw_rect(Rect2(sb_x, ground_y - bh - sb_h, sb_w, sb_h), col.darkened(0.06), true)
 				draw_rect(Rect2(sb_x, ground_y - bh - sb_h, sb_w, 1.5),
 						  Color(col.r + 0.10, col.g + 0.10, col.b + 0.12, 0.40), true)
 
-			# Antenna / spire
 			if _hf(bldg_seed + 5) > 0.72:
 				var ah = 10.0 + _hf(bldg_seed + 6) * 22.0
 				var ax = bx + bw * (0.38 + _hf(bldg_seed + 7) * 0.24)
 				draw_line(Vector2(ax, ground_y - bh), Vector2(ax, ground_y - bh - ah),
 						  col.darkened(0.10), 1.2)
-				# Red aviation light blink on tallest antennas (night)
 				if tod == 2 and ah > 28.0:
 					var blink = sin(_cloud_time * 1.2 + float(bldg_idx) * 2.3)
 					var balp  = clamp((blink + 1.0) * 0.5 * 0.85, 0.0, 0.85)
-					draw_circle(Vector2(ax, ground_y - bh - ah), 2.8,
-								Color(1.0, 0.18, 0.10, balp))
+					draw_circle(Vector2(ax, ground_y - bh - ah), 2.8, Color(1.0, 0.18, 0.10, balp))
 
-			# Window lights — only on two nearest (most-detailed) layers
 			if li >= 2 and lit_prob > 0.0:
 				var win_rows = int(bh / 20.0)
 				var win_cols = int(bw / 16.0)
@@ -838,7 +947,6 @@ func _draw_city_silhouette() -> void:
 						if _hf(wseed) > lit_prob: continue
 						var wy  = ground_y - bh + 7.0 + wr * 20.0
 						var wx2 = bx + 4.0 + wc * 16.0
-						# Mix warm/cool per window for variety
 						var is_warm = _hf(wseed + 5) > 0.42
 						var wbase   = win_warm if is_warm else win_cool
 						var hv      = (_hf(wseed + 6) - 0.5) * 0.10
@@ -848,7 +956,6 @@ func _draw_city_silhouette() -> void:
 							clamp(wbase.b - hv * 0.5, 0.0, 1.0),
 							wbase.a * (0.75 + _hf(wseed + 7) * 0.30))
 						draw_rect(Rect2(wx2, wy, 7.0, 9.0), wlit, true)
-						# Inner glow for night windows
 						if tod == 2:
 							draw_rect(Rect2(wx2 + 1.0, wy + 1.0, 5.0, 7.0),
 									  Color(wlit.r, wlit.g, wlit.b, wlit.a * 0.40), true)
@@ -856,7 +963,6 @@ func _draw_city_silhouette() -> void:
 			x = bx + bw + _hf(bldg_seed + 8) * 25.0
 			bldg_idx += 1
 
-	# Night ambient glow pools at street level from lit windows
 	if tod == 2:
 		var sw = br - bl
 		for gi in range(3):
@@ -1211,7 +1317,6 @@ func _draw_rectangle_wall() -> void:
 		return
 
 	var ws = wall_max - wall_min
-
 	draw_rect(Rect2(wall_min, ws), current_wall_color, true)
 
 	var sheen_h   = ws.y * 0.15
@@ -1245,6 +1350,36 @@ func _draw_polygon_wall() -> void:
 			cols.append(Color(0.0, 0.0, 0.0, t * t * 0.06))
 		if _polygon_valid(p2):
 			draw_polygon(p2, cols)
+
+# =============================================================================
+# ICE WALL SHEEN — glassy specular overlay on the climbing wall
+# =============================================================================
+
+func _draw_ice_wall_sheen() -> void:
+	if not wall_valid: return
+	var sheen_c: Color = _env.get("ice_sheen_color", Color(0.88, 0.96, 1.00))
+	var ws = wall_max - wall_min
+
+	# Vertical gloss bands — simulate refracted light columns through ice
+	for bi in range(5):
+		var bseed  = (_scenery_seed ^ 0xACE0) + bi * 37
+		var bx     = wall_min.x + _hf(bseed) * ws.x
+		var bw     = 14.0 + _hf(bseed + 1) * 38.0
+		var balpha = 0.04 + _hf(bseed + 2) * 0.07
+		_draw_grad_quad_h(bx, wall_min.y, bx + bw, wall_max.y,
+			Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.0),
+			Color(sheen_c.r, sheen_c.g, sheen_c.b, balpha))
+		_draw_grad_quad_h(bx + bw, wall_min.y, bx + bw * 2.0, wall_max.y,
+			Color(sheen_c.r, sheen_c.g, sheen_c.b, balpha),
+			Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.0))
+
+	# Top-edge catch light — sky reflection
+	_draw_grad_quad(wall_min.x, wall_min.y, ws.x, wall_min.y + ws.y * 0.08,
+		Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.14),
+		Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.0))
+
+	# Subtle overall tint — makes the wall read as translucent ice
+	draw_rect(Rect2(wall_min, ws), Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.06), true)
 
 # =============================================================================
 # WALL DEPTH SHADING
@@ -1294,7 +1429,7 @@ func _draw_wall_tonal_outline() -> void:
 		draw_line(bl, br, gc, wall_outline_width, true)
 
 # =============================================================================
-# BUILDING FACADE — improved gradient, grooves, windows, cornice
+# BUILDING FACADE
 # =============================================================================
 
 func _draw_building_facade_wall() -> void:
@@ -1322,19 +1457,16 @@ func _draw_building_facade_wall() -> void:
 	var w = wall_max.x - wall_min.x
 	var h = wall_max.y - wall_min.y
 
-	# Accelerated darkening: lighter at top (sky light), heavier shadow below
 	var v_bands = 14
 	for vi in range(v_bands):
 		var t0 = float(vi)     / float(v_bands)
 		var t1 = float(vi + 1) / float(v_bands)
-		# Ease-in curve — darkens faster in lower two-thirds
 		var ease0 = t0 * t0 * 0.72 + t0 * 0.28
 		var ease1 = t1 * t1 * 0.72 + t1 * 0.28
 		var c0 = lite_col.lerp(dark_col, ease0)
 		var c1 = lite_col.lerp(dark_col, ease1)
 		_draw_grad_quad(wall_min.x, wall_min.y + t0 * h, w, wall_min.y + t1 * h, c0, c1)
 
-	# Subtle right-face darkening (occlusion from adjacent buildings)
 	var ao_w = minf(w * 0.04, 18.0)
 	_draw_grad_quad_h(wall_max.x - ao_w, wall_min.y, wall_max.x, wall_max.y,
 		Color(0.0, 0.0, 0.0, 0.0),
@@ -1343,7 +1475,6 @@ func _draw_building_facade_wall() -> void:
 	var panel_w = 220.0
 	var panel_h = 160.0
 
-	# Vertical panel grooves — uniform alpha
 	var vg_x = floor(wall_min.x / panel_w) * panel_w
 	while vg_x <= wall_max.x:
 		if vg_x >= wall_min.x:
@@ -1351,7 +1482,6 @@ func _draw_building_facade_wall() -> void:
 					  Color(dark_col.r, dark_col.g, dark_col.b, 0.28), 1.5, true)
 		vg_x += panel_w
 
-	# Horizontal panel grooves — deepen toward base for perspective weight
 	var hg_y = floor(wall_min.y / panel_h) * panel_h
 	while hg_y <= wall_max.y:
 		if hg_y >= wall_min.y:
@@ -1397,14 +1527,12 @@ func _draw_building_facade_wall() -> void:
 				var wseed = (col_i * 1117 + row_i * 337) ^ _scenery_seed
 				var lit   = _hf(wseed) < lit_prob
 
-				# Frame shadow above window
 				_draw_grad_quad(cl.position.x - 2.0, cl.position.y - 2.0,
 					cl.size.x + 4.0, cl.position.y + 2.0,
 					Color(win_frame.r, win_frame.g, win_frame.b, 0.5),
 					Color(win_frame.r, win_frame.g, win_frame.b, 0.0))
 
 				if lit:
-					# Per-window color variation — prevents flat uniformity
 					var hue_var = (_hf(wseed + 7) - 0.5) * 0.10
 					var win_varied = Color(
 						clamp(win_glass.r + hue_var * 0.6, 0.0, 1.0),
@@ -1412,11 +1540,9 @@ func _draw_building_facade_wall() -> void:
 						clamp(win_glass.b - hue_var * 0.4, 0.0, 1.0),
 						win_glass.a * (0.78 + _hf(wseed + 8) * 0.26))
 					draw_rect(cl, win_varied, true)
-					# Inner glow for dusk/night windows — depth within pane
 					if tod >= 1:
 						draw_rect(Rect2(cl.position + Vector2(1.5, 1.5), cl.size - Vector2(3.0, 3.0)),
 								  Color(win_varied.r, win_varied.g, win_varied.b, win_varied.a * 0.38), true)
-					# Daytime glare fleck — top-left corner catch-light
 					if tod == 0 and rb < 0.5:
 						draw_rect(Rect2(cl.position, Vector2(cl.size.x * 0.22, cl.size.y * 0.16)),
 								  Color(0.78, 0.88, 0.98, 0.14 * (1.0 - rb * 2.0)), true)
@@ -1428,19 +1554,16 @@ func _draw_building_facade_wall() -> void:
 		col_i += 1
 		cpx   += panel_w
 
-	# Structural edge ribs
 	var rib_w = 10.0
 	draw_rect(Rect2(wall_min.x,         wall_min.y, rib_w, h), dark_col, true)
 	draw_rect(Rect2(wall_max.x - rib_w, wall_min.y, rib_w, h), dark_col, true)
 
-	# Cornice / parapet cap — defines top edge clearly
 	var cornice_h = 9.0
 	draw_rect(Rect2(wall_min.x - 4.0, wall_min.y - cornice_h, w + 8.0, cornice_h),
 			  lite_col.lightened(0.07), true)
 	draw_rect(Rect2(wall_min.x - 4.0, wall_min.y, w + 8.0, 3.0),
 			  dark_col.darkened(0.12), true)
 
-	# Rain streaks on facade
 	if rb > 0.2:
 		for si in range(int(10.0 * rb)):
 			var sseed  = (_scenery_seed ^ 0xC0DE) + si * 43
@@ -1462,10 +1585,12 @@ func _draw_ground() -> void:
 	if not wall_valid: return
 	match _env.get("ground_type", "grass"):
 		"grass", "grass_dusk", "grass_night": _draw_ground_grass()
-		"gym_floor":  _draw_ground_gym()
-		"water":      _draw_ground_water()
-		"city_street": _draw_ground_city()
-		_:            _draw_ground_grass()
+		"gym_floor":                          _draw_ground_gym()
+		"water":                              _draw_ground_water()
+		"city_street":                        _draw_ground_city()
+		"sand", "sand_dusk", "sand_night":    _draw_ground_sand()
+		"ice_snow":                           _draw_ground_ice_snow()
+		_:                                    _draw_ground_grass()
 
 # =============================================================================
 # GROUND — GRASS
@@ -1497,7 +1622,6 @@ func _draw_ground_grass() -> void:
 	_draw_grad_quad(left, ground_y + close_h + mid_h,  width, ground_y + close_h + mid_h + near_h,
 		cm, cd)
 
-	# Micro hill undulation
 	var segs      = 80
 	var step      = width / float(segs)
 	var hill_seed = _scenery_seed ^ 0x6A55
@@ -1513,14 +1637,12 @@ func _draw_ground_grass() -> void:
 	if _polygon_valid(pts):
 		draw_colored_polygon(pts, ct)
 
-	# Subtler aerial perspective haze — was 0.40, now 0.18
 	var sky_h: Color = _env.get("sky_horizon", background_color.lightened(0.15))
 	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
 	_draw_grad_quad(left, ground_y - 1.0, width, ground_y + 18.0,
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.18 * (1.0 - rb * 0.5)),
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.0))
 
-	# Tonal horizon line
 	var hc = ct.darkened(wall_outline_darken)
 	hc.a = minf(wall_outline_darken * 2.6, 1.0)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), hc, wall_outline_width, true)
@@ -1550,7 +1672,7 @@ func _draw_ground_puddles(left: float, right: float, blend: float) -> void:
 				  Vector2(px + pw * 0.3, ground_y + 1.0), reflect, 1.2, true)
 
 # =============================================================================
-# GROUND — GYM FLOOR (matte polished concrete, correct tile grid)
+# GROUND — GYM FLOOR
 # =============================================================================
 
 func _draw_ground_gym() -> void:
@@ -1560,21 +1682,17 @@ func _draw_ground_gym() -> void:
 	var ct: Color = _env.get("ground_top",  Color(0.22, 0.22, 0.24))
 	var cd: Color = _env.get("ground_deep", Color(0.11, 0.11, 0.12))
 
-	# Base fill
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), ct, true)
 
-	# Two-stop recession — softer, longer than before
 	_draw_grad_quad(left, ground_y,         width, ground_y + 120.0,
 		ct.lightened(0.03), ct.lerp(cd, 0.5))
 	_draw_grad_quad(left, ground_y + 120.0, width, ground_y + 420.0,
 		ct.lerp(cd, 0.5), cd)
 
-	# Narrow contact highlight — matte polish, not chrome (7px, α 0.045)
 	_draw_grad_quad(left, ground_y, width, ground_y + 7.0,
 		Color(1.0, 1.0, 1.0, 0.045),
 		Color(1.0, 1.0, 1.0, 0.0))
 
-	# Vertical tile seams — longer, fainter (grout not cracks)
 	var tile_w     = 200.0
 	var tile_count = int(ceil(width / tile_w)) + 1
 	for ti in range(tile_count):
@@ -1582,13 +1700,11 @@ func _draw_ground_gym() -> void:
 		draw_line(Vector2(tx, ground_y), Vector2(tx, ground_y + 85.0),
 				  Color(cd.r, cd.g, cd.b, 0.11), 0.7, true)
 
-	# Horizontal tile seams at foreshortened intervals for perspective grid
 	var h_seam_offsets = [18.0, 42.0, 80.0, 145.0, 245.0]
 	for hy in h_seam_offsets:
 		draw_line(Vector2(left, ground_y + hy), Vector2(right, ground_y + hy),
 				  Color(cd.r, cd.g, cd.b, 0.07), 0.6, true)
 
-	# Tonal floor edge
 	var fc = ct.darkened(wall_outline_darken)
 	fc.a = minf(wall_outline_darken * 2.4, 1.0)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), fc, wall_outline_width, true)
@@ -1612,29 +1728,24 @@ func _draw_ground_city() -> void:
 	ct = ct.lerp(Color(0.16, 0.18, 0.20), rb * 0.45)
 
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
-
 	_draw_grad_quad(left, ground_y, width, ground_y + 220.0, ct.lightened(0.04), cd)
 
-	# Subtler sky haze on street horizon
 	var sky_h: Color = _env.get("sky_horizon", background_color)
 	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
 	_draw_grad_quad(left, ground_y, width, ground_y + 22.0,
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.25 * (1.0 - rb * 0.4)),
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.0))
 
-	# Tonal curb line
 	var cc = ct.darkened(wall_outline_darken)
 	cc.a = minf(wall_outline_darken * 2.4, 1.0)
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), cc, wall_outline_width, true)
 
-	# Road lane dashes
 	var stripe_alpha = 0.15 if tod == 0 else 0.24
 	stripe_alpha = lerp(stripe_alpha, stripe_alpha * 1.6, rb * 0.5)
 	var ssx = floor(left / 150.0) * 150.0
 	while ssx < right:
 		draw_rect(Rect2(ssx, ground_y + 14.0, 22.0, 2.0),
 				  Color(0.55, 0.52, 0.22, stripe_alpha), true)
-		# Wet puddle reflection — desaturated, dimmer
 		if rb > 0.2:
 			draw_rect(Rect2(ssx, ground_y + 9.0, 18.0, 3.0),
 					  Color(0.50, 0.52, 0.56, rb * 0.12), true)
@@ -1642,6 +1753,126 @@ func _draw_ground_city() -> void:
 
 	if rb > 0.1:
 		_draw_ground_puddles(left, right, rb)
+
+# =============================================================================
+# GROUND — SAND (Sandstone environment)
+# =============================================================================
+
+func _draw_ground_sand() -> void:
+	var left  = wall_min.x - BACKGROUND_EXPANSION
+	var right = wall_max.x + BACKGROUND_EXPANSION
+	var width = right - left
+	var rb    = _get_weather_blend()
+
+	var ct: Color = _env.get("ground_top",  Color(0.82, 0.62, 0.32))
+	var cm: Color = _env.get("ground_mid",  Color(0.62, 0.40, 0.16))
+	var cd: Color = _env.get("ground_deep", Color(0.42, 0.24, 0.08))
+	ct = ct.lerp(Color(0.58, 0.44, 0.20), rb * 0.40)
+	cm = cm.lerp(Color(0.44, 0.28, 0.10), rb * 0.30)
+
+	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
+
+	var close_h = 28.0
+	var mid_h   = 70.0
+	var near_h  = 200.0
+	_draw_grad_quad(left, ground_y,                   width, ground_y + close_h,
+		ct.lightened(0.08), ct)
+	_draw_grad_quad(left, ground_y + close_h,         width, ground_y + close_h + mid_h,
+		ct, cm)
+	_draw_grad_quad(left, ground_y + close_h + mid_h, width, ground_y + close_h + mid_h + near_h,
+		cm, cd)
+
+	# Dune ripple undulation
+	var segs      = 90
+	var step      = width / float(segs)
+	var dune_seed = _scenery_seed ^ 0xD4A7
+	var pts       = PackedVector2Array()
+	pts.append(Vector2(left, ground_y + close_h + 10.0))
+	for i in range(segs + 1):
+		var gx = left + float(i) * step
+		var h0 = _hf(dune_seed + (i - 1) * 13) * 10.0
+		var h1 = _hf(dune_seed + i       * 13) * 10.0
+		var h2 = _hf(dune_seed + (i + 1) * 13) * 10.0
+		pts.append(Vector2(gx, ground_y - (h0 * 0.15 + h1 * 0.70 + h2 * 0.15)))
+	pts.append(Vector2(right, ground_y + close_h + 10.0))
+	if _polygon_valid(pts):
+		draw_colored_polygon(pts, ct)
+
+	# Horizon haze — warm desert shimmer
+	var sky_h: Color = _env.get("sky_horizon", Color(0.88, 0.70, 0.40))
+	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
+	_draw_grad_quad(left, ground_y - 1.0, width, ground_y + 22.0,
+		Color(sky_h.r, sky_h.g, sky_h.b, 0.22 * (1.0 - rb * 0.4)),
+		Color(sky_h.r, sky_h.g, sky_h.b, 0.0))
+
+	var hc = ct.darkened(wall_outline_darken)
+	hc.a = minf(wall_outline_darken * 2.6, 1.0)
+	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), hc, wall_outline_width, true)
+
+# =============================================================================
+# GROUND — ICE / SNOW (Ice environment)
+# =============================================================================
+
+func _draw_ground_ice_snow() -> void:
+	var left  = wall_min.x - BACKGROUND_EXPANSION
+	var right = wall_max.x + BACKGROUND_EXPANSION
+	var width = right - left
+	var rb    = _get_weather_blend()
+
+	var ct: Color = _env.get("ground_top",  Color(0.90, 0.94, 0.98))
+	var cm: Color = _env.get("ground_mid",  Color(0.70, 0.80, 0.92))
+	var cd: Color = _env.get("ground_deep", Color(0.46, 0.60, 0.78))
+	ct = ct.lerp(Color(0.80, 0.86, 0.94), rb * 0.35)
+
+	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
+
+	_draw_grad_quad(left, ground_y,         width, ground_y + 40.0,  ct.lightened(0.06), ct)
+	_draw_grad_quad(left, ground_y + 40.0,  width, ground_y + 110.0, ct, cm)
+	_draw_grad_quad(left, ground_y + 110.0, width, ground_y + 300.0, cm, cd)
+
+	# Snowdrift silhouette — soft rounded undulation
+	var segs      = 100
+	var step      = width / float(segs)
+	var snow_seed = _scenery_seed ^ 0xF1E2
+	var pts       = PackedVector2Array()
+	pts.append(Vector2(left, ground_y + 50.0))
+	for i in range(segs + 1):
+		var gx = left + float(i) * step
+		var h0 = _hf(snow_seed + (i - 1) * 9) * 14.0
+		var h1 = _hf(snow_seed + i       * 9) * 14.0
+		var h2 = _hf(snow_seed + (i + 1) * 9) * 14.0
+		pts.append(Vector2(gx, ground_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2)))
+	pts.append(Vector2(right, ground_y + 50.0))
+	if _polygon_valid(pts):
+		draw_colored_polygon(pts, ct)
+
+	# Ice crack details — thin blue-grey lines
+	for ci in range(12):
+		var cseed = (_scenery_seed ^ 0x2F3A) + ci * 53
+		var cx1   = left + _hf(cseed) * width
+		var clen  = 40.0 + _hf(cseed + 1) * 120.0
+		var cx2   = cx1 + (_hf(cseed + 2) - 0.5) * clen * 2.0
+		var cy1   = ground_y + 3.0 + _hf(cseed + 3) * 20.0
+		var cy2   = cy1 + (_hf(cseed + 4) - 0.5) * 14.0
+		draw_line(Vector2(cx1, cy1), Vector2(cx2, cy2),
+				  Color(0.48, 0.62, 0.82, 0.28 + _hf(cseed + 5) * 0.18), 0.8, true)
+
+	# Sheen specular highlight strip — glassy ice
+	var sheen_c: Color = _env.get("ice_sheen_color", Color(0.88, 0.96, 1.00))
+	_draw_grad_quad(left, ground_y - 2.0, width, ground_y + 8.0,
+		Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.22),
+		Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.0))
+
+	# Horizon aerial haze
+	var sky_h: Color = _env.get("sky_horizon", Color(0.70, 0.88, 0.98))
+	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
+	_draw_grad_quad(left, ground_y - 1.0, width, ground_y + 18.0,
+		Color(sky_h.r, sky_h.g, sky_h.b, 0.20 * (1.0 - rb * 0.4)),
+		Color(sky_h.r, sky_h.g, sky_h.b, 0.0))
+
+	var hc = ct.darkened(wall_outline_darken + 0.05)
+	hc.a = minf(wall_outline_darken * 2.4, 1.0)
+	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), hc, wall_outline_width, true)
 
 # =============================================================================
 # GROUND — WATER

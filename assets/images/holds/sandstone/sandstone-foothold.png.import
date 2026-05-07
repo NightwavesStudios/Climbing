@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://jatnxtbee7os"
-path="res://.godot/imported/sandstone-jug.png-fcd895226991ae8603392f8879f4ec8d.ctex"
+uid="uid://e70bv46pq8l"
+path="res://.godot/imported/sandstone-foothold.png-8bdca6a2b04fdeb3443e73bfada503a4.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/images/holds/sandstone/sandstone-jug.png"
-dest_files=["res://.godot/imported/sandstone-jug.png-fcd895226991ae8603392f8879f4ec8d.ctex"]
+source_file="res://assets/images/holds/sandstone/sandstone-foothold.png"
+dest_files=["res://.godot/imported/sandstone-foothold.png-8bdca6a2b04fdeb3443e73bfada503a4.ctex"]
 
 [params]
 

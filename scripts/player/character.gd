@@ -114,6 +114,8 @@ class FootState extends LimbState:
 @onready var main_scene: Node  = get_tree().current_scene
 @onready var cam: Camera2D     = $"../Camera2D"
 
+var camera_owned_by_main: bool = false
+
 @onready var _lh_node:  Node2D = $LeftHand
 @onready var _rh_node:  Node2D = $RightHand
 @onready var _lf_node:  Node2D = $LeftFoot
@@ -284,13 +286,12 @@ const HOVER_JITTER_FREQ      = 22.0
 #  RUNTIME STATE
 # =============================================================================
 
-# At the top of runtime state vars, add:
 var _lh_press_time: float = 0.0
 var _rh_press_time: float = 0.0
 var _lf_press_time: float = 0.0
 var _rf_press_time: float = 0.0
 
-const QUICK_TAP_THRESHOLD: float = 0.1  # seconds — tune to taste
+const QUICK_TAP_THRESHOLD: float = 0.1
 
 var lh: HandState
 var rh: HandState
@@ -345,6 +346,9 @@ var _rh_hover_jitter: Vector2 = Vector2.ZERO
 var _lf_hover_jitter: Vector2 = Vector2.ZERO
 var _rf_hover_jitter: Vector2 = Vector2.ZERO
 
+# -- Input gate (set by main.gd during route preview) -------------------------
+var _input_enabled: bool = true
+
 # =============================================================================
 #  INIT
 # =============================================================================
@@ -387,6 +391,17 @@ func _set_default_local_positions() -> void:
 	_ensure_shadow_node()
 
 # =============================================================================
+#  INPUT GATE (called by main.gd during route preview)
+# =============================================================================
+
+func set_input_enabled(enabled: bool) -> void:
+	_input_enabled = enabled
+	if not enabled:
+		# Clean up any in-flight selection so the character isn't left dangling
+		selected_limbs.clear()
+		use_mouse_aim = false
+
+# =============================================================================
 #  MAIN LOOP
 # =============================================================================
 
@@ -427,6 +442,10 @@ func _process(delta: float) -> void:
 # =============================================================================
 
 func handle_input() -> void:
+	# Bail out when main.gd has locked input (e.g. during route preview)
+	if not _input_enabled:
+		return
+
 	if Input.is_action_just_pressed("ui_cancel") or Input.is_key_pressed(KEY_R):
 		reset_climb()
 		return
@@ -505,7 +524,6 @@ func _sel_release(action: String, s: LimbState, shift_held: bool, is_foot: bool)
 	if s in selected_limbs:
 		var held_secs: float = Time.get_ticks_msec() * 0.001 - _get_press_time(s)
 		if held_secs < QUICK_TAP_THRESHOLD:
-			# Quick tap → drop the hold and go free; don't snap to a new one
 			release_limb(s)
 			s.is_grabbing = false
 		else:
@@ -791,7 +809,6 @@ func _update_one_draw_scale(s: LimbState, delta: float, t_now: float,
 	var jitter = Vector2.ZERO
 	if s in selected_limbs:
 		var dist_to_mouse = s.node.global_position.distance_to(mouse_gp)
-		# Inner deadzone: no jitter when mouse is very close (steady placement zone)
 		var inner_dead = MOUSE_DEADZONE * 1.8
 		var jitter_dist = max(dist_to_mouse - inner_dead, 0.0)
 		var proximity   = clamp(1.0 - jitter_dist / HOVER_JITTER_RADIUS, 0.0, 1.0)
@@ -972,7 +989,7 @@ func _apply_foot_support(delta: float) -> void:
 	var reach_factor = smoothstep(0.0, 0.6, hand_reach_sum / max(hand_count, 1) + 0.25)
 
 	if not has_meta("foot_push_smooth"): set_meta("foot_push_smooth", reach_factor)
-	var prev_smooth: float = float(get_meta("foot_push_smooth"))  # FIXED: cast to float
+	var prev_smooth: float = float(get_meta("foot_push_smooth"))
 	var smoothed_reach = lerp(prev_smooth, reach_factor, (0.6 if reach_factor > prev_smooth else 0.35) * delta)
 	set_meta("foot_push_smooth", smoothed_reach)
 
@@ -1140,7 +1157,6 @@ func _check_leg_overstretch() -> void:
 func _check_limb_overload() -> void:
 	for s in _hands:
 		if s.hold:
-			# Never rip hands off a finish hold regardless of velocity
 			if s.hold.has_method("is_top_out") and s.hold.is_top_out():
 				continue
 			var shoulder = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
@@ -1222,8 +1238,6 @@ func attempt_grab(s: LimbState) -> void:
 	s.hold        = best; s.grab_target = resolved; s.pin = resolved
 	s.is_grabbing = true; s.reset_velocity()
 
-	# Sync ghost to the actual grab point — prevents the stretched-arm
-	# snap that occurs when the ghost is still at the pre-fall position.
 	s.ghost      = resolved
 	s.ghost_init = true
 
@@ -1358,6 +1372,7 @@ func reset_climb() -> void:
 	_lf_hover_jitter = Vector2.ZERO; _rf_hover_jitter = Vector2.ZERO
 	_lh_press_time = 0.0; _rh_press_time = 0.0
 	_lf_press_time = 0.0; _rf_press_time = 0.0
+	_input_enabled = true
 	for s in _limbs:
 		if s.hold: s.hold.release(s.node)
 		s.reset_all()
@@ -1558,6 +1573,17 @@ func play_crashpad_ragdoll(duration: float) -> void:
 	t.tween_property(_rf_node,  "position", Vector2( 18, 68),  0.5).set_delay(0.3).set_trans(Tween.TRANS_SINE)
 
 # =============================================================================
+#  CAMERA (defers to main.gd during route preview)
+# =============================================================================
+
+func update_camera() -> void:
+	var main = get_tree().get_first_node_in_group("main_scene")
+	if main and main.get("camera_owned_by_main") == true:
+		return
+	if cam:
+		cam.global_position = cam.global_position.lerp(global_position, CAM_LERP)
+
+# =============================================================================
 #  DRAW
 # =============================================================================
 
@@ -1751,10 +1777,6 @@ func _draw_stick_figure() -> void:
 #  ENVIRONMENT
 # =============================================================================
 
-func update_camera() -> void:
-	if cam: cam.global_position = cam.global_position.lerp(global_position, CAM_LERP)
-
-
 func _update_spotlight() -> void:
 	if not _spotlight: return
 	for node in get_tree().get_nodes_in_group("weather_modifier"):
@@ -1785,24 +1807,24 @@ func _get_light_info() -> Dictionary:
 	var env: Dictionary = env_wall.get("_env") if env_wall.get("_env") != null else {}
 	var wmod: Node        = _weather_modifier
 	var weather_type: int = 0
-	if wmod and "weather" in wmod: weather_type = int(wmod.weather)  # FIXED: cast to int
+	if wmod and "weather" in wmod: weather_type = int(wmod.weather)
 	if weather_type == 2:
-		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 1.0  # FIXED
+		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 1.0
 		return {"direction": Vector2(0.0, 1.0), "intensity": 0.05 * blend, "ambient": 0.02}
 	if weather_type == 5:
-		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 1.0  # FIXED
+		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 1.0
 		return {"direction": Vector2(0.0, 1.0), "intensity": lerp(0.34, 0.07, blend), "ambient": lerp(0.12, 0.20, blend)}
 	var weather_shadow_mult: float = 1.0
 	if weather_type in [1, 4, 6]:
-		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 0.0  # FIXED
+		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 0.0
 		weather_shadow_mult = lerp(1.0, 0.42, blend)
 	if not env.get("has_sun", true):
 		return {"direction": Vector2(0.0, 1.0), "intensity": 0.11 * weather_shadow_mult, "ambient": 0.07}
-	var sun_color: Color = env.get("sun_color", Color(1.0, 0.95, 0.70)) as Color  # FIXED: cast
+	var sun_color: Color = env.get("sun_color", Color(1.0, 0.95, 0.70)) as Color
 	var sun_lum:   float = sun_color.r * 0.299 + sun_color.g * 0.587 + sun_color.b * 0.114
-	var sky_top:   Color = env.get("sky_top",   Color(0.20, 0.45, 0.78)) as Color  # FIXED: cast
+	var sky_top:   Color = env.get("sky_top",   Color(0.20, 0.45, 0.78)) as Color
 	var sky_lum:   float = sky_top.r * 0.299 + sky_top.g * 0.587 + sky_top.b * 0.114
-	var sky_horiz: Color = env.get("sky_horizon", Color(0.72, 0.85, 0.95)) as Color  # FIXED: cast
+	var sky_horiz: Color = env.get("sky_horizon", Color(0.72, 0.85, 0.95)) as Color
 	var is_dusk:   bool  = sky_horiz.r > sky_horiz.b + 0.15
 	var direction: Vector2; var intensity: float; var ambient: float
 	if is_dusk:
