@@ -1217,18 +1217,26 @@ func attempt_grab(s: LimbState) -> void:
 		var hold: Area2D = result.collider
 		if not hold.can_grab(s.node, is_foot): continue
 		var hp = hold.get_node_or_null("HoldPoint")
-		if hp == null: continue
+		var hp_pos: Vector2 = hp.global_position if hp else hold.global_position
+		# replace: if hp == null: continue
 		var m: float
 		if hold.get("snap_to_point"):
-			m = s.node.global_position.distance_to(hp.global_position)
+			m = s.node.global_position.distance_to(hp_pos)
 		else:
 			var sn = hold.get_node_or_null("CollisionShape2D")
 			m = s.node.global_position.distance_to(hold.to_global(sn.position) if sn else hold.global_position)
-		if m < bd: bd = m; best = hold; bp = hp.global_position
+		if m < bd: bd = m; best = hold; bp = hp_pos
 	if best == null: return
 
 	var occupants = _limbs.filter(func(o): return o != s and o.hold == best)
-	if occupants.size() >= 2:
+	var registry = get_node_or_null("/root/HoldRegistry")
+	var max_limbs = 2  # safe default
+	if registry:
+		var type_key = best.get("hold_type")
+		if type_key != null:
+			var type_name = ClimbingHold.HoldType.keys()[type_key]
+			max_limbs = registry.get_config_value(type_name, "max_limbs", 2)
+	if occupants.size() >= max_limbs:
 		return
 
 	var grab_pos = _calculate_grab_position(s, best, bp) if best.get("snap_to_point") else s.node.global_position
@@ -1286,6 +1294,30 @@ func _fire_dyno_impulse() -> void:
 #  SPAWN / RESET
 # =============================================================================
 
+func _find_nearest_hold_radius(from: Vector2, radius: float) -> Area2D:
+	var space_state = get_world_2d().direct_space_state
+	var query = PhysicsShapeQueryParameters2D.new()
+	var circle = CircleShape2D.new()
+	circle.radius = radius
+	query.shape = circle
+	query.transform = Transform2D(0, from)
+	query.collision_mask = 2
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	var nearest: Area2D = null
+	var nd = INF
+	for result in space_state.intersect_shape(query, 32):
+		var hold: Area2D = result.collider
+		if not hold.can_grab(lh.node, false): continue  # hand-grabbable only
+		var hp = hold.get_node_or_null("HoldPoint")
+		var sn = hold.get_node_or_null("CollisionShape2D")
+		var pos: Vector2 = hp.global_position if hp else (hold.to_global(sn.position) if sn else hold.global_position)
+		var d = from.distance_to(pos)
+		if d < nd:
+			nd = d
+			nearest = hold
+	return nearest
+
 func initial_grab() -> void:
 	_zero_all()
 	global_position = spawn_position
@@ -1300,12 +1332,21 @@ func initial_grab() -> void:
 	var start_holds = _find_start_holds()
 	if start_holds.size() == 1:
 		var hold = start_holds[0]
-		var hp   = hold.get_node_or_null("HoldPoint") as Marker2D
-		if not hp: return
-		var pos = hp.global_position
+		var hp = hold.get_node_or_null("HoldPoint") as Marker2D
+		var pos = hp.global_position if hp else hold.global_position
+		# Try to place both hands with slight offsets so _max_limbs=1 isn't hit twice
+		var offsets = [Vector2(-SHARED_HOLD_HAND_OFFSET, 0), Vector2(SHARED_HOLD_HAND_OFFSET, 0)]
+		var hand_idx = 0
 		for s in _hands:
-			if hold.can_grab(s.node, false) and hold.try_claim(s.node, false, pos):
-				s.hold = hold; s.node.global_position = pos; s.anchor = pos; s.pin = pos
+			if hold.can_grab(s.node, false):
+				var grab_pos = pos + offsets[hand_idx] if hand_idx < offsets.size() else pos
+				if hold.try_claim(s.node, false, grab_pos):
+					s.hold = hold
+					s.node.global_position = hold.get_limb_anchor(s.node)
+					s.anchor = s.node.global_position
+					s.pin    = s.node.global_position
+			hand_idx += 1
+		# Position body below whichever hand(s) grabbed
 		global_position = Vector2(pos.x, pos.y + 80)
 	elif start_holds.size() >= 2:
 		var ha = start_holds[0].get_node_or_null("HoldPoint") as Marker2D
@@ -1321,14 +1362,32 @@ func initial_grab() -> void:
 			rh.hold = rs; rh.node.global_position = rp; rh.anchor = rp; rh.pin = rp
 		global_position = Vector2((lp.x + rp.x) / 2.0, lp.y + 80)
 	else:
+		# No tagged start holds — search near spawn position for any grabbable hand hold
 		for s in _hands:
-			var other   = rh if s == lh else lh
-			var nearest = _find_nearest_hold(s.node.global_position)
+			var other = rh if s == lh else lh
+			# Search from spawn position, not default hand position
+			var nearest = _find_nearest_hold(com_position)
+			if nearest == null:
+				# Widen search
+				nearest = _find_nearest_hold_radius(com_position, 400.0)
 			if nearest and nearest != other.hold and nearest.can_grab(s.node, false):
-				var hp = nearest.get_node_or_null("HoldPoint") as Marker2D
-				if hp and nearest.try_claim(s.node, false, hp.global_position):
-					s.hold = nearest; s.node.global_position = hp.global_position
-					s.anchor = hp.global_position; s.pin = hp.global_position
+				var hp = nearest.get_node_or_null("HoldPoint")
+				var sn = nearest.get_node_or_null("CollisionShape2D")
+				var grab_pos: Vector2
+				if hp:
+					grab_pos = hp.global_position
+				elif sn:
+					grab_pos = nearest.to_global(sn.position)
+				else:
+					grab_pos = nearest.global_position
+				# Offset hands slightly so both can claim if _max_limbs=1
+				var side_offset = Vector2(-SHARED_HOLD_HAND_OFFSET if s.is_left else SHARED_HOLD_HAND_OFFSET, 0)
+				var final_pos = grab_pos + side_offset
+				if nearest.try_claim(s.node, false, final_pos):
+					s.hold = nearest
+					s.node.global_position = nearest.get_limb_anchor(s.node)
+					s.anchor = s.node.global_position
+					s.pin = s.node.global_position
 
 	com_position = global_position + Vector2(0, COM_OFFSET_Y)
 	_snap_feet_on_spawn()
@@ -1421,18 +1480,31 @@ func _find_start_holds() -> Array[Area2D]:
 
 func _find_nearest_hold(from: Vector2) -> Area2D:
 	var space_state = get_world_2d().direct_space_state
-	var query = PhysicsShapeQueryParameters2D.new(); var circle = CircleShape2D.new()
-	circle.radius = 200.0; query.shape = circle; query.transform = Transform2D(0, from)
-	query.collision_mask = 2; query.collide_with_areas = true; query.collide_with_bodies = false
-	var nearest: Area2D = null; var nd = INF
+	var query = PhysicsShapeQueryParameters2D.new()
+	var circle = CircleShape2D.new()
+	circle.radius = 200.0
+	query.shape = circle
+	query.transform = Transform2D(0, from)
+	query.collision_mask = 2
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	var nearest: Area2D = null
+	var nd = INF
 	for result in space_state.intersect_shape(query, 32):
 		var hold: Area2D = result.collider
+		# Use HoldPoint if available, otherwise fall back to CollisionShape2D center or hold origin
 		var hp = hold.get_node_or_null("HoldPoint")
-		if hp == null: continue
-		var d = from.distance_to(hp.global_position)
-		if d < nd: nd = d; nearest = hold
+		var pos: Vector2
+		if hp != null:
+			pos = hp.global_position
+		else:
+			var sn = hold.get_node_or_null("CollisionShape2D")
+			pos = hold.to_global(sn.position) if sn else hold.global_position
+		var d = from.distance_to(pos)
+		if d < nd:
+			nd = d
+			nearest = hold
 	return nearest
-
 
 func _find_best_foot_hold(s: FootState, search_center: Vector2) -> Area2D:
 	var hip   = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)

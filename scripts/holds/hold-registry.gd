@@ -137,6 +137,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Window",
 		"sloper_drain": false,
 		"wall_types": ["building"],  # building walls only — not gym, granite, or sandstone
+		"max_limbs": 4,    
 	},
 }
 
@@ -152,6 +153,7 @@ const DEFAULT_CONFIG = {
 	"display_name": "",
 	"sloper_drain": false,
 	"wall_types": [],   # empty = allowed on all wall types
+	"max_limbs": 2,    
 }
 
 func _ready():

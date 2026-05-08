@@ -34,6 +34,7 @@ var limb_placements: Dictionary = {}
 var grab_areas: Array[CollisionShape2D] = []
 var sprite_nodes: Dictionary = {}
 var _type_was_set_manually: bool = false
+var _max_limbs: int = 1
 
 func _ready():
 	print("climbing_hold _ready fired on: ", name, " | has _process: ", has_method("_process"))
@@ -57,6 +58,13 @@ func _ready():
 	if not _type_was_set_manually:
 		_auto_detect_type_from_name()
 		_configure_hold_properties()
+
+	# Load max_limbs from HoldRegistry
+	var registry = get_node_or_null("/root/HoldRegistry")
+	if registry:
+		var type_key = HoldType.keys()[hold_type]
+		_max_limbs = registry.get_config_value(type_key, "max_limbs", 1)
+		print("Hold: ", name, " | type: ", type_key, " | _max_limbs: ", _max_limbs)
 
 	add_to_group("holds")
 
@@ -156,6 +164,8 @@ func _auto_detect_type_from_name():
 		hold_type = HoldType.POCKET
 	elif "foot" in filename:
 		hold_type = HoldType.FOOTHOLD
+	elif "window" in filename:
+		hold_type = HoldType.WINDOW
 
 func _configure_hold_properties():
 	match hold_type:
@@ -173,6 +183,8 @@ func _configure_hold_properties():
 			difficulty = 1.0; rest_value = 0.0
 		HoldType.POCKET:
 			difficulty = 1.2; rest_value = 0.0
+		HoldType.WINDOW:
+			difficulty = 1.5; rest_value = 5.0
 
 func set_hold_type_from_string(type_str: String):
 	_type_was_set_manually = true
@@ -184,6 +196,7 @@ func set_hold_type_from_string(type_str: String):
 		"SLOPER": hold_type = HoldType.SLOPER
 		"FOOT":   hold_type = HoldType.FOOTHOLD
 		"POCKET": hold_type = HoldType.POCKET
+		"WINDOW": hold_type = HoldType.WINDOW
 	_configure_hold_properties()
 
 func is_start_hold() -> bool: return hold_type == HoldType.START
@@ -193,6 +206,7 @@ func is_crimp()      -> bool: return hold_type == HoldType.CRIMP
 func is_sloper()     -> bool: return hold_type == HoldType.SLOPER
 func is_foothold()   -> bool: return hold_type == HoldType.FOOTHOLD
 func is_pocket()     -> bool: return hold_type == HoldType.POCKET
+func is_window()     -> bool: return hold_type == HoldType.WINDOW
 
 func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 	if not is_grabbable:
@@ -202,6 +216,8 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 	if is_pocket():
 		if occupied_by != null and occupied_by != limb:
 			return false
+	if not is_pocket() and limb not in limb_placements and limb_placements.size() >= _max_limbs:
+		return false
 
 	for child in get_children():
 		if child.has_method("allow_grab"):
@@ -265,6 +281,8 @@ func can_grab(limb: Node2D, is_foot: bool) -> bool:
 		return false
 	if is_pocket() and occupied_by != null and occupied_by != limb:
 		return false
+	if not is_pocket() and limb not in limb_placements and limb_placements.size() >= _max_limbs:
+		return false
 
 	for child in get_children():
 		if child.has_method("allow_grab"):
@@ -309,6 +327,7 @@ func get_placement_difficulty_modifier(limb: Node2D) -> float:
 			HoldType.SLOPER: return 1.0 + (offset * 2.0)
 			HoldType.CRIMP:  return 1.0 + (offset * 1.0)
 			HoldType.POCKET: return 1.0 + (offset * 0.3)
+			HoldType.WINDOW: return 1.0 + (offset * 0.5)
 			_:               return 1.0 + (offset * 0.5)
 	return 1.0
 
@@ -360,12 +379,6 @@ func _get_active_sprite() -> Sprite2D:
 
 # =============================================================================
 #  SHADOW
-#
-#  Mimics a clean painted drop shadow: one fixed offset, then multiple passes
-#  that grow outward from that center.  Outermost pass = widest + most
-#  transparent.  Innermost pass = tightest + most opaque.  Drawn outer-to-inner
-#  so inner passes paint on top and create a crisp dark core that bleeds
-#  softly outward — same look as Klifur's hand-painted shadows.
 # =============================================================================
 
 func _draw_hold_shadow(spr: Sprite2D) -> void:
@@ -382,29 +395,22 @@ func _draw_hold_shadow(spr: Sprite2D) -> void:
 	var center: Vector2    = to_local(spr.global_position)
 	var wall_col: Color    = _get_wall_color()
 
-	# Single fixed offset — the shadow sits in one place, not smearing.
-	# Squash y slightly so it reads as lying flat against the wall.
 	var offset := Vector2(
 		light_dir.x * shadow_offset_scale,
 		light_dir.y * shadow_offset_scale * 0.55
 	)
 
-	# Shadow tint: darker warm version of the wall color, never pure black.
 	var sr := wall_col.r * 0.52
 	var sg := wall_col.g * 0.47
 	var sb := wall_col.b * 0.40
 
 	draw_set_transform(Vector2.ZERO, spr.rotation, Vector2.ONE)
 
-	# Outer to inner — each pass paints on top of the last.
-	# i=0 → outermost (widest, faintest), i=passes-1 → innermost (tightest, darkest).
 	for i in range(shadow_passes):
 		var t: float = float(i) / float(max(shadow_passes - 1, 1))
-
 		var spread := shadow_spread * (1.0 - t * 0.65)
 		var shadow_size := base_size + Vector2(spread * 2.0, spread * 2.0)
 		var pass_alpha = clamp(intensity * shadow_intensity * 0.20 * (0.20 + t * 0.80), 0.0, 0.55)
-
 		var dest := Rect2(center + offset - shadow_size * 0.5, shadow_size)
 		draw_texture_rect_region(tex, dest, region, Color(sr, sg, sb, pass_alpha))
 

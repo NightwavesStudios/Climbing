@@ -64,6 +64,7 @@ const COLLECTIONS = {
 	},
 	"levels": [
 		"res://scenes/levels/sandstone/sandstone_01.json",
+		"res://scenes/levels/sandstone/sandstone_02.json",
 		# etc.
 	]
 },
