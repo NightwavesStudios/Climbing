@@ -13,6 +13,13 @@ enum WeatherType {
 	SANDSTORM,
 }
 
+## Emitted every physics frame with the current world-space wind vector.
+## Connect in your player script, or rely on automatic push to "player" group.
+signal wind_force_changed(force: Vector2)
+
+# Nodes in this group receive automatic wind velocity push each physics frame.
+const PLAYER_GROUP := "player"
+
 var weather: int = WeatherType.NONE : set = set_weather
 var intensity: float = 1.0
 
@@ -130,16 +137,19 @@ var hail_cloud_shadow := Color(0.20, 0.22, 0.28)
 var hail_fog_color    := Color(0.30, 0.32, 0.38, 0.30)
 
 # ── Sandstorm parameters ──────────────────────────────────────────────────────
-var sandstorm_density        := 1200
-var sandstorm_speed          := 520.0
-var sandstorm_wind           := 380.0
-var sandstorm_min_radius     := 0.8
-var sandstorm_max_radius     := 3.2
-var sandstorm_color          := Color(0.82, 0.64, 0.34, 0.70)
-var sandstorm_streak_color   := Color(0.88, 0.72, 0.42, 0.40)
-var sandstorm_streak_len     := 18.0
-var sandstorm_fog_color      := Color(0.80, 0.62, 0.30, 0.55)
-var sandstorm_vignette_alpha := 0.38
+# Dense horizontal dust — looks like a wall of blowing sand, not rain.
+# Streaks are long and nearly flat; particles are tiny elongated specks.
+var sandstorm_density      := 900        # number of streak particles
+var sandstorm_speed        := 680.0      # horizontal pixels / sec (base)
+var sandstorm_wind         := 260.0      # extra horizontal push applied uniformly
+var sandstorm_min_len      := 12.0       # shortest streak
+var sandstorm_max_len      := 52.0       # longest streak (very horizontal)
+var sandstorm_angle_deg    := 4.0        # slight downward angle (not like rain)
+var sandstorm_color        := Color(0.80, 0.60, 0.28, 0.65)
+var sandstorm_haze_color   := Color(0.76, 0.56, 0.22, 1.0)  # opaque base for flat overlay
+var sandstorm_haze_alpha   := 0.62       # max alpha of the uniform amber overlay
+var sandstorm_ground_alpha := 0.80       # dense dust roll at ground level
+var sandstorm_ground_h     := 160.0      # height of ground dust band
 
 var sandstorm_sky_top      := Color(0.46, 0.28, 0.08)
 var sandstorm_sky_horizon  := Color(0.78, 0.54, 0.20)
@@ -198,35 +208,33 @@ var _fog_offsets: Array[float] = []
 var _hailstones:   Array[Dictionary] = []
 var _hail_bounces: Array[Dictionary] = []
 
+# ── Sandstorm internal state ──────────────────────────────────────────────────
+var _sand_particles: Array[Dictionary] = []
+# Per-layer packed line arrays: interleaved [from, to] pairs for draw_multiline.
+var _sand_lines: Array[PackedVector2Array] = [
+	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
+var _sand_udx: float = 0.0   # precomputed unit direction x
+var _sand_udy: float = 0.0   # precomputed unit direction y (slight downward)
+
 # ── Packed draw arrays — rain (per layer) ────────────────────────────────────
-# Each layer stores interleaved [from, to] pairs as a flat PackedVector2Array.
-# draw_multiline() issues a single draw call per layer instead of one per drop.
-# Initialized at declaration so they exist before _ready() / set_weather fires.
 var _rain_lines:  Array[PackedVector2Array] = [
 	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
-var _rain_colors: Array[Color] = []
 
 # ── Packed draw arrays — snow (per layer) ────────────────────────────────────
 var _snow_points: Array[PackedVector2Array] = [
 	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
 var _snow_radii:  Array[PackedFloat32Array] = [
 	PackedFloat32Array(), PackedFloat32Array(), PackedFloat32Array()]
-var _snow_colors: Array[Color] = []
 
 # ── Packed draw arrays — hail (per layer) ────────────────────────────────────
-# Each hailstone = filled circle + short streak line.
-# Circles: PackedVector2Array of centres, PackedFloat32Array of radii.
-# Streaks: PackedVector2Array of interleaved [from, to] pairs.
 var _hail_points:  Array[PackedVector2Array] = [
 	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
 var _hail_radii:   Array[PackedFloat32Array] = [
 	PackedFloat32Array(), PackedFloat32Array(), PackedFloat32Array()]
 var _hail_streaks: Array[PackedVector2Array] = [
 	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
-var _hail_colors:       Array[Color] = []
-var _hail_streak_colors: Array[Color] = []
 
-# Precomputed angle components (recalculated only when angle params change)
+# Precomputed angle components
 var _rain_udx: float = 0.0
 var _rain_udy: float = 0.0
 var _hail_udx: float = 0.0
@@ -238,7 +246,9 @@ var _hail_udy: float = 0.0
 # =============================================================================
 
 func _ready() -> void:
-	z_index = 0
+	# Render above all world nodes (characters, holds, etc.) but below CanvasLayer UI.
+	# CanvasLayer UI ignores Node2D z_index entirely, so 100 is safe.
+	z_index = 100
 	add_to_group("weather_modifier")
 	_wall_ref = get_parent() if get_parent().has_method("get_bounds") else null
 	_drop_rng.randomize()
@@ -326,6 +336,7 @@ func set_weather(new_weather: int) -> void:
 	_snowflakes.clear()
 	_hailstones.clear()
 	_hail_bounces.clear()
+	_sand_particles.clear()
 	_lightning_active      = false
 	_lightning_bolt_points = []
 	_lightning_branches    = []
@@ -338,9 +349,7 @@ func set_weather(new_weather: int) -> void:
 		_hail_points[i].clear()
 		_hail_radii[i].clear()
 		_hail_streaks[i].clear()
-		_sand_points[i].clear()
-		_sand_radii[i].clear()
-		_sand_streaks[i].clear()
+		_sand_lines[i].clear()
 
 	match weather:
 		WeatherType.RAIN:
@@ -390,7 +399,7 @@ func set_weather(new_weather: int) -> void:
 				_audio.stop()
 			_audio_fading_in = false
 		WeatherType.SANDSTORM:
-			_cache_sandstorm_angle()
+			_cache_sand_angle()
 			_init_sandstorm()
 			_set_lights_enabled(false)
 			if _audio and _audio.playing:
@@ -407,14 +416,11 @@ func set_weather(new_weather: int) -> void:
 func _set_lights_enabled(on: bool) -> void:
 	if _headlamp:
 		_headlamp.enabled = on
-		if not on:
-			_headlamp.energy = 0.0
+		if not on: _headlamp.energy = 0.0
 	if _ambient_light:
 		_ambient_light.enabled = on
-		if not on:
-			_ambient_light.energy = 0.0
+		if not on: _ambient_light.energy = 0.0
 
-# Cache sin/cos of rain angle so _update_rain does no trig per frame
 func _cache_rain_angle() -> void:
 	var deg := lightning_rain_angle_deg if weather == WeatherType.LIGHTNING else rain_angle_deg
 	var rad := deg_to_rad(deg)
@@ -425,6 +431,12 @@ func _cache_hail_angle() -> void:
 	var rad := deg_to_rad(hail_angle_deg)
 	_hail_udx = sin(rad)
 	_hail_udy = cos(rad)
+
+func _cache_sand_angle() -> void:
+	# Very shallow angle — sand blows almost horizontally
+	var rad := deg_to_rad(sandstorm_angle_deg)
+	_sand_udx = cos(rad)   # dominant horizontal component
+	_sand_udy = sin(rad)   # tiny downward component
 
 
 # =============================================================================
@@ -449,8 +461,7 @@ func _make_drop(spread: bool) -> Dictionary:
 	var y           := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
 					   else b.y - _drop_rng.randf() * 150.0
 	return {
-		"x":     x,
-		"y":     y,
+		"x":     x,  "y":     y,
 		"layer": layer,
 		"speed": spd * speed_scale * (0.82 + _drop_rng.randf() * 0.36),
 		"alpha": (0.55 + _drop_rng.randf() * 0.45) * alpha_scale,
@@ -459,20 +470,14 @@ func _make_drop(spread: bool) -> Dictionary:
 		"wx":    (_drop_rng.randf() - 0.5) * 0.04,
 	}
 
-# Rebuild the per-layer line arrays from the current _drops list.
-# Called once after init; thereafter _update_rain rebuilds incrementally.
 func _rebuild_rain_packed() -> void:
-	for i in range(LAYERS):
-		_rain_lines[i].clear()
-	for d in _drops:
-		_append_rain_line(d)
+	for i in range(LAYERS): _rain_lines[i].clear()
+	for d in _drops: _append_rain_line(d)
 
 func _append_rain_line(d: Dictionary) -> void:
 	var layer: int = d["layer"]
-	var px: float  = d["x"]
-	var py: float  = d["y"]
-	_rain_lines[layer].append(Vector2(px, py))
-	_rain_lines[layer].append(Vector2(px - _rain_udx * d["len"], py - _rain_udy * d["len"]))
+	_rain_lines[layer].append(Vector2(d["x"], d["y"]))
+	_rain_lines[layer].append(Vector2(d["x"] - _rain_udx * d["len"], d["y"] - _rain_udy * d["len"]))
 
 
 # =============================================================================
@@ -482,8 +487,7 @@ func _append_rain_line(d: Dictionary) -> void:
 func _init_snow() -> void:
 	var count := int(snow_density * clamp(intensity, 0.05, 1.0))
 	_snowflakes.resize(count)
-	for i in range(count):
-		_snowflakes[i] = _make_flake(true)
+	for i in range(count): _snowflakes[i] = _make_flake(true)
 	_rebuild_snow_packed()
 
 func _make_flake(spread: bool) -> Dictionary:
@@ -494,16 +498,12 @@ func _make_flake(spread: bool) -> Dictionary:
 	var y       := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
 				   else b.y - _drop_rng.randf() * 80.0
 	return {
-		"x":      x,
-		"y":      y,
-		"layer":  layer,
-		"radius": lerp(snow_min_radius * 0.6, snow_max_radius, depth_t)
-				  * (0.7 + _drop_rng.randf() * 0.6),
-		"speed":  snow_speed * lerp(0.5, 1.0, depth_t)
-				  * (0.75 + _drop_rng.randf() * 0.5),
+		"x": x, "y": y, "layer": layer,
+		"radius": lerp(snow_min_radius * 0.6, snow_max_radius, depth_t) * (0.7 + _drop_rng.randf() * 0.6),
+		"speed":  snow_speed * lerp(0.5, 1.0, depth_t) * (0.75 + _drop_rng.randf() * 0.5),
 		"phase":  _drop_rng.randf() * TAU,
 		"drift":  snow_drift_speed * (0.3 + _drop_rng.randf() * 0.7),
-		"alpha": (0.30 + _drop_rng.randf() * 0.35) * lerp(0.45, 1.0, depth_t),
+		"alpha":  (0.30 + _drop_rng.randf() * 0.35) * lerp(0.45, 1.0, depth_t),
 	}
 
 func _rebuild_snow_packed() -> void:
@@ -511,9 +511,8 @@ func _rebuild_snow_packed() -> void:
 		_snow_points[i].clear()
 		_snow_radii[i].clear()
 	for f in _snowflakes:
-		var layer: int = f["layer"]
-		_snow_points[layer].append(Vector2(f["x"], f["y"]))
-		_snow_radii[layer].append(f["radius"])
+		_snow_points[f["layer"]].append(Vector2(f["x"], f["y"]))
+		_snow_radii[f["layer"]].append(f["radius"])
 
 
 # =============================================================================
@@ -534,21 +533,15 @@ func _trigger_lightning_strike() -> void:
 	_lightning_bolt_points = _generate_bolt(
 		Vector2(bolt_x, top_y),
 		Vector2(bolt_x + _drop_rng.randf_range(-60.0, 60.0), bot_y),
-		lightning_segments
-	)
+		lightning_segments)
 
 	_lightning_branches = []
 	for i in range(1, _lightning_bolt_points.size() - 1):
 		if _drop_rng.randf() < lightning_branch_chance * intensity:
 			var branch_len := int(lightning_segments * _drop_rng.randf_range(0.25, 0.55))
-			var branch_dir := Vector2(
-				_drop_rng.randf_range(-1.0, 1.0),
-				_drop_rng.randf_range(0.4, 1.0)
-			).normalized()
+			var branch_dir := Vector2(_drop_rng.randf_range(-1.0, 1.0), _drop_rng.randf_range(0.4, 1.0)).normalized()
 			var branch_end := _lightning_bolt_points[i] + branch_dir * (bot_y - top_y) * 0.35
-			_lightning_branches.append(
-				_generate_bolt(_lightning_bolt_points[i], branch_end, branch_len)
-			)
+			_lightning_branches.append(_generate_bolt(_lightning_bolt_points[i], branch_end, branch_len))
 
 	_lightning_active     = true
 	_lightning_bolt_timer  = lightning_bolt_duration
@@ -561,8 +554,8 @@ func _trigger_lightning_strike() -> void:
 func _generate_bolt(start: Vector2, end: Vector2, segments: int) -> Array[Vector2]:
 	var pts: Array[Vector2] = []
 	pts.append(start)
-	var dir    := (end - start).normalized()
-	var perp   := Vector2(-dir.y, dir.x)
+	var dir  := (end - start).normalized()
+	var perp := Vector2(-dir.y, dir.x)
 	for i in range(1, segments):
 		var t      := float(i) / float(segments)
 		var base   := start.lerp(end, t)
@@ -589,8 +582,7 @@ func _init_fog() -> void:
 func _init_hail() -> void:
 	var count := int(hail_density * clamp(intensity, 0.05, 1.0))
 	_hailstones.resize(count)
-	for i in range(count):
-		_hailstones[i] = _make_hailstone(true)
+	for i in range(count): _hailstones[i] = _make_hailstone(true)
 	_rebuild_hail_packed()
 
 func _make_hailstone(spread: bool) -> Dictionary:
@@ -601,13 +593,9 @@ func _make_hailstone(spread: bool) -> Dictionary:
 	var y       := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
 				   else b.y - _drop_rng.randf() * 120.0
 	return {
-		"x":      x,
-		"y":      y,
-		"layer":  layer,
-		"radius": lerp(hail_min_radius, hail_max_radius, depth_t)
-				  * (0.7 + _drop_rng.randf() * 0.6),
-		"speed":  hail_speed * lerp(0.65, 1.0, depth_t)
-				  * (0.80 + _drop_rng.randf() * 0.40),
+		"x": x, "y": y, "layer": layer,
+		"radius": lerp(hail_min_radius, hail_max_radius, depth_t) * (0.7 + _drop_rng.randf() * 0.6),
+		"speed":  hail_speed * lerp(0.65, 1.0, depth_t) * (0.80 + _drop_rng.randf() * 0.40),
 		"alpha":  (0.55 + _drop_rng.randf() * 0.35) * lerp(0.5, 1.0, depth_t),
 	}
 
@@ -616,29 +604,20 @@ func _rebuild_hail_packed() -> void:
 		_hail_points[i].clear()
 		_hail_radii[i].clear()
 		_hail_streaks[i].clear()
-	for s in _hailstones:
-		_append_hail_stone(s)
+	for s in _hailstones: _append_hail_stone(s)
 
 func _append_hail_stone(s: Dictionary) -> void:
-	var layer: int  = s["layer"]
-	var sx: float   = s["x"]
-	var sy: float   = s["y"]
-	var r: float    = s["radius"]
-	_hail_points[layer].append(Vector2(sx, sy))
-	_hail_radii[layer].append(r)
-	var streak_len := r * 2.5
-	_hail_streaks[layer].append(Vector2(sx, sy))
-	_hail_streaks[layer].append(Vector2(sx - _hail_udx * streak_len, sy - _hail_udy * streak_len))
+	var layer: int = s["layer"]
+	_hail_points[layer].append(Vector2(s["x"], s["y"]))
+	_hail_radii[layer].append(s["radius"])
+	var streak_len = s["radius"] * 2.5
+	_hail_streaks[layer].append(Vector2(s["x"], s["y"]))
+	_hail_streaks[layer].append(Vector2(s["x"] - _hail_udx * streak_len, s["y"] - _hail_udy * streak_len))
+
 
 # =============================================================================
 # SANDSTORM INIT / PARTICLE FACTORY
 # =============================================================================
-
-func _cache_sandstorm_angle() -> void:
-	# Sand blows mostly horizontal with slight downward drift
-	var rad := deg_to_rad(8.0)
-	_sand_udx = cos(rad)
-	_sand_udy = sin(rad) * 0.18
 
 func _init_sandstorm() -> void:
 	var count := int(sandstorm_density * clamp(intensity, 0.05, 1.0))
@@ -651,137 +630,37 @@ func _make_sand_particle(spread: bool) -> Dictionary:
 	var b       := _get_draw_bounds()
 	var layer   := _drop_rng.randi() % LAYERS
 	var depth_t := float(layer) / float(LAYERS - 1)
-	var x       := _drop_rng.randf_range(b.x - 200.0, b.x + b.z + 200.0)
-	var y       := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
-				   else b.x - _drop_rng.randf() * 150.0
+	# Spread vertically across the whole sky+ground area; enter from left when recycling
+	var x := _drop_rng.randf_range(b.x, b.x + b.z) if spread \
+			  else b.x - _drop_rng.randf() * 300.0
+	var y := _drop_rng.randf_range(b.y, b.y + b.w)
 	return {
-		"x":      x,
-		"y":      y,
-		"layer":  layer,
-		"radius": lerp(sandstorm_min_radius, sandstorm_max_radius, depth_t)
-				  * (0.6 + _drop_rng.randf() * 0.8),
-		"speed":  sandstorm_speed * lerp(0.55, 1.0, depth_t)
-				  * (0.70 + _drop_rng.randf() * 0.60),
-		"alpha":  (0.35 + _drop_rng.randf() * 0.45) * lerp(0.40, 1.0, depth_t),
-		"drift":  (_drop_rng.randf() - 0.5) * 28.0,
+		"x":     x,
+		"y":     y,
+		"layer": layer,
+		# Streak length varies a lot — some very long wisps, some short specks
+		"len":   lerp(sandstorm_min_len, sandstorm_max_len, depth_t)
+				 * (0.4 + _drop_rng.randf() * 0.9),
+		"speed": sandstorm_speed * lerp(0.5, 1.0, depth_t)
+				 * (0.65 + _drop_rng.randf() * 0.70),
+		# Tiny vertical drift — keeps particles distributed, not all on one y band
+		"vy":    (_drop_rng.randf() - 0.5) * 18.0,
+		"alpha": (0.25 + _drop_rng.randf() * 0.50) * lerp(0.35, 1.0, depth_t),
 	}
 
 func _rebuild_sand_packed() -> void:
-	for i in range(LAYERS):
-		_sand_points[i].clear()
-		_sand_radii[i].clear()
-		_sand_streaks[i].clear()
-	for s in _sand_particles:
-		_append_sand_particle(s)
+	for i in range(LAYERS): _sand_lines[i].clear()
+	for s in _sand_particles: _append_sand_line(s)
 
-func _append_sand_particle(s: Dictionary) -> void:
+func _append_sand_line(s: Dictionary) -> void:
 	var layer: int = s["layer"]
 	var sx: float  = s["x"]
 	var sy: float  = s["y"]
-	var r: float   = s["radius"]
-	_sand_points[layer].append(Vector2(sx, sy))
-	_sand_radii[layer].append(r)
-	var streak_len := r * sandstorm_streak_len * 0.4
-	_sand_streaks[layer].append(Vector2(sx, sy))
-	_sand_streaks[layer].append(Vector2(sx - _sand_udx * streak_len, sy - _sand_udy * streak_len))
+	var slen: float = s["len"]
+	_sand_lines[layer].append(Vector2(sx, sy))
+	_sand_lines[layer].append(Vector2(sx - _sand_udx * slen, sy - _sand_udy * slen))
 
-# ── Sandstorm update ──────────────────────────────────────────────────────────
-func _update_sandstorm(delta: float) -> void:
-	var b        := _get_draw_bounds()
-	var ground_y := _get_ground_y()
-	var wind_x   := (sandstorm_wind + sandstorm_speed) * delta
 
-	for i in range(LAYERS):
-		_sand_points[i].clear()
-		_sand_radii[i].clear()
-		_sand_streaks[i].clear()
-
-	for i in range(_sand_particles.size()):
-		var s := _sand_particles[i]
-		s["x"] += _sand_udx * s["speed"] * delta + wind_x * (0.6 + float(s["layer"]) * 0.2)
-		s["y"] += _sand_udy * s["speed"] * delta + s["drift"] * delta
-
-		var out_right  = s["x"] > b.x + b.z + 300.0
-		var out_bottom = s["y"] >= ground_y + 40.0
-		var out_top    = s["y"] < b.y - 60.0
-
-		if out_right or out_bottom or out_top:
-			s = _make_sand_particle(false)
-			s["x"] = b.x - _drop_rng.randf() * 200.0  # re-enter from left
-			s["y"] = _drop_rng.randf_range(b.y, ground_y)
-			_sand_particles[i] = s
-
-		_append_sand_particle(s)
-
-# =============================================================================
-# SANDSTORM DRAW
-# =============================================================================
-
-func _draw_sandstorm_fog() -> void:
-	var b        := _get_draw_bounds()
-	var ground_y := _get_ground_y()
-	var base_a   = lerp(0.0, sandstorm_fog_color.a, _blend * intensity)
-
-	# Full-sky amber haze, denser toward horizon
-	var steps := 10
-	var total_h := ground_y - b.y
-	for i in range(steps):
-		var t0 := float(i)     / float(steps)
-		var t1 := float(i + 1) / float(steps)
-		var a0  = base_a * lerp(0.15, 0.85, t0* t0)
-		var a1  = base_a * lerp(0.15, 0.85, t1 * t1)
-		_draw_grad_quad(b.x, b.y + t0 * total_h, b.z, b.y + t1 * total_h,
-			Color(sandstorm_fog_color.r, sandstorm_fog_color.g, sandstorm_fog_color.b, a0),
-			Color(sandstorm_fog_color.r, sandstorm_fog_color.g, sandstorm_fog_color.b, a1))
-
-	# Dense ground-level dust roll
-	var strip_h  = 140.0 * clamp(intensity, 0.3, 1.0)
-	var ground_a = base_a * 1.35
-	_draw_grad_quad(b.x, ground_y - strip_h, b.z, ground_y,
-		Color(sandstorm_fog_color.r, sandstorm_fog_color.g, sandstorm_fog_color.b, 0.0),
-		Color(sandstorm_fog_color.r, sandstorm_fog_color.g, sandstorm_fog_color.b, ground_a))
-
-func _draw_sandstorm_particles() -> void:
-	for layer in range(LAYERS):
-		var pts     := _sand_points[layer]
-		var rads    := _sand_radii[layer]
-		var streaks := _sand_streaks[layer]
-		if pts.is_empty():
-			continue
-		var depth_t := float(layer) / float(LAYERS - 1)
-		var a       = lerp(0.30, 0.70, depth_t) * _blend * intensity
-		if a < 0.02:
-			continue
-		var color        := Color(sandstorm_color.r, sandstorm_color.g, sandstorm_color.b, a)
-		var streak_color := Color(sandstorm_streak_color.r, sandstorm_streak_color.g,
-								  sandstorm_streak_color.b, a * 0.50)
-		var n := pts.size()
-		for j in range(n):
-			draw_circle(pts[j], rads[j], color)
-		if streaks.size() >= 2:
-			draw_multiline(streaks, streak_color, rads[0] * 0.6)
-
-func _draw_sandstorm_vignette() -> void:
-	var b  := _get_draw_bounds()
-	var va := sandstorm_vignette_alpha * _blend * intensity
-	var vw := b.z * 0.30
-	var vc := Color(sandstorm_fog_color.r * 0.80, sandstorm_fog_color.g * 0.60,
-					sandstorm_fog_color.b * 0.30)
-	_draw_grad_quad(b.x, b.y, vw, b.y + b.w,
-		Color(vc.r, vc.g, vc.b, va),
-		Color(vc.r, vc.g, vc.b, 0.0))
-	_draw_grad_quad(b.x + b.z - vw, b.y, vw, b.y + b.w,
-		Color(vc.r, vc.g, vc.b, 0.0),
-		Color(vc.r, vc.g, vc.b, va))
-
-func get_sandstorm_sky_override() -> Dictionary:
-	return {
-		"sky_top":      sandstorm_sky_top,
-		"sky_horizon":  sandstorm_sky_horizon,
-		"cloud_color":  sandstorm_cloud_color,
-		"cloud_shadow": sandstorm_cloud_shadow,
-		"fog_color":    sandstorm_fog_sky,
-	}
 # =============================================================================
 # PROCESS
 # =============================================================================
@@ -842,7 +721,41 @@ func _process(delta: float) -> void:
 	alive_bounces.resize(bounce_count)
 	_hail_bounces = alive_bounces
 
+	# Emit current wind so external systems can react
+	var wf := get_wind_force()
+	if wf != Vector2.ZERO or weather == WeatherType.NONE:
+		wind_force_changed.emit(wf)
+
 	queue_redraw()
+
+# Applies wind push directly to any CharacterBody2D / RigidBody2D in PLAYER_GROUP.
+# This runs at physics rate for smooth, frame-rate-independent force application.
+func _physics_process(delta: float) -> void:
+	if _blend < 0.01:
+		return
+	var wf := get_wind_force()
+	if wf.is_zero_approx():
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	for node in tree.get_nodes_in_group(PLAYER_GROUP):
+		if not node is Node2D:
+			continue
+		# Preferred: custom hook the player exposes
+		if node.has_method("apply_wind_force"):
+			node.apply_wind_force(wf * delta)
+			continue
+		# CharacterBody2D: add to velocity directly
+		if node is CharacterBody2D:
+			node.velocity.x += wf.x * delta
+			# Optionally push vertically too (e.g. strong sandstorm lifts slightly)
+			if wf.y != 0.0:
+				node.velocity.y += wf.y * delta
+			continue
+		# RigidBody2D: apply as central impulse
+		if node is RigidBody2D:
+			(node as RigidBody2D).apply_central_impulse(wf * delta)
 
 func _get_ground_y() -> float:
 	if _wall_ref and "ground_y" in _wall_ref:
@@ -851,16 +764,13 @@ func _get_ground_y() -> float:
 	return b.y + b.w
 
 # ── Rain update ───────────────────────────────────────────────────────────────
-# Moves every drop, rebuilds packed line arrays in the same pass — no second
-# iteration. Replaces the old per-drop draw_line() with draw_multiline().
 func _update_rain(delta: float) -> void:
 	var dx  := _rain_udx + rain_wind / rain_speed
 	var dy  := _rain_udy
 	var b   := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 
-	for i in range(LAYERS):
-		_rain_lines[i].clear()
+	for i in range(LAYERS): _rain_lines[i].clear()
 
 	for i in range(_drops.size()):
 		var d := _drops[i]
@@ -871,8 +781,7 @@ func _update_rain(delta: float) -> void:
 		var out_sides  = d["x"] > b.x + b.z + 300.0 or d["x"] < b.x - 300.0
 
 		if out_bottom or out_sides:
-			if out_bottom:
-				_spawn_splash(d["x"], ground_y, d["alpha"], d["layer"])
+			if out_bottom: _spawn_splash(d["x"], ground_y, d["alpha"], d["layer"])
 			d = _make_drop(false)
 			_drops[i] = d
 
@@ -892,33 +801,27 @@ func _update_rain_audio(delta: float) -> void:
 		_audio.volume_db = move_toward(_audio.volume_db, target_db, 6.0 * delta)
 
 func _update_lightning(delta: float) -> void:
-	if _lightning_flash_timer > 0.0:
-		_lightning_flash_timer -= delta
+	if _lightning_flash_timer > 0.0: _lightning_flash_timer -= delta
 	if _lightning_bolt_timer > 0.0:
 		_lightning_bolt_timer -= delta
-		if _lightning_bolt_timer <= 0.0:
-			_lightning_active = false
+		if _lightning_bolt_timer <= 0.0: _lightning_active = false
 
 	_lightning_timer -= delta
 	if _lightning_timer <= 0.0:
 		_lightning_interval = _drop_rng.randf_range(
-			lerp(lightning_max_interval, lightning_min_interval, intensity),
-			lightning_max_interval
-		)
+			lerp(lightning_max_interval, lightning_min_interval, intensity), lightning_max_interval)
 		_lightning_timer = _lightning_interval
 		_trigger_lightning_strike()
 
 func _update_fog(delta: float) -> void:
-	var n := _fog_offsets.size()
-	for i in range(n):
+	for i in range(_fog_offsets.size()):
 		_fog_offsets[i] += fog_scroll_speeds[i % fog_scroll_speeds.size()] * delta
 
 # ── Snow update ───────────────────────────────────────────────────────────────
-# Moves flakes and rebuilds packed circle arrays in one pass.
 func _update_snow(delta: float) -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
-	var sway_t   := _time * snow_sway_frequency * TAU   # precomputed once
+	var sway_t   := _time * snow_sway_frequency * TAU
 
 	for i in range(LAYERS):
 		_snow_points[i].clear()
@@ -932,15 +835,12 @@ func _update_snow(delta: float) -> void:
 		if f["y"] >= ground_y or f["x"] > b.x + b.z + 80.0 or f["x"] < b.x - 80.0:
 			f = _make_flake(false)
 			_snowflakes[i] = f
-		else:
-			_snowflakes[i] = f
 
-		var layer: int = f["layer"]
-		_snow_points[layer].append(Vector2(f["x"], f["y"]))
-		_snow_radii[layer].append(f["radius"])
+		_snow_points[f["layer"]].append(Vector2(f["x"], f["y"]))
+		_snow_radii[f["layer"]].append(f["radius"])
+		_snowflakes[i] = f
 
 # ── Hail update ───────────────────────────────────────────────────────────────
-# Moves hailstones and rebuilds packed arrays in one pass.
 func _update_hail(delta: float) -> void:
 	var dx  := _hail_udx + hail_wind / hail_speed
 	var dy  := _hail_udy
@@ -957,37 +857,47 @@ func _update_hail(delta: float) -> void:
 		s["x"] += dx * s["speed"] * delta
 		s["y"] += dy * s["speed"] * delta
 
-		var out_bottom = s["y"] >= ground_y
-		var out_sides  = s["x"] > b.x + b.z + 200.0 or s["x"] < b.x - 200.0
-
-		if out_bottom or out_sides:
-			if out_bottom and _drop_rng.randf() < hail_bounce_chance * intensity:
+		if s["y"] >= ground_y or s["x"] > b.x + b.z + 200.0 or s["x"] < b.x - 200.0:
+			if s["y"] >= ground_y and _drop_rng.randf() < hail_bounce_chance * intensity:
 				_spawn_hail_bounce(s["x"], ground_y, s["alpha"], s["radius"])
 			s = _make_hailstone(false)
 			_hailstones[i] = s
 
 		_append_hail_stone(s)
 
+# ── Sandstorm update ──────────────────────────────────────────────────────────
+func _update_sandstorm(delta: float) -> void:
+	var b        := _get_draw_bounds()
+	var ground_y := _get_ground_y()
+
+	for i in range(LAYERS): _sand_lines[i].clear()
+
+	for i in range(_sand_particles.size()):
+		var s := _sand_particles[i]
+		# All sand moves strongly to the right; speed varies by layer
+		s["x"] += (_sand_udx * s["speed"] + sandstorm_wind) * delta
+		s["y"] += _sand_udy * s["speed"] * delta + s["vy"] * delta
+
+		# Recycle when off right edge, above sky, or below ground
+		if s["x"] - s["len"] > b.x + b.z + 100.0 \
+				or s["y"] < b.y - 40.0 \
+				or s["y"] > ground_y + 40.0:
+			s = _make_sand_particle(false)
+			_sand_particles[i] = s
+
+		_append_sand_line(s)
+
 func _spawn_splash(sx: float, gy: float, drop_alpha: float, _layer: int) -> void:
-	if _drop_rng.randf() > 0.12:
-		return
-	_splashes.append({
-		"x":     sx,
-		"gy":    gy,
-		"t":     0.0,
-		"alpha": drop_alpha * clamp(intensity, 0.3, 0.7),
-	})
+	if _drop_rng.randf() > 0.12: return
+	_splashes.append({"x": sx, "gy": gy, "t": 0.0, "alpha": drop_alpha * clamp(intensity, 0.3, 0.7)})
 
 func _spawn_hail_bounce(sx: float, gy: float, drop_alpha: float, radius: float) -> void:
 	var angle := _drop_rng.randf_range(-PI * 0.6, PI * 0.6)
 	_hail_bounces.append({
-		"x":      sx,
-		"y":      gy,
-		"vx":     cos(angle) * hail_bounce_speed * _drop_rng.randf_range(0.4, 1.0),
-		"vy":     -hail_bounce_speed * _drop_rng.randf_range(0.3, 0.8),
-		"t":      0.0,
-		"alpha":  drop_alpha * 0.7,
-		"radius": radius * 0.6,
+		"x": sx, "y": gy,
+		"vx": cos(angle) * hail_bounce_speed * _drop_rng.randf_range(0.4, 1.0),
+		"vy": -hail_bounce_speed * _drop_rng.randf_range(0.3, 0.8),
+		"t": 0.0, "alpha": drop_alpha * 0.7, "radius": radius * 0.6,
 	})
 
 
@@ -1002,20 +912,17 @@ func _update_night_lamp(_delta: float) -> void:
 		desired_dir = to_target.normalized() if to_target.length() > 2.0 else Vector2(0.0, 1.0)
 	else:
 		desired_dir = Vector2(0.0, 1.0)
-
 	_lamp_dir_smooth = _lamp_dir_smooth.lerp(
 		desired_dir, LAMP_DIR_LERP * get_process_delta_time()).normalized()
 
 func _update_night_lights() -> void:
 	var target_energy := night_lamp_energy * _blend * intensity
 	if _headlamp:
-		if _has_player:
-			_headlamp.position = to_local(_player_head_world)
+		if _has_player: _headlamp.position = to_local(_player_head_world)
 		_headlamp.energy   = target_energy
 		_headlamp.rotation = _lamp_dir_smooth.angle() + PI * 0.5
 	if _ambient_light:
-		if _has_player:
-			_ambient_light.position = to_local(_player_head_world)
+		if _has_player: _ambient_light.position = to_local(_player_head_world)
 		_ambient_light.energy = night_ambient_energy * _blend * intensity
 
 
@@ -1024,13 +931,12 @@ func _update_night_lights() -> void:
 # =============================================================================
 
 func _draw() -> void:
-	if _blend < 0.01:
-		return
+	if _blend < 0.01: return
 	match weather:
 		WeatherType.RAIN:
+			_draw_rain_fog()
 			_draw_rain_streaks()
 			_draw_splashes()
-			_draw_rain_fog()
 		WeatherType.NIGHT:
 			_draw_night_darkness()
 		WeatherType.SNOW:
@@ -1039,9 +945,9 @@ func _draw() -> void:
 			_draw_snow_accumulation()
 		WeatherType.LIGHTNING:
 			_draw_lightning_flash()
+			_draw_rain_fog()
 			_draw_rain_streaks()
 			_draw_splashes()
-			_draw_rain_fog()
 			_draw_lightning_bolt()
 		WeatherType.FOG:
 			_draw_fog_ambient()
@@ -1054,9 +960,7 @@ func _draw() -> void:
 			_draw_hail_bounces()
 			_draw_splashes()
 		WeatherType.SANDSTORM:
-			_draw_sandstorm_fog()
-			_draw_sandstorm_particles()
-			_draw_sandstorm_vignette()
+			_draw_sandstorm()
 		WeatherType.NONE:
 			pass
 
@@ -1067,31 +971,25 @@ func _draw() -> void:
 
 func _draw_night_darkness() -> void:
 	var b := _get_draw_bounds()
-	var a := night_darkness_alpha * _blend * intensity
-	draw_rect(
-		Rect2(b.x, b.y, b.z, b.w),
-		Color(night_dark_color.r, night_dark_color.g, night_dark_color.b, a))
+	draw_rect(Rect2(b.x, b.y, b.z, b.w),
+		Color(night_dark_color.r, night_dark_color.g, night_dark_color.b,
+			  night_darkness_alpha * _blend * intensity))
 
 
 # =============================================================================
-# RAIN DRAW — batched via draw_multiline()
+# RAIN DRAW
 # =============================================================================
 
 func _draw_rain_streaks() -> void:
-	# Rebuild per-layer color cache (cheap: 3 Color constructions per frame)
 	for layer in range(LAYERS):
+		if _rain_lines[layer].size() < 2: continue
 		var alpha_scale = lerp(0.45, 1.0, float(layer) / float(LAYERS - 1))
-		# Use a representative drop alpha (mid-range) modulated by blend/intensity
 		var a = 0.75 * alpha_scale * _blend * intensity
-		if a < 0.02:
-			continue
-		if _rain_lines[layer].size() < 2:
-			continue
-		var line_w = lerp(1.0, 2.2, float(layer) / float(LAYERS - 1))
+		if a < 0.02: continue
 		draw_multiline(
 			_rain_lines[layer],
 			Color(rain_color.r, rain_color.g, rain_color.b, a),
-			line_w)
+			lerp(1.0, 2.2, float(layer) / float(LAYERS - 1)))
 
 func _draw_splashes() -> void:
 	var rc := Color(rain_color.r + 0.10, rain_color.g + 0.05, rain_color.b + 0.03)
@@ -1104,8 +1002,7 @@ func _draw_splashes() -> void:
 
 func _draw_ellipse_ring(cx: float, cy: float, rx: float, ry: float,
 						alpha: float, color: Color, line_w: float) -> void:
-	if rx < 0.5 or ry < 0.5 or alpha < 0.01:
-		return
+	if rx < 0.5 or ry < 0.5 or alpha < 0.01: return
 	const STEPS := 14
 	var pts := PackedVector2Array()
 	pts.resize(STEPS + 1)
@@ -1114,16 +1011,12 @@ func _draw_ellipse_ring(cx: float, cy: float, rx: float, ry: float,
 		pts[i] = Vector2(cx + cos(angle) * rx, cy + sin(angle) * ry)
 	draw_polyline(pts, Color(color.r, color.g, color.b, alpha), line_w, true)
 
-func _draw_grad_quad(x: float, y0: float, w: float, y1: float,
-					 c_top: Color, c_bot: Color) -> void:
-	var top_left  := Vector2(x,     y0)
-	var top_right := Vector2(x + w, y0)
-	var bot_right := Vector2(x + w, y1)
-	var bot_left  := Vector2(x,     y1)
-	draw_polygon(PackedVector2Array([top_left, top_right, bot_right]),
-				 PackedColorArray([c_top, c_top, c_bot]))
-	draw_polygon(PackedVector2Array([top_left, bot_right, bot_left]),
-				 PackedColorArray([c_top, c_bot, c_bot]))
+# Single non-overlapping gradient quad helper (used by multiple weather types)
+func _draw_grad_quad(x: float, y0: float, w: float, y1: float, c_top: Color, c_bot: Color) -> void:
+	var tl := Vector2(x,     y0); var tr := Vector2(x + w, y0)
+	var br := Vector2(x + w, y1); var bl := Vector2(x,     y1)
+	draw_polygon(PackedVector2Array([tl, tr, br]), PackedColorArray([c_top, c_top, c_bot]))
+	draw_polygon(PackedVector2Array([tl, br, bl]), PackedColorArray([c_top, c_bot, c_bot]))
 
 func _draw_rain_fog() -> void:
 	var b        := _get_draw_bounds()
@@ -1131,64 +1024,53 @@ func _draw_rain_fog() -> void:
 	var total_h  := ground_y - b.y + 300.0
 	var w        := b.z
 
-	var haze_max_a = lerp(0.0, 0.35, intensity * _blend)
-	for i in range(8):
-		var t0 := float(i)     / 8.0
-		var t1 := float(i + 1) / 8.0
-		_draw_grad_quad(b.x, b.y + t0 * total_h, w, b.y + t1 * total_h,
-			Color(0.08, 0.11, 0.18, haze_max_a * (t0 * t0)),
-			Color(0.10, 0.14, 0.22, haze_max_a * (t1 * t1)))
+	# Single full-height gradient — no overlapping bands
+	var haze_top = lerp(0.0, 0.10, intensity * _blend)
+	var haze_bot = lerp(0.0, 0.35, intensity * _blend)
+	_draw_grad_quad(b.x, b.y, w, b.y + total_h,
+		Color(0.08, 0.11, 0.18, haze_top),
+		Color(0.10, 0.14, 0.22, haze_bot))
 
+	# Ground mist — single gradient strip
 	var mist_max_a = lerp(0.0, 0.20, intensity * _blend)
 	var mist_h     = lerp(30.0, 110.0, intensity)
-	var mist_col   := Color(0.55, 0.64, 0.78)
-	for i in range(6):
-		var t0 := float(i)     / 6.0
-		var t1 := float(i + 1) / 6.0
-		_draw_grad_quad(b.x, ground_y - t0 * mist_h, w, ground_y - t1 * mist_h,
-			Color(mist_col.r, mist_col.g, mist_col.b, mist_max_a * (1.0 - t0)),
-			Color(mist_col.r, mist_col.g, mist_col.b, mist_max_a * (1.0 - t1)))
+	_draw_grad_quad(b.x, ground_y - mist_h, w, ground_y,
+		Color(0.55, 0.64, 0.78, 0.0),
+		Color(0.55, 0.64, 0.78, mist_max_a))
 
 
 # =============================================================================
-# SNOW DRAW — batched via per-layer circle loop (no layer filter branch)
+# SNOW DRAW
 # =============================================================================
 
 func _draw_snow_fog() -> void:
-	var b      := _get_draw_bounds()
-	var w      := b.z
-	var h      := b.w
-	var haze_a = lerp(0.0, 0.08, intensity * _blend)
-	_draw_grad_quad(b.x, b.y,           w, b.y + h * 0.5,
-		Color(snow_fog_color_top.r, snow_fog_color_top.g, snow_fog_color_top.b, 0.0),
-		Color(snow_fog_color_mid.r, snow_fog_color_mid.g, snow_fog_color_mid.b, haze_a))
-	_draw_grad_quad(b.x, b.y + h * 0.5, w, b.y + h,
-		Color(snow_fog_color_mid.r, snow_fog_color_mid.g, snow_fog_color_mid.b, haze_a),
-		Color(snow_fog_color_mid.r, snow_fog_color_mid.g, snow_fog_color_mid.b, haze_a * 1.4))
+	var b  := _get_draw_bounds()
+	# Single gradient top-to-bottom — no overlapping bands
+	var a0 = lerp(0.0, 0.0,  intensity * _blend)
+	var a1 = lerp(0.0, 0.10, intensity * _blend)
+	_draw_grad_quad(b.x, b.y, b.z, b.y + b.w,
+		Color(snow_fog_color_top.r, snow_fog_color_top.g, snow_fog_color_top.b, a0),
+		Color(snow_fog_color_mid.r, snow_fog_color_mid.g, snow_fog_color_mid.b, a1))
 
 func _draw_snowflakes() -> void:
 	for layer in range(LAYERS):
 		var pts  := _snow_points[layer]
 		var rads := _snow_radii[layer]
-		if pts.is_empty():
-			continue
+		if pts.is_empty(): continue
 		var depth_t := float(layer) / float(LAYERS - 1)
 		var a = lerp(0.30, 0.65, depth_t) * _blend * intensity
-		if a < 0.02:
-			continue
+		if a < 0.02: continue
 		var color := Color(snow_color.r, snow_color.g, snow_color.b, a)
-		var n     := pts.size()
-		for j in range(n):
+		for j in range(pts.size()):
 			draw_circle(pts[j], rads[j], color)
 
 func _draw_snow_accumulation() -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 	var strip_h  = snow_accum_height * clamp(intensity, 0.2, 1.0)
-	var a_top    := snow_accum_alpha * _blend * intensity
 	_draw_grad_quad(b.x, ground_y - strip_h, b.z, ground_y,
 		Color(snow_color.r, snow_color.g, snow_color.b, 0.0),
-		Color(snow_color.r, snow_color.g, snow_color.b, a_top))
+		Color(snow_color.r, snow_color.g, snow_color.b, snow_accum_alpha * _blend * intensity))
 
 
 # =============================================================================
@@ -1196,31 +1078,25 @@ func _draw_snow_accumulation() -> void:
 # =============================================================================
 
 func _draw_lightning_flash() -> void:
-	if _lightning_flash_timer <= 0.0:
-		return
-	var b     := _get_draw_bounds()
-	var t     = clamp(_lightning_flash_timer / lightning_flash_duration, 0.0, 1.0)
-	var alpha = t * t * 0.55 * _blend * intensity
-	draw_rect(
-		Rect2(b.x, b.y, b.z, b.w),
-		Color(lightning_flash_color.r, lightning_flash_color.g, lightning_flash_color.b, alpha))
+	if _lightning_flash_timer <= 0.0: return
+	var b   := _get_draw_bounds()
+	var t   = clamp(_lightning_flash_timer / lightning_flash_duration, 0.0, 1.0)
+	draw_rect(Rect2(b.x, b.y, b.z, b.w),
+		Color(lightning_flash_color.r, lightning_flash_color.g, lightning_flash_color.b,
+			  t * t * 0.55 * _blend * intensity))
 
 func _draw_lightning_bolt() -> void:
-	if not _lightning_active or _lightning_bolt_points.size() < 2:
-		return
+	if not _lightning_active or _lightning_bolt_points.size() < 2: return
 	var t     = clamp(_lightning_bolt_timer / lightning_bolt_duration, 0.0, 1.0)
 	var alpha = t * _blend * intensity
-
 	_draw_bolt_path(_lightning_bolt_points,
 		Color(lightning_glow_color.r, lightning_glow_color.g, lightning_glow_color.b, alpha * 0.5),
 		lightning_glow_width)
 	_draw_bolt_path(_lightning_bolt_points,
 		Color(lightning_bolt_color.r, lightning_bolt_color.g, lightning_bolt_color.b, alpha),
 		lightning_bolt_width)
-
 	for branch in _lightning_branches:
-		if branch.size() < 2:
-			continue
+		if branch.size() < 2: continue
 		_draw_bolt_path(branch,
 			Color(lightning_glow_color.r, lightning_glow_color.g, lightning_glow_color.b, alpha * 0.25),
 			lightning_glow_width * 0.6)
@@ -1229,9 +1105,7 @@ func _draw_lightning_bolt() -> void:
 			lightning_bolt_width * 0.55)
 
 func _draw_bolt_path(pts: Array[Vector2], color: Color, width: float) -> void:
-	# Convert to PackedVector2Array for draw_polyline — single draw call per bolt segment
-	var packed := PackedVector2Array(pts)
-	draw_polyline(packed, color, width, true)
+	draw_polyline(PackedVector2Array(pts), color, width, true)
 
 
 # =============================================================================
@@ -1240,22 +1114,18 @@ func _draw_bolt_path(pts: Array[Vector2], color: Color, width: float) -> void:
 
 func _draw_fog_ambient() -> void:
 	var b := _get_draw_bounds()
-	var a := fog_ambient_darken * _blend * intensity
-	draw_rect(
-		Rect2(b.x, b.y, b.z, b.w),
-		Color(fog_color.r * 0.85, fog_color.g * 0.85, fog_color.b * 0.85, a))
+	draw_rect(Rect2(b.x, b.y, b.z, b.w),
+		Color(fog_color.r * 0.85, fog_color.g * 0.85, fog_color.b * 0.85,
+			  fog_ambient_darken * _blend * intensity))
 
 func _draw_fog_layers() -> void:
-	if _fog_offsets.is_empty():
-		return
+	if _fog_offsets.is_empty(): return
 	var b        := _get_draw_bounds()
 	var y_cursor := b.y
-
 	for i in range(fog_layers):
 		var layer_h    = b.w * fog_layer_heights[i % fog_layer_heights.size()]
 		var base_alpha = fog_layer_alphas[i % fog_layer_alphas.size()] * _blend * intensity
 		var offset     := fmod(_fog_offsets[i], b.z + 400.0)
-
 		for tile in range(2):
 			var tile_x := b.x - 200.0 + offset + float(tile) * (b.z + 400.0) - (b.z + 400.0)
 			var mid_a  = base_alpha * (0.6 + 0.4 * sin(_time * 0.3 + float(i) * 1.7))
@@ -1265,61 +1135,51 @@ func _draw_fog_layers() -> void:
 			_draw_grad_quad(tile_x, y_cursor + layer_h * 0.5, b.z + 400.0, y_cursor + layer_h,
 				Color(fog_color.r, fog_color.g, fog_color.b, mid_a),
 				Color(fog_color.r, fog_color.g, fog_color.b, 0.0))
-
 		y_cursor += layer_h * 0.55
 
 func _draw_fog_ground() -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 	var strip_h  = fog_ground_height * clamp(intensity, 0.2, 1.0)
-	var a_top    := fog_ground_alpha * _blend * intensity
 	_draw_grad_quad(b.x, ground_y - strip_h, b.z, ground_y,
 		Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
-		Color(fog_color.r, fog_color.g, fog_color.b, a_top))
+		Color(fog_color.r, fog_color.g, fog_color.b, fog_ground_alpha * _blend * intensity))
 
 func _draw_fog_vignette() -> void:
 	var b  := _get_draw_bounds()
 	var va := fog_vignette_alpha * _blend * intensity
 	var vw := b.z * 0.22
 	var vc := Color(fog_color.r * 0.6, fog_color.g * 0.6, fog_color.b * 0.6)
-
 	_draw_grad_quad(b.x, b.y, vw, b.y + b.w,
-		Color(vc.r, vc.g, vc.b, va),
-		Color(vc.r, vc.g, vc.b, 0.0))
+		Color(vc.r, vc.g, vc.b, va), Color(vc.r, vc.g, vc.b, 0.0))
 	_draw_grad_quad(b.x + b.z - vw, b.y, vw, b.y + b.w,
-		Color(vc.r, vc.g, vc.b, 0.0),
-		Color(vc.r, vc.g, vc.b, va))
+		Color(vc.r, vc.g, vc.b, 0.0), Color(vc.r, vc.g, vc.b, va))
 
 
 # =============================================================================
-# HAIL DRAW — batched circles + draw_multiline() for streaks
+# HAIL DRAW
 # =============================================================================
 
 func _draw_hail_fog() -> void:
 	var b    := _get_draw_bounds()
 	var haze = lerp(0.0, 0.12, intensity * _blend)
-	_draw_grad_quad(b.x, b.y, b.z, b.y + b.w,
-		Color(hail_fog_color.r, hail_fog_color.g, hail_fog_color.b, haze * 0.3),
-		Color(hail_fog_color.r, hail_fog_color.g, hail_fog_color.b, haze))
+	# Single flat rect — no gradient overlap
+	draw_rect(Rect2(b.x, b.y, b.z, b.w),
+		Color(hail_fog_color.r, hail_fog_color.g, hail_fog_color.b, haze * 0.4))
 
 func _draw_hailstones() -> void:
 	for layer in range(LAYERS):
 		var pts     := _hail_points[layer]
 		var rads    := _hail_radii[layer]
 		var streaks := _hail_streaks[layer]
-		if pts.is_empty():
-			continue
+		if pts.is_empty(): continue
 		var depth_t := float(layer) / float(LAYERS - 1)
 		var a       = lerp(0.55, 0.90, depth_t) * _blend * intensity
-		if a < 0.02:
-			continue
+		if a < 0.02: continue
 		var color        := Color(hail_color.r, hail_color.g, hail_color.b, a)
 		var streak_color := Color(hail_color.r, hail_color.g, hail_color.b, a * 0.45)
-		# Draw all circles for this layer
-		var n := pts.size()
-		for j in range(n):
+		for j in range(pts.size()):
 			draw_circle(pts[j], rads[j], color)
-		# Draw all streaks for this layer — one multiline call
 		if streaks.size() >= 2:
 			draw_multiline(streaks, streak_color, rads[0] * 0.5)
 
@@ -1327,24 +1187,59 @@ func _draw_hail_bounces() -> void:
 	for bc in _hail_bounces:
 		var t_norm = clamp(bc["t"] / hail_bounce_duration, 0.0, 1.0)
 		var a      = (1.0 - t_norm) * bc["alpha"] * _blend
-		if a < 0.02:
-			continue
-		draw_circle(
-			Vector2(bc["x"], bc["y"]),
-			bc["radius"],
+		if a < 0.02: continue
+		draw_circle(Vector2(bc["x"], bc["y"]), bc["radius"],
 			Color(hail_impact_color.r, hail_impact_color.g, hail_impact_color.b, a))
 
-# ── Packed draw arrays — sandstorm (per layer) ───────────────────────────────
-var _sand_points:  Array[PackedVector2Array] = [
-	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
-var _sand_radii:   Array[PackedFloat32Array] = [
-	PackedFloat32Array(), PackedFloat32Array(), PackedFloat32Array()]
-var _sand_streaks: Array[PackedVector2Array] = [
-	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
 
-var _sand_particles: Array[Dictionary] = []
-var _sand_udx: float = 0.0
-var _sand_udy: float = 0.0
+# =============================================================================
+# SANDSTORM DRAW  — everything in one method for clarity and efficiency
+# =============================================================================
+
+func _draw_sandstorm() -> void:
+	var b        := _get_draw_bounds()
+	var ground_y := _get_ground_y()
+	var total_h  := ground_y - b.y
+	var blend    := _blend * intensity
+
+	# ── 1. Full-sky amber haze — ONE flat rect, no overlapping bands ──────────
+	draw_rect(Rect2(b.x, b.y, b.z, total_h + 300.0),
+		Color(sandstorm_haze_color.r, sandstorm_haze_color.g, sandstorm_haze_color.b,
+			  sandstorm_haze_alpha * blend))
+
+	# ── 2. Horizon darkening — single gradient, denser near ground ───────────
+	_draw_grad_quad(b.x, b.y, b.z, b.y + total_h,
+		Color(sandstorm_haze_color.r * 0.6, sandstorm_haze_color.g * 0.5, sandstorm_haze_color.b * 0.2, 0.0),
+		Color(sandstorm_haze_color.r * 0.6, sandstorm_haze_color.g * 0.5, sandstorm_haze_color.b * 0.2, 0.30 * blend))
+
+	# ── 3. Dense ground-level dust roll — single gradient strip ──────────────
+	var gh   = sandstorm_ground_h * clamp(intensity, 0.3, 1.0)
+	_draw_grad_quad(b.x, ground_y - gh, b.z, ground_y,
+		Color(sandstorm_haze_color.r, sandstorm_haze_color.g, sandstorm_haze_color.b, 0.0),
+		Color(sandstorm_haze_color.r * 0.8, sandstorm_haze_color.g * 0.65, sandstorm_haze_color.b * 0.25,
+			  sandstorm_ground_alpha * blend))
+
+	# ── 4. Sand streaks — batched per layer with draw_multiline ──────────────
+	for layer in range(LAYERS):
+		if _sand_lines[layer].size() < 2: continue
+		var depth_t := float(layer) / float(LAYERS - 1)
+		var a = lerp(0.18, 0.55, depth_t) * blend
+		if a < 0.02: continue
+		var line_w = lerp(0.7, 1.8, depth_t)
+		draw_multiline(
+			_sand_lines[layer],
+			Color(sandstorm_color.r, sandstorm_color.g, sandstorm_color.b, a),
+			line_w)
+
+	# ── 5. Edge vignette — left side slightly darker (wind source) ────────────
+	var vw := b.z * 0.18
+	var vc := Color(sandstorm_haze_color.r * 0.55, sandstorm_haze_color.g * 0.40,
+					sandstorm_haze_color.b * 0.15)
+	_draw_grad_quad(b.x, b.y, vw, b.y + total_h + 300.0,
+		Color(vc.r, vc.g, vc.b, 0.22 * blend), Color(vc.r, vc.g, vc.b, 0.0))
+	_draw_grad_quad(b.x + b.z - vw, b.y, vw, b.y + total_h + 300.0,
+		Color(vc.r, vc.g, vc.b, 0.0), Color(vc.r, vc.g, vc.b, 0.14 * blend))
+
 
 # =============================================================================
 # PUBLIC API
@@ -1355,56 +1250,51 @@ func get_blend() -> float:
 
 func get_rain_sky_override() -> Dictionary:
 	return {
-		"sky_top":      rain_sky_top,
-		"sky_horizon":  rain_sky_horizon,
-		"cloud_color":  rain_cloud_color,
-		"cloud_shadow": rain_cloud_shadow,
+		"sky_top":      rain_sky_top,      "sky_horizon":  rain_sky_horizon,
+		"cloud_color":  rain_cloud_color,  "cloud_shadow": rain_cloud_shadow,
 		"fog_color":    rain_fog_color,
 	}
 
 func get_night_sky_override() -> Dictionary:
 	return {
-		"sky_top":      night_sky_top,
-		"sky_horizon":  night_sky_horizon,
-		"cloud_color":  night_cloud_color,
-		"cloud_shadow": night_cloud_shadow,
+		"sky_top":      night_sky_top,      "sky_horizon":  night_sky_horizon,
+		"cloud_color":  night_cloud_color,  "cloud_shadow": night_cloud_shadow,
 		"fog_color":    night_fog_color,
 	}
 
 func get_snow_sky_override() -> Dictionary:
 	return {
-		"sky_top":      snow_sky_top,
-		"sky_horizon":  snow_sky_horizon,
-		"cloud_color":  snow_cloud_color,
-		"cloud_shadow": snow_cloud_shadow,
+		"sky_top":      snow_sky_top,      "sky_horizon":  snow_sky_horizon,
+		"cloud_color":  snow_cloud_color,  "cloud_shadow": snow_cloud_shadow,
 		"fog_color":    snow_fog_color,
 	}
 
 func get_lightning_sky_override() -> Dictionary:
 	return {
-		"sky_top":      lightning_sky_top,
-		"sky_horizon":  lightning_sky_horizon,
-		"cloud_color":  lightning_cloud_color,
-		"cloud_shadow": lightning_cloud_shadow,
+		"sky_top":      lightning_sky_top,      "sky_horizon":  lightning_sky_horizon,
+		"cloud_color":  lightning_cloud_color,  "cloud_shadow": lightning_cloud_shadow,
 		"fog_color":    lightning_fog_color,
 	}
 
 func get_fog_sky_override() -> Dictionary:
 	return {
-		"sky_top":      fog_sky_top,
-		"sky_horizon":  fog_sky_horizon,
-		"cloud_color":  fog_cloud_color,
-		"cloud_shadow": fog_cloud_shadow,
+		"sky_top":      fog_sky_top,      "sky_horizon":  fog_sky_horizon,
+		"cloud_color":  fog_cloud_color,  "cloud_shadow": fog_cloud_shadow,
 		"fog_color":    fog_fog_color,
 	}
 
 func get_hail_sky_override() -> Dictionary:
 	return {
-		"sky_top":      hail_sky_top,
-		"sky_horizon":  hail_sky_horizon,
-		"cloud_color":  hail_cloud_color,
-		"cloud_shadow": hail_cloud_shadow,
+		"sky_top":      hail_sky_top,      "sky_horizon":  hail_sky_horizon,
+		"cloud_color":  hail_cloud_color,  "cloud_shadow": hail_cloud_shadow,
 		"fog_color":    hail_fog_color,
+	}
+
+func get_sandstorm_sky_override() -> Dictionary:
+	return {
+		"sky_top":      sandstorm_sky_top,      "sky_horizon":  sandstorm_sky_horizon,
+		"cloud_color":  sandstorm_cloud_color,  "cloud_shadow": sandstorm_cloud_shadow,
+		"fog_color":    sandstorm_fog_sky,
 	}
 
 func get_active_sky_override() -> Dictionary:
@@ -1443,28 +1333,58 @@ func get_gravity_modifier() -> float:
 	return 1.0
 
 func get_wind_force() -> Vector2:
+	# Values are in pixels/sec² effectively — tuned so a CharacterBody2D
+	# with typical move_and_slide feels a noticeable but not overwhelming push.
 	match weather:
 		WeatherType.RAIN:
-			return Vector2(rain_wind * 0.3 * _blend, 0.0)
+			# Light sideways push — maybe 15 px/s at full intensity
+			return Vector2(120.0 * _blend * intensity, 0.0)
 		WeatherType.SNOW:
-			return Vector2(sin(_time * snow_sway_frequency * TAU) * snow_drift_speed * 0.15 * _blend, 0.0)
+			# Gentle swaying gust
+			var sway := sin(_time * snow_sway_frequency * TAU) * 0.6 \
+					  + sin(_time * snow_sway_frequency * TAU * 2.3) * 0.4
+			return Vector2(sway * 80.0 * _blend * intensity, 0.0)
 		WeatherType.LIGHTNING:
-			var gust := sin(_time * 1.3) * 0.5 + sin(_time * 3.1) * 0.3 + sin(_time * 7.4) * 0.2
-			return Vector2(gust * 80.0 * _blend * intensity, 0.0)
+			# Strong, gusty — erratic direction changes
+			var gust := sin(_time * 1.3) * 0.5 \
+					  + sin(_time * 3.1) * 0.3 \
+					  + sin(_time * 7.4) * 0.2
+			return Vector2(gust * 280.0 * _blend * intensity, 0.0)
 		WeatherType.HAIL:
-			return Vector2(hail_wind * 0.25 * _blend, 0.0)
+			# Steady strong push in hail_wind direction
+			return Vector2(hail_wind * 1.8 * _blend * intensity, 0.0)
 		WeatherType.SANDSTORM:
-			return Vector2(sandstorm_wind * 0.35 * _blend, 0.0)
+			# Very strong constant push — sandstorm is the windiest weather
+			return Vector2(sandstorm_wind * 2.2 * _blend * intensity, 0.0)
 		_:
 			return Vector2.ZERO
 
 func _get_draw_bounds() -> Vector4:
+	# Always derive bounds from the actual camera viewport in world space.
+	# This covers any zoom level — zooming out just makes the viewport rect larger
+	# in world coords, so the weather always fills it with a safety margin.
+	var vp := get_viewport()
+	if vp:
+		var ct      := vp.get_canvas_transform()
+		var vp_size := vp.get_visible_rect().size
+		# Inverse of canvas transform gives the world-space rect of the visible area.
+		var ct_inv   := ct.affine_inverse()
+		var tl_world := ct_inv * Vector2.ZERO
+		var br_world := ct_inv * vp_size
+		# Add a generous margin so particles don't pop in at screen edges.
+		const MARGIN := 400.0
+		var x := tl_world.x - MARGIN
+		var y := tl_world.y - MARGIN
+		var w := (br_world.x - tl_world.x) + MARGIN * 2.0
+		var h := (br_world.y - tl_world.y) + MARGIN * 2.0
+		return Vector4(x, y, w, h)
+	# Fallback: wall bounds with large expansion
 	if _wall_ref and _wall_ref.has_method("get_bounds"):
 		var b: Dictionary = _wall_ref.get_bounds()
 		if b.get("valid", false):
-			const EXP := 700.0
+			const EXP := 2000.0
 			return Vector4(b["min"].x - EXP, b["min"].y - EXP,
 						   (b["max"].x - b["min"].x) + EXP * 2.0,
 						   (b["max"].y - b["min"].y) + EXP * 2.0)
 	var vs := get_viewport_rect().size
-	return Vector4(-vs.x * 0.5, -vs.y * 0.5, vs.x * 2.0, vs.y * 2.0)
+	return Vector4(-vs.x * 2.0, -vs.y * 2.0, vs.x * 4.0, vs.y * 4.0)
