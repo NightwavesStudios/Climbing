@@ -4,7 +4,7 @@ extends Node
 ## to ENVIRONMENTS dict. Everything else (wall rendering, editor dropdown,
 ## hold sprites) picks it up automatically.
 
-enum EnvironmentType { GYM, GRANITE, SANDSTONE, BUILDING, ICE }
+enum EnvironmentType { GYM, GRANITE, SANDSTONE, BUILDING, ICE, DEEP_WATER_SOLO }
 
 var current_environment: EnvironmentType = EnvironmentType.GYM
 
@@ -39,7 +39,7 @@ const ENVIRONMENTS = {
 		"background_color": Color(0.16, 0.38, 0.70, 1.0),
 		"show_bolt_holes": false,
 		"show_granite_texture": false,
-		"sprite_suffix": "Sandstone"
+		"sprite_suffix": "Building"
 	},
 	# ── ICE — frozen alpine face ───────────────────────────────────────────────
 	EnvironmentType.ICE: {
@@ -48,7 +48,15 @@ const ENVIRONMENTS = {
 		"background_color": Color(0.62, 0.80, 0.92, 1.0),
 		"show_bolt_holes": false,
 		"show_granite_texture": false,
-		"sprite_suffix": "Granite"  # reuse until Ice-specific art exists
+		"sprite_suffix": "Ice"
+	},
+	EnvironmentType.DEEP_WATER_SOLO: {
+	"name": "Deep Water Solo",
+	"wall_color": Color(0.607, 0.607, 0.655, 1.0),  # same as granite
+	"background_color": Color(0.18, 0.42, 0.72, 1.0),
+	"show_bolt_holes": false,
+	"show_granite_texture": true,
+	"sprite_suffix": "Granite"  # uses granite holds
 	},
 }
 

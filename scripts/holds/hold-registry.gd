@@ -29,6 +29,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Jug",
 		"sloper_drain": false,
 		"wall_types": [],
+		"max_limbs": 2, 
 	},
 	"START": {
 		"difficulty": 0.0,
@@ -41,6 +42,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Start",
 		"sloper_drain": false,
 		"wall_types": [],
+		"max_limbs": 2, 
 	},
 	"TOP": {
 		"difficulty": 0.0,
@@ -53,6 +55,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Top Out",
 		"sloper_drain": false,
 		"wall_types": [],
+		"max_limbs": 2, 
 	},
 	"CRIMP": {
 		"difficulty": 3.0,
@@ -65,6 +68,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Crimp",
 		"sloper_drain": false,
 		"wall_types": [],
+		"max_limbs": 2, 
 	},
 	"SLOPER": {
 		"difficulty": 2.5,
@@ -77,6 +81,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Sloper",
 		"sloper_drain": true,
 		"wall_types": [],
+		"max_limbs": 2, 
 	},
 	"POCKET": {
 		"difficulty": 1.2,
@@ -89,6 +94,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Pocket",
 		"sloper_drain": false,
 		"wall_types": [],
+		"max_limbs": 1, 
 	},
 	"FOOT": {
 		"difficulty": 1.0,
@@ -101,6 +107,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Foothold",
 		"sloper_drain": false,
 		"wall_types": [],
+		"max_limbs": 2, 
 	},
 	"PINCH": {
 		"difficulty": 2.0,
@@ -113,6 +120,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Pinch",
 		"sloper_drain": false,
 		"wall_types": [],
+		"max_limbs": 2, 
 	},
 	"UNDERCLING": {
 		"difficulty": 2.2,

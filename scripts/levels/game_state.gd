@@ -76,7 +76,32 @@ const COLLECTIONS = {
 			"collection": "sandstone"
 		},
 		"levels": [
-			"res://scenes/levels/building/building_01.json"
+			"res://scenes/levels/building/building_01.json",
+			"res://scenes/levels/building/building_02.json"
+		]
+	},
+	"deep-water-solo": {
+	"name": "Deep Water Solo",
+	"description": "",
+	"unlock_requirement": {
+		"type": "collection_complete",
+		"collection": "intro-gym"
+	},
+	"levels": [
+		"res://scenes/levels/dws/dws_01.json",
+		"res://scenes/levels/dws/dws_02.json",
+	]
+	},
+	"ice": {
+		"name": "Ice",
+		"description": "",
+		"unlock_requirement": {
+			"type": "collection_complete",
+			"collection": "intro-gym"
+		},
+		"levels": [
+			"res://scenes/levels/ice/ice_01.json",
+			"res://scenes/levels/ice/ice_02.json",
 		]
 	},
 }

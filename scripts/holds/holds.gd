@@ -122,6 +122,8 @@ func _cache_sprite_nodes():
 				sprite_nodes["Granite"] = child
 			elif "Sandstone" in node_name:
 				sprite_nodes["Sandstone"] = child
+			elif "Ice" in node_name:
+				sprite_nodes["Ice"] = child
 
 	if sprite_nodes.size() == 0 and get_parent():
 		for sibling in get_parent().get_children():
@@ -133,6 +135,7 @@ func _cache_sprite_nodes():
 					sprite_nodes["Granite"] = sibling
 				elif "Sandstone" in node_name:
 					sprite_nodes["Sandstone"] = sibling
+				
 
 func _update_sprite_for_environment():
 	var env_config = get_node_or_null("/root/EnvironmentConfig")

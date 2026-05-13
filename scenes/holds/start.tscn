@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://nqivo6mrpyc7"]
+[gd_scene load_steps=11 format=3 uid="uid://nqivo6mrpyc7"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_sbnaa"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="1_yvwuy"]
@@ -6,6 +6,7 @@
 [ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="2_xyj0e"]
 [ext_resource type="Texture2D" uid="uid://bfn1dt2gdxa5r" path="res://assets/images/holds/granite/granite-jug.png" id="5_xyj0e"]
 [ext_resource type="Texture2D" uid="uid://jatnxtbee7os" path="res://assets/images/holds/sandstone/sandstone-jug.png" id="6_nlhhe"]
+[ext_resource type="Texture2D" uid="uid://dfn787wu1sb44" path="res://assets/images/holds/ice/ice-jug.png" id="7_i7q76"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_nlhhe"]
 shader = ExtResource("1_yvwuy")
@@ -55,3 +56,9 @@ material = SubResource("ShaderMaterial_xyj0e")
 position = Vector2(-5.0000153, -10.0000305)
 scale = Vector2(0.1625, 0.1625)
 texture = ExtResource("6_nlhhe")
+
+[node name="IceHold" type="Sprite2D" parent="."]
+visible = false
+position = Vector2(20, 45)
+scale = Vector2(0.1625, 0.1625)
+texture = ExtResource("7_i7q76")

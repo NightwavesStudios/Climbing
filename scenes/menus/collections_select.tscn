@@ -32,6 +32,34 @@ offset_right = 1408.0
 offset_bottom = 663.0
 theme_override_constants/separation = 50
 
+[node name="Sandstone" type="Button" parent="HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Sandstone"
+script = ExtResource("2_rcboh")
+
+[node name="DeepWaterSolo" type="Button" parent="HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Deep Water Solo"
+script = ExtResource("2_rcboh")
+
+[node name="Building" type="Button" parent="HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Building"
+script = ExtResource("2_rcboh")
+
+[node name="Ice" type="Button" parent="HBoxContainer"]
+custom_minimum_size = Vector2(87, 0)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Ice"
+script = ExtResource("2_rcboh")
+
 [node name="Gym" type="Button" parent="HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
@@ -53,36 +81,6 @@ text = "Granite"
 icon = ExtResource("4_45fai")
 icon_alignment = 1
 vertical_icon_alignment = 0
-script = ExtResource("2_rcboh")
-
-[node name="Sandstone" type="Button" parent="HBoxContainer"]
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Sandstone"
-script = ExtResource("2_rcboh")
-
-[node name="Building" type="Button" parent="HBoxContainer"]
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Building"
-script = ExtResource("2_rcboh")
-
-[node name="DeepWaterSolo" type="Button" parent="HBoxContainer"]
-visible = false
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Deep Water Solo"
-script = ExtResource("2_rcboh")
-
-[node name="Ice" type="Button" parent="HBoxContainer"]
-visible = false
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Ice"
 script = ExtResource("2_rcboh")
 
 [node name="Wooden Gym" type="Button" parent="HBoxContainer"]
@@ -107,10 +105,10 @@ scale = Vector2(0.03166672, 0.03166672)
 texture = ExtResource("6_edj87")
 
 [connection signal="pressed" from="Back" to="." method="_on_back_pressed"]
+[connection signal="pressed" from="HBoxContainer/Sandstone" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/DeepWaterSolo" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/Building" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/Ice" to="." method="_on_flow_collection_pressed"]
 [connection signal="pressed" from="HBoxContainer/Gym" to="." method="_on_tutorial_collection_pressed"]
 [connection signal="pressed" from="HBoxContainer/Granite" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/Sandstone" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/Building" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/DeepWaterSolo" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/Ice" to="." method="_on_flow_collection_pressed"]
 [connection signal="pressed" from="HBoxContainer/Wooden Gym" to="." method="_on_flow_collection_pressed"]

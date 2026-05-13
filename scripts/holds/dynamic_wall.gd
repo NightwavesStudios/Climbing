@@ -542,7 +542,7 @@ func _apply_environment_theme():
 						"ground_deep": Color(0.11, 0.11, 0.12),
 					}
 
-		"deep_water_solo":
+		"deep water solo":
 			_env = {
 				"sky_top": Color(0.18, 0.42, 0.72),
 				"sky_horizon": Color(0.60, 0.82, 0.94),
