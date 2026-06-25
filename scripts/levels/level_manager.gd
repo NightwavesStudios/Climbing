@@ -4,7 +4,7 @@ extends Node
 # LEVEL MANAGER - Handles level storage, loading, and selection
 # =============================================================================
 
-signal level_selected(level_path: String)
+# signal level_selected(level_path: String) # Unused signal
 signal levels_refreshed()
 
 # Level storage paths

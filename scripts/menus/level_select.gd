@@ -415,18 +415,18 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 			var cs := lock_canvas.size
 			var cx  := cs.x * 0.5
 			var cy  := cs.y * 0.48
-			var scale = clamp(min(cs.x, cs.y) / 220.0, 0.7, 1.6)
-			var body_w    = 44.0 * scale
-			var body_h    = 34.0 * scale
-			var shackle_r = 18.0 * scale
+			var _scale = clamp(min(cs.x, cs.y) / 220.0, 0.7, 1.6)
+			var body_w    = 44.0 * _scale
+			var body_h    = 34.0 * _scale
+			var shackle_r = 18.0 * _scale
 			var lc  := Color(1, 1, 1, 0.65)
 			var lc2 := Color(1, 1, 1, 0.12)
 			var shackle_cy = cy - body_h * 0.5
-			lock_canvas.draw_arc(Vector2(cx, shackle_cy), shackle_r, PI, TAU, 40, lc, 5.0 * scale)
+			lock_canvas.draw_arc(Vector2(cx, shackle_cy), shackle_r, PI, TAU, 40, lc, 5.0 * _scale)
 			lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc)
 			lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc2, true)
-			lock_canvas.draw_circle(Vector2(cx, cy - 2*scale), 6.0*scale, Color(0,0,0,0.5))
-			lock_canvas.draw_rect(Rect2(cx - 3*scale, cy + 4*scale, 6*scale, 9*scale), Color(0,0,0,0.5))
+			lock_canvas.draw_circle(Vector2(cx, cy - 2*_scale), 6.0*_scale, Color(0,0,0,0.5))
+			lock_canvas.draw_rect(Rect2(cx - 3*_scale, cy + 4*_scale, 6*_scale, 9*_scale), Color(0,0,0,0.5))
 		)
 		wrapper.add_child(lock_canvas)
 
@@ -440,7 +440,7 @@ func _build_route_diagram(
 		json:              Dictionary,
 		weather_int:       int   = 0,
 		weather_intensity: float = 1.0,
-		time_of_day:       float = 0.5,
+		_time_of_day:      float = 0.5,
 		crashpads_data:    Array = []
 ) -> Control:
 

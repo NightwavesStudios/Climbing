@@ -170,8 +170,7 @@ func _init_clouds():
 func _make_cloud(rng: RandomNumberGenerator, initial_spread: bool) -> Dictionary:
 	var layer = rng.randi() % CLOUD_LAYERS
 	var bg_left  = wall_min.x - BACKGROUND_EXPANSION if wall_valid else -3000.0
-	var _bg_right = wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
-	var bg_right  = _bg_right
+	var bg_right = wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
 	var sky_top  = (wall_min.y - BACKGROUND_EXPANSION) if wall_valid else -2000.0
 	var sky_bottom = ground_y - 120.0 if wall_valid else -400.0
 
@@ -191,7 +190,7 @@ func _make_cloud(rng: RandomNumberGenerator, initial_spread: bool) -> Dictionary
 
 func _update_clouds(delta: float):
 	var bg_left  = wall_min.x - BACKGROUND_EXPANSION if wall_valid else -3000.0
-	var bg_right = wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
+	var _bg_right = wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
 	var rng = RandomNumberGenerator.new()
 	rng.seed = int(_cloud_time * 100.0) ^ 0xDEADBEEF
 
@@ -1204,7 +1203,7 @@ func _draw_gym_interior() -> void:
 			mpts.append(Vector2(wx, mbase))
 			for rp in ridge: mpts.append(rp)
 			mpts.append(Vector2(wx2, mbase))
-			if _polygon_valid(mpts):
+			if mpts.size() >= 3 and _polygon_valid(mpts):
 				draw_colored_polygon(mpts, mcol)
 
 		var gnd_h  = win_h * 0.09
@@ -1218,7 +1217,7 @@ func _draw_gym_interior() -> void:
 			var gh    = gnd_h * (0.6 + _hf(gseed) * 0.4)
 			gpts.append(Vector2(gx2, win_bot - gh))
 		gpts.append(Vector2(wx2, win_bot + 4.0))
-		if _polygon_valid(gpts):
+		if gpts.size() >= 3 and _polygon_valid(gpts):
 			draw_colored_polygon(gpts, gym_grass_color)
 		draw_rect(Rect2(Vector2(wx, win_bot - gnd_h * 0.6), Vector2(win_w, gnd_h * 0.6 + 6.0)),
 				  gym_grass_color.darkened(0.16), true)
@@ -2201,7 +2200,7 @@ func _draw_control_points() -> void:
 # =============================================================================
 
 func calculate_bounds_from_holds(holds_container: Node2D) -> void:
-	print("calculate_bounds_from_holds called — holds: ", holds_container.get_child_count() if holds_container else "NULL CONTAINER")
+	print("calculate_bounds_from_holds called — holds: ", str(holds_container.get_child_count()) if holds_container else "NULL CONTAINER")
 	if not holds_container or holds_container.get_child_count() == 0:
 		print("WARNING: no holds in container, wall_valid stays false")
 		wall_valid = false

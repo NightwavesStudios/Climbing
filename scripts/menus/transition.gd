@@ -69,7 +69,7 @@ func _load_scene(scene_path: String) -> void:
 
 	await _finish_transition(true)
 
-func _finish_transition(success: bool) -> void:
+func _finish_transition(_success: bool) -> void:
 	await get_tree().create_timer(0.1).timeout
 	_fade_instance.fade_in()
 	await _fade_instance.fade_in_finished

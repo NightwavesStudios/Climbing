@@ -274,7 +274,7 @@ func _setup_lightning_audio() -> void:
 	_lightning_audio.name = "ThunderSFX"
 	add_child(_lightning_audio)
 	if not ResourceLoader.exists(LIGHTNING_SFX_PATH):
-		push_warning("WeatherModifier: thunder SFX not found at " + LIGHTNING_SFX_PATH)
+		# push_warning("WeatherModifier: thunder SFX not found at " + LIGHTNING_SFX_PATH)
 		return
 	_lightning_audio.stream    = load(LIGHTNING_SFX_PATH)
 	_lightning_audio.bus       = "Master"
@@ -1013,9 +1013,9 @@ func _draw_ellipse_ring(cx: float, cy: float, rx: float, ry: float,
 
 # Single non-overlapping gradient quad helper (used by multiple weather types)
 func _draw_grad_quad(x: float, y0: float, w: float, y1: float, c_top: Color, c_bot: Color) -> void:
-	var tl := Vector2(x,     y0); var tr := Vector2(x + w, y0)
+	var tl := Vector2(x,     y0); var _tr := Vector2(x + w, y0)
 	var br := Vector2(x + w, y1); var bl := Vector2(x,     y1)
-	draw_polygon(PackedVector2Array([tl, tr, br]), PackedColorArray([c_top, c_top, c_bot]))
+	draw_polygon(PackedVector2Array([tl, _tr, br]), PackedColorArray([c_top, c_top, c_bot]))
 	draw_polygon(PackedVector2Array([tl, br, bl]), PackedColorArray([c_top, c_bot, c_bot]))
 
 func _draw_rain_fog() -> void:
