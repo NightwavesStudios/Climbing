@@ -74,7 +74,6 @@ icon = ExtResource("3_dfhjo")
 icon_alignment = 1
 vertical_icon_alignment = 0
 script = ExtResource("2_rcboh")
-hover_scale = 1.01
 
 [node name="Granite" type="Button" parent="HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)

@@ -1,8 +1,11 @@
-[gd_scene load_steps=4 format=3 uid="uid://cmudrme1ntc3v"]
+[gd_scene load_steps=7 format=3 uid="uid://cmudrme1ntc3v"]
 
 [ext_resource type="Script" uid="uid://cih6ocoqb46qx" path="res://scripts/menus/main_menu.gd" id="1_xqga4"]
 [ext_resource type="Script" uid="uid://bwqbvj0onxb7s" path="res://scripts/menus/random_background.gd" id="4_6bivr"]
+[ext_resource type="Texture2D" uid="uid://dusadgoemwud7" path="res://assets/textures/discord.png" id="4_ng0o5"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="5_imvie"]
+[ext_resource type="Script" uid="uid://bo6dpg22noawd" path="res://scripts/menus/menu_background.gd" id="5_ng0o5"]
+[ext_resource type="Texture2D" uid="uid://cxjxb5bobileg" path="res://assets/textures/CLIMBING (14).svg" id="6_ng0o5"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -22,9 +25,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -100.0
-offset_top = -177.5
+offset_top = -121.0
 offset_right = 100.0
-offset_bottom = 177.5
+offset_bottom = 234.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/separation = 50
@@ -59,6 +62,7 @@ text = "Quit
 script = ExtResource("5_imvie")
 
 [node name="RandomBackground" type="Control" parent="."]
+visible = false
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -67,7 +71,24 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("4_6bivr")
 
+[node name="Discord" type="Button" parent="."]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 663.0
+offset_right = 58.0
+offset_bottom = 711.0
+icon = ExtResource("4_ng0o5")
+script = ExtResource("5_imvie")
+
+[node name="Node2D" type="Node2D" parent="."]
+script = ExtResource("5_ng0o5")
+
+[node name="Climbing(14)" type="Sprite2D" parent="."]
+position = Vector2(640, 112)
+texture = ExtResource("6_ng0o5")
+
 [connection signal="pressed" from="CanvasLayer/Buttons/Story" to="." method="_on_play_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/Settings" to="." method="_on_settings_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/Quit" to="." method="_on_quit_pressed"]
+[connection signal="pressed" from="Discord" to="." method="_on_discord_pressed"]

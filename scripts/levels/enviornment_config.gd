@@ -4,7 +4,7 @@ extends Node
 ## to ENVIRONMENTS dict. Everything else (wall rendering, editor dropdown,
 ## hold sprites) picks it up automatically.
 
-enum EnvironmentType { GYM, GRANITE, SANDSTONE, BUILDING, ICE, DEEP_WATER_SOLO }
+enum EnvironmentType { GYM, GRANITE, SANDSTONE, BUILDING, ICE, DEEP_WATER_SOLO, MENU_SUNSET }
 
 var current_environment: EnvironmentType = EnvironmentType.GYM
 
@@ -58,6 +58,14 @@ const ENVIRONMENTS = {
 	"show_granite_texture": true,
 	"sprite_suffix": "Granite"  # uses granite holds
 	},
+	EnvironmentType.MENU_SUNSET: {
+	"name": "Menu Sunset",
+	"wall_color": Color(0.55, 0.48, 0.62),
+	"background_color": Color(0.92, 0.65, 0.78),
+	"show_bolt_holes": false,
+	"show_granite_texture": false,
+	"sprite_suffix": "Granite"
+},
 }
 
 func _ready() -> void:
