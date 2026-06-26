@@ -950,10 +950,7 @@ func _draw() -> void:
 			_draw_splashes()
 			_draw_lightning_bolt()
 		WeatherType.FOG:
-			_draw_fog_ambient()
-			_draw_fog_layers()
-			_draw_fog_ground()
-			_draw_fog_vignette()
+			_draw_simple_fullscreen_fog()
 		WeatherType.HAIL:
 			_draw_hail_fog()
 			_draw_hailstones()
@@ -971,7 +968,7 @@ func _draw() -> void:
 
 func _draw_night_darkness() -> void:
 	var b := _get_draw_bounds()
-	draw_rect(Rect2(b.x, b.y, b.z, b.w),
+	draw_rect(Rect2(b.x - 400, b.y - 400, b.z + 800, b.w + 800),
 		Color(night_dark_color.r, night_dark_color.g, night_dark_color.b,
 			  night_darkness_alpha * _blend * intensity))
 
@@ -1068,7 +1065,7 @@ func _draw_snow_accumulation() -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 	var strip_h  = snow_accum_height * clamp(intensity, 0.2, 1.0)
-	_draw_grad_quad(b.x, ground_y - strip_h, b.z, ground_y,
+	_draw_grad_quad(b.x - 400, ground_y - strip_h - 100, b.z + 800, ground_y + 100,
 		Color(snow_color.r, snow_color.g, snow_color.b, 0.0),
 		Color(snow_color.r, snow_color.g, snow_color.b, snow_accum_alpha * _blend * intensity))
 
@@ -1114,47 +1111,53 @@ func _draw_bolt_path(pts: Array[Vector2], color: Color, width: float) -> void:
 
 func _draw_fog_ambient() -> void:
 	var b := _get_draw_bounds()
-	draw_rect(Rect2(b.x, b.y, b.z, b.w),
+	# Full-screen padded ambient fog
+	draw_rect(Rect2(b.x - 500, b.y - 500, b.z + 1000, b.w + 1000),
 		Color(fog_color.r * 0.85, fog_color.g * 0.85, fog_color.b * 0.85,
 			  fog_ambient_darken * _blend * intensity))
 
 func _draw_fog_layers() -> void:
-	if _fog_offsets.is_empty(): return
-	var b        := _get_draw_bounds()
-	var y_cursor := b.y
-	for i in range(fog_layers):
-		var layer_h    = b.w * fog_layer_heights[i % fog_layer_heights.size()]
-		var base_alpha = fog_layer_alphas[i % fog_layer_alphas.size()] * _blend * intensity
-		var offset     := fmod(_fog_offsets[i], b.z + 400.0)
-		for tile in range(2):
-			var tile_x := b.x - 200.0 + offset + float(tile) * (b.z + 400.0) - (b.z + 400.0)
-			var mid_a  = base_alpha * (0.6 + 0.4 * sin(_time * 0.3 + float(i) * 1.7))
-			_draw_grad_quad(tile_x, y_cursor, b.z + 400.0, y_cursor + layer_h * 0.5,
-				Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
-				Color(fog_color.r, fog_color.g, fog_color.b, mid_a))
-			_draw_grad_quad(tile_x, y_cursor + layer_h * 0.5, b.z + 400.0, y_cursor + layer_h,
-				Color(fog_color.r, fog_color.g, fog_color.b, mid_a),
-				Color(fog_color.r, fog_color.g, fog_color.b, 0.0))
-		y_cursor += layer_h * 0.55
+	# SINGLE full-screen fog layer — no multiple bands/gaps (as requested)
+	var b := _get_draw_bounds()
+	var fog_alpha = lerp(0.22, 0.68, _blend * intensity)
+	var scroll := fmod(_time * 12.0, b.z + 1200.0)  # gentle animated drift
+
+	# Full coverage base rect (extra padding for camera movement/zoom)
+	draw_rect(Rect2(b.x - 300, b.y - 300, b.z + 600, b.w + 600),
+		Color(fog_color.r * 0.92, fog_color.g * 0.92, fog_color.b * 0.92, fog_alpha * 0.75))
+
+	# Subtle vertical gradient for depth (single layer)
+	_draw_grad_quad(b.x - 200 + scroll * 0.2, b.y - 200, b.z + 600, b.y + b.w * 0.45,
+		Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
+		Color(fog_color.r * 0.96, fog_color.g * 0.96, fog_color.b * 0.96, fog_alpha * 0.55))
+
+	_draw_grad_quad(b.x - 200, b.y + b.w * 0.35, b.z + 600, b.y + b.w + 300,
+		Color(fog_color.r * 0.94, fog_color.g * 0.94, fog_color.b * 0.94, fog_alpha * 0.65),
+		Color(fog_color.r, fog_color.g, fog_color.b, 0.0))
 
 func _draw_fog_ground() -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 	var strip_h  = fog_ground_height * clamp(intensity, 0.2, 1.0)
-	_draw_grad_quad(b.x, ground_y - strip_h, b.z, ground_y,
+	_draw_grad_quad(b.x - 400, ground_y - strip_h - 150, b.z + 800, ground_y + 100,
 		Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
-		Color(fog_color.r, fog_color.g, fog_color.b, fog_ground_alpha * _blend * intensity))
+		Color(fog_color.r, fog_color.g, fog_color.b, fog_ground_alpha * _blend * intensity * 1.1))
 
 func _draw_fog_vignette() -> void:
 	var b  := _get_draw_bounds()
 	var va := fog_vignette_alpha * _blend * intensity
-	var vw := b.z * 0.22
+	var vw := b.z * 0.30   # wider vignette
 	var vc := Color(fog_color.r * 0.6, fog_color.g * 0.6, fog_color.b * 0.6)
-	_draw_grad_quad(b.x, b.y, vw, b.y + b.w,
-		Color(vc.r, vc.g, vc.b, va), Color(vc.r, vc.g, vc.b, 0.0))
-	_draw_grad_quad(b.x + b.z - vw, b.y, vw, b.y + b.w,
-		Color(vc.r, vc.g, vc.b, 0.0), Color(vc.r, vc.g, vc.b, va))
+	_draw_grad_quad(b.x - 200, b.y - 200, vw + 200, b.y + b.w + 400,
+		Color(vc.r, vc.g, vc.b, va * 0.9), Color(vc.r, vc.g, vc.b, 0.0))
+	_draw_grad_quad(b.x + b.z - vw, b.y - 200, vw + 200, b.y + b.w + 400,
+		Color(vc.r, vc.g, vc.b, 0.0), Color(vc.r, vc.g, vc.b, va * 0.85))
 
+func _draw_simple_fullscreen_fog() -> void:
+	var b := _get_draw_bounds()
+	# White-ish fog with adjustable opacity. Covers everything (wall, timer, etc.)
+	var fog_col := Color(0.92, 0.94, 0.97, lerp(0.38, 0.72, _blend * intensity))
+	draw_rect(Rect2(b.x - 1500, b.y - 1500, b.z + 3000, b.w + 3000), fog_col)
 
 # =============================================================================
 # HAIL DRAW
@@ -1372,7 +1375,7 @@ func _get_draw_bounds() -> Vector4:
 		var tl_world := ct_inv * Vector2.ZERO
 		var br_world := ct_inv * vp_size
 		# Add a generous margin so particles don't pop in at screen edges.
-		const MARGIN := 400.0
+		const MARGIN := 1200.0
 		var x := tl_world.x - MARGIN
 		var y := tl_world.y - MARGIN
 		var w := (br_world.x - tl_world.x) + MARGIN * 2.0

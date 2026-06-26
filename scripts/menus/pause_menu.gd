@@ -17,6 +17,16 @@ func _ready() -> void:
 	_panel = _get_panel()
 	if _panel:
 		_panel.pivot_offset = _panel.size / 2.0
+	
+	_setup_skip_button()
+
+func _setup_skip_button() -> void:
+	var skip_btn = get_node_or_null("VBoxContainer/SkipLevel")
+	if skip_btn:
+		skip_btn.pressed.connect(_on_skip_pressed)
+		# Skip is visible if we have a reset count > 0 in MainScene
+		# but let's just make it always visible if paused for simplicity, 
+		# or logic-gate it based on attempts.
 
 func _get_panel() -> Control:
 	for child in get_children():
@@ -85,3 +95,9 @@ func _on_main_menu_pressed() -> void:
 	if main and main.has_method("cleanup_discipline_systems"):
 		main.cleanup_discipline_systems()
 	Transition.to("res://scenes/menus/main_menu.tscn")
+
+func _on_skip_pressed() -> void:
+	await hide_pause_menu()
+	var main = get_tree().get_first_node_in_group("main_scene")
+	if main and main.has_method("_on_skip_level_pressed"):
+		main._on_skip_level_pressed()

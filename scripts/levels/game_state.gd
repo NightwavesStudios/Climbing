@@ -146,7 +146,16 @@ func record_level_completion(level_path: String, completion_time: float) -> void
 			save_game()
 
 func is_level_completed(level_path: String) -> bool:
-	return level_path in completed_levels
+	return level_path in completed_levels or is_level_skipped(level_path)
+
+func record_level_skip(level_path: String) -> void:
+	if level_path not in completed_levels:
+		completed_levels[level_path] = -1.0 # Use -1.0 to indicate skipped
+		_check_collection_completion(level_path)
+		save_game()
+
+func is_level_skipped(level_path: String) -> bool:
+	return completed_levels.get(level_path, 0.0) == -1.0
 
 func get_level_completion_time(level_path: String) -> float:
 	return completed_levels.get(level_path, 0.0)

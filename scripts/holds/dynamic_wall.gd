@@ -118,6 +118,18 @@ func _process(delta: float):
 		_update_splashes(REDRAW_INTERVAL)
 		queue_redraw()
 
+# ─── Camera-relative viewport helper ─────────────────────────────────────────
+# Returns the world-space rect currently visible, plus padding.
+# All background drawing must use this — NOT wall_min/wall_max for extents.
+
+func _get_view_rect(pad: float = 400.0) -> Rect2:
+	var ct  = get_canvas_transform()
+	var inv = ct.affine_inverse()
+	var vp  = get_viewport_rect().size
+	var tl  = inv * Vector2.ZERO
+	var br  = inv * vp
+	return Rect2(tl - Vector2(pad, pad), (br - tl) + Vector2(pad * 2.0, pad * 2.0))
+
 # ─── Weather public API ───────────────────────────────────────────────────────
 
 func _init_weather() -> void:
@@ -168,14 +180,15 @@ func _init_clouds():
 		_clouds.append(_make_cloud(rng, true))
 
 func _make_cloud(rng: RandomNumberGenerator, initial_spread: bool) -> Dictionary:
-	var layer = rng.randi() % CLOUD_LAYERS
-	var bg_left  = wall_min.x - BACKGROUND_EXPANSION if wall_valid else -3000.0
-	var bg_right = wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
-	var sky_top  = (wall_min.y - BACKGROUND_EXPANSION) if wall_valid else -2000.0
-	var sky_bottom = ground_y - 120.0 if wall_valid else -400.0
+	var vr       = _get_view_rect(600.0)
+	var bg_left  = vr.position.x
+	var bg_right = vr.end.x
+	var sky_top  = vr.position.y
+	var sky_bottom = ground_y - 120.0 if wall_valid else vr.end.y - 120.0
 
-	var sx    = 60.0 + rng.randf() * 220.0 + float(layer) * 50.0
-	var sy    = 22.0 + rng.randf() * 38.0  + float(layer) * 8.0
+	var sx    = 60.0 + rng.randf() * 220.0 + float(rng.randi() % CLOUD_LAYERS) * 50.0
+	var sy    = 22.0 + rng.randf() * 38.0  + float(rng.randi() % CLOUD_LAYERS) * 8.0
+	var layer = rng.randi() % CLOUD_LAYERS
 	var speed = (0.18 + rng.randf() * 0.25) * (1.0 + float(layer) * 0.6) * 40.0
 	var alpha = 0.35 + rng.randf() * 0.35
 	var y     = sky_top + 40.0 + rng.randf() * max(sky_bottom - sky_top - 100.0, 100.0)
@@ -189,8 +202,9 @@ func _make_cloud(rng: RandomNumberGenerator, initial_spread: bool) -> Dictionary
 			 "alpha": alpha, "layer": layer, "seed": rng.randi() }
 
 func _update_clouds(delta: float):
-	var bg_left  = wall_min.x - BACKGROUND_EXPANSION if wall_valid else -3000.0
-	var _bg_right = wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
+	var vr       = _get_view_rect(600.0)
+	var bg_left  = vr.position.x
+	var _bg_right = vr.end.x
 	var rng = RandomNumberGenerator.new()
 	rng.seed = int(_cloud_time * 100.0) ^ 0xDEADBEEF
 
@@ -351,11 +365,10 @@ func _apply_environment_theme():
 						"fog_color": Color(0.65, 0.80, 0.95, 0.0),
 					}
 
-		# ── SANDSTONE — desert canyon ─────────────────────────────────────────
 		"sandstone":
 			var sand_tod = (abs((_scenery_seed ^ 0x4E2A9F3B) * 1664525 + 1013904223) >> 7) % 3
 			match sand_tod:
-				1:  # dusk — amber canyon
+				1:
 					_env = {
 						"sky_top":       Color(0.14, 0.09, 0.22),
 						"sky_horizon":   Color(0.96, 0.46, 0.12),
@@ -370,7 +383,7 @@ func _apply_environment_theme():
 						"fog_color":     Color(0.88, 0.42, 0.12, 0.10),
 						"has_sand_wind": true,
 					}
-				2:  # night — cool starlit desert
+				2:
 					_env = {
 						"sky_top":       Color(0.03, 0.03, 0.10),
 						"sky_horizon":   Color(0.10, 0.10, 0.22),
@@ -387,7 +400,7 @@ func _apply_environment_theme():
 						"fog_color":     Color(0.06, 0.06, 0.16, 0.10),
 						"has_sand_wind": false,
 					}
-				_:  # day — warm ochre canyon sky
+				_:
 					_env = {
 						"sky_top":       Color(0.48, 0.32, 0.14),
 						"sky_horizon":   Color(0.88, 0.70, 0.40),
@@ -404,11 +417,10 @@ func _apply_environment_theme():
 						"has_sand_wind": true,
 					}
 
-		# ── ICE — frozen alpine face ──────────────────────────────────────────
 		"ice":
 			var ice_tod = (abs((_scenery_seed ^ 0xC7D3E1F2) * 22695477 + 1) >> 9) % 3
 			match ice_tod:
-				1:  # alpenglow dusk — rose and violet
+				1:
 					_env = {
 						"sky_top":          Color(0.18, 0.10, 0.30),
 						"sky_horizon":      Color(0.94, 0.44, 0.52),
@@ -425,7 +437,7 @@ func _apply_environment_theme():
 						"has_ice_sheen":    true,
 						"ice_sheen_color":  Color(0.94, 0.72, 0.82),
 					}
-				2:  # night — deep blue glacial darkness
+				2:
 					_env = {
 						"sky_top":          Color(0.02, 0.03, 0.10),
 						"sky_horizon":      Color(0.06, 0.10, 0.24),
@@ -444,7 +456,7 @@ func _apply_environment_theme():
 						"has_ice_sheen":    true,
 						"ice_sheen_color":  Color(0.40, 0.58, 0.90),
 					}
-				_:  # day — crisp arctic blue sky
+				_:
 					_env = {
 						"sky_top":          Color(0.12, 0.36, 0.72),
 						"sky_horizon":      Color(0.70, 0.88, 0.98),
@@ -730,7 +742,6 @@ func _draw():
 	else: _draw_rectangle_wall()
 	_draw_wall_depth_shading()
 	_draw_wall_tonal_outline()
-	# Ice sheen rendered on top of wall, before bolt holes / granite
 	if current_environment == "ice" and _env.get("has_ice_sheen", false):
 		_draw_ice_wall_sheen()
 	if _env.get("has_water", false): _draw_underwater_wall_depth()
@@ -750,16 +761,17 @@ func _draw():
 # =============================================================================
 
 func _draw_sky() -> void:
-	var bl  = wall_min.x - BACKGROUND_EXPANSION
-	var br  = wall_max.x + BACKGROUND_EXPANSION
-	var st  = wall_min.y - BACKGROUND_EXPANSION
+	var vr  = _get_view_rect()
+	var bl  = vr.position.x
+	var br  = vr.end.x
+	var st  = vr.position.y
 	var sw  = br - bl
 	var rb  = _get_weather_blend()
 
-	var col_top   = _rain_lerp_color(_env.get("sky_top",    background_color),               "sky_top",     rb)
+	var col_top   = _rain_lerp_color(_env.get("sky_top",    background_color),                "sky_top",     rb)
 	var col_horiz = _rain_lerp_color(_env.get("sky_horizon", background_color.lightened(0.15)), "sky_horizon", rb)
 
-	var bands = 20
+	var bands   = 20
 	var total_h = ground_y - st
 	for i in range(bands):
 		var t0 = float(i)     / float(bands)
@@ -777,26 +789,28 @@ func _draw_sky() -> void:
 # =============================================================================
 
 func _draw_stars() -> void:
-	var bl = wall_min.x - BACKGROUND_EXPANSION
-	var br = wall_max.x + BACKGROUND_EXPANSION
-	var st = wall_min.y - BACKGROUND_EXPANSION
-	var sw = br - bl
-	var rb = _get_weather_blend()
+	var vr  = _get_view_rect()
+	var bl  = vr.position.x
+	var br  = vr.end.x
+	var st  = vr.position.y
+	var sw  = br - bl
+	var rb  = _get_weather_blend()
 	for i in range(80):
 		var star_seed = (_scenery_seed ^ 0xBEEF) + i * 17
-		var sx = bl + _hf(star_seed) * sw
-		var sy = st + _hf(star_seed + 1) * (ground_y - st - 80.0)
-		var bright  = (0.5 + _hf(star_seed + 2) * 0.5) * (1.0 - rb)
-		var sz      = 1.0 + _hf(star_seed + 3) * 1.8
-		var twinkle = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(star_seed + 4) * 3.0) + float(i))
+		var sx        = bl + _hf(star_seed) * sw
+		var sy        = st + _hf(star_seed + 1) * (ground_y - st - 80.0)
+		var bright    = (0.5 + _hf(star_seed + 2) * 0.5) * (1.0 - rb)
+		var sz        = 1.0 + _hf(star_seed + 3) * 1.8
+		var twinkle   = 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(star_seed + 4) * 3.0) + float(i))
 		draw_circle(Vector2(sx, sy), sz, Color(1.0, 1.0, 1.0, bright * twinkle * 0.85))
 
 func _draw_sun() -> void:
-	var bl = wall_min.x - BACKGROUND_EXPANSION
-	var br = wall_max.x + BACKGROUND_EXPANSION
-	var sx = bl + (br - bl) * 0.78
-	var sy = wall_min.y - BACKGROUND_EXPANSION * 0.5 + 180.0
-	var sc: Color = _env.get("sun_color", Color(1.0, 0.95, 0.70))
+	var vr   = _get_view_rect()
+	var bl   = vr.position.x
+	var br   = vr.end.x
+	var sx   = bl + (br - bl) * 0.78
+	var sy   = vr.position.y + 180.0
+	var sc : Color = _env.get("sun_color", Color(1.0, 0.95, 0.70))
 	var fade = 1.0 - _get_weather_blend()
 	for gi in range(8):
 		draw_circle(Vector2(sx, sy), 45.0 + float(gi) * 28.0,
@@ -805,11 +819,12 @@ func _draw_sun() -> void:
 	draw_circle(Vector2(sx, sy), 32.0, Color(1.0, 1.0, 0.97, fade * 0.9))
 
 func _draw_moon() -> void:
-	var bl = wall_min.x - BACKGROUND_EXPANSION
-	var br = wall_max.x + BACKGROUND_EXPANSION
-	var mx = bl + (br - bl) * 0.72
-	var my = wall_min.y - BACKGROUND_EXPANSION * 0.4 + 220.0
-	var mr = 36.0
+	var vr   = _get_view_rect()
+	var bl   = vr.position.x
+	var br   = vr.end.x
+	var mx   = bl + (br - bl) * 0.72
+	var my   = vr.position.y + 220.0
+	var mr   = 36.0
 	for gi in range(5):
 		draw_circle(Vector2(mx, my), mr + float(gi) * 20.0, Color(0.7, 0.75, 0.9, 0.04))
 	draw_circle(Vector2(mx, my), mr, Color(0.88, 0.90, 0.95, 1.0))
@@ -824,19 +839,20 @@ func _draw_moon() -> void:
 # =============================================================================
 
 func _draw_mountains() -> void:
-	var bl  = wall_min.x - BACKGROUND_EXPANSION
-	var br  = wall_max.x + BACKGROUND_EXPANSION
+	var vr  = _get_view_rect()
+	var bl  = vr.position.x
+	var br  = vr.end.x
 	var rb  = _get_weather_blend()
-	var hs: Color = _rain_lerp_color(_env.get("sky_horizon", background_color), "sky_horizon", rb)
-	var ht: Color = _rain_lerp_color(_env.get("sky_top",     background_color), "sky_top",     rb)
+	var hs : Color = _rain_lerp_color(_env.get("sky_horizon", background_color), "sky_horizon", rb)
+	var ht : Color = _rain_lerp_color(_env.get("sky_top",     background_color), "sky_top",     rb)
 
 	_draw_hill_layer(bl, br, ground_y - 60.0, 240.0, 600.0, 90, hs.lerp(ht, 0.6).darkened(0.05), _scenery_seed ^ 0x0A1B2C)
 	_draw_hill_layer(bl, br, ground_y - 20.0, 160.0, 420.0, 80, hs.lerp(ht, 0.4).darkened(0.09), _scenery_seed ^ 0x1A2B3C)
 
-	var haze_color = hs.lightened(0.08)
+	var haze_color    = hs.lightened(0.08)
 	var haze_color_rb = _rain_lerp_color(haze_color, "sky_horizon", rb * 0.5)
-	var haze_y     = ground_y - 55.0
-	var sw         = br - bl
+	var haze_y        = ground_y - 55.0
+	var sw            = br - bl
 	_draw_grad_quad(bl, haze_y - 20.0, sw, haze_y + 8.0,
 		Color(haze_color_rb.r, haze_color_rb.g, haze_color_rb.b, 0.0),
 		Color(haze_color_rb.r, haze_color_rb.g, haze_color_rb.b, 0.50 * (1.0 - rb * 0.4)))
@@ -844,8 +860,8 @@ func _draw_mountains() -> void:
 		Color(haze_color_rb.r, haze_color_rb.g, haze_color_rb.b, 0.50 * (1.0 - rb * 0.4)),
 		Color(haze_color_rb.r, haze_color_rb.g, haze_color_rb.b, 0.0))
 
-	_draw_hill_layer(bl, br, ground_y - 5.0,   90.0, 230.0, 55, hs.darkened(0.22), _scenery_seed ^ 0x4D5E6F)
-	_draw_hill_layer(bl, br, ground_y,          40.0, 110.0, 45, hs.darkened(0.38), _scenery_seed ^ 0x7F8A9B)
+	_draw_hill_layer(bl, br, ground_y - 5.0,  90.0,  230.0, 55, hs.darkened(0.22), _scenery_seed ^ 0x4D5E6F)
+	_draw_hill_layer(bl, br, ground_y,         40.0,  110.0, 45, hs.darkened(0.38), _scenery_seed ^ 0x7F8A9B)
 
 func _draw_hill_layer(left: float, right: float, base_y: float,
 					  min_h: float, max_h: float, segs: int, color: Color, hill_seed: int) -> void:
@@ -868,8 +884,9 @@ func _draw_hill_layer(left: float, right: float, base_y: float,
 # =============================================================================
 
 func _draw_city_silhouette() -> void:
-	var bl  = wall_min.x - BACKGROUND_EXPANSION
-	var br  = wall_max.x + BACKGROUND_EXPANSION
+	var vr  = _get_view_rect()
+	var bl  = vr.position.x
+	var br  = vr.end.x
 	var rb  = _get_weather_blend()
 	var tod : int = _env.get("city_time", 0)
 
@@ -974,8 +991,8 @@ func _draw_city_silhouette() -> void:
 
 func _draw_clouds() -> void:
 	var rb = _get_weather_blend()
-	var base_cc: Color = _env.get("cloud_color", Color(1, 1, 1))
-	var base_sc: Color = _env.get("cloud_shadow", Color(0.78, 0.84, 0.92))
+	var base_cc : Color = _env.get("cloud_color", Color(1, 1, 1))
+	var base_sc : Color = _env.get("cloud_shadow", Color(0.78, 0.84, 0.92))
 
 	var cc = _rain_lerp_color(base_cc, "cloud_color",  rb)
 	var sc = _rain_lerp_color(base_sc, "cloud_shadow", rb)
@@ -997,11 +1014,11 @@ func _draw_clouds() -> void:
 				c["seed"], rb)
 
 func _draw_overcast_layer(blend: float, cc: Color, _sc: Color) -> void:
-	var bl   = wall_min.x - BACKGROUND_EXPANSION
-	var br   = wall_max.x + BACKGROUND_EXPANSION
-	var _sw  = br - bl
-	var h    = blend * BACKGROUND_EXPANSION * 0.55
-	var base = wall_min.y - BACKGROUND_EXPANSION * 0.25
+	var vr   = _get_view_rect()
+	var bl   = vr.position.x
+	var _sw  = vr.size.x
+	var h    = blend * vr.size.y * 0.55
+	var base = vr.position.y
 	var steps = 10
 	for i in range(steps):
 		var t0 = float(i)     / float(steps)
@@ -1044,21 +1061,24 @@ func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color) -> voi
 # =============================================================================
 
 func _draw_fog() -> void:
-	var rb = _get_weather_blend()
-	var base_fc: Color = _env.get("fog_color", Color(0, 0, 0, 0))
-	var fc = _rain_lerp_color(base_fc, "fog_color", rb)
+	var rb      = _get_weather_blend()
+	var base_fc : Color = _env.get("fog_color", Color(0, 0, 0, 0))
+	var fc      = _rain_lerp_color(base_fc, "fog_color", rb)
 	if fc.a < 0.01: return
-	var bl     = wall_min.x - BACKGROUND_EXPANSION
-	var br     = wall_max.x + BACKGROUND_EXPANSION
-	var bt     = wall_min.y - BACKGROUND_EXPANSION
-	var total_h = (ground_y + 99999.0) - bt
-	var steps = 10
+
+	var vr      = _get_view_rect()
+	var bl      = vr.position.x
+	var br      = vr.end.x
+	var bt      = vr.position.y
+	var sw      = br - bl
+	var total_h = vr.size.y + 99999.0
+	var steps   = 10
 	for i in range(steps):
 		var t0 = float(i)     / float(steps)
 		var t1 = float(i + 1) / float(steps)
 		var a0 = fc.a * (1.0 - t0 * 0.65)
 		var a1 = fc.a * (1.0 - t1 * 0.65)
-		_draw_grad_quad(bl, bt + t0 * total_h, br - bl, bt + t1 * total_h,
+		_draw_grad_quad(bl, bt + t0 * total_h, sw, bt + t1 * total_h,
 			Color(fc.r, fc.g, fc.b, a0),
 			Color(fc.r, fc.g, fc.b, a1))
 
@@ -1067,9 +1087,11 @@ func _draw_fog() -> void:
 # =============================================================================
 
 func _draw_gym_interior() -> void:
-	var bl      = wall_min.x - BACKGROUND_EXPANSION
-	var br      = wall_max.x + BACKGROUND_EXPANSION
+	var vr      = _get_view_rect()
+	var bl      = vr.position.x
+	var br      = vr.end.x
 	var width   = br - bl
+	# vis_top/vis_bot remain wall-relative — windows are physically on the wall
 	var vis_top = wall_min.y
 	var vis_bot = ground_y if ground_y > vis_top + 10.0 else vis_top + (wall_max.y - wall_min.y)
 	var vis_h   = vis_bot - vis_top
@@ -1111,7 +1133,7 @@ func _draw_gym_interior() -> void:
 	var sun_y_frac    = 0.15
 	if gym_tod == 1: sun_y_frac = 0.72
 
-	var gym_mtn_colors: Array = _env.get("gym_mtn_colors", [
+	var gym_mtn_colors : Array = _env.get("gym_mtn_colors", [
 		Color(0.72, 0.82, 0.91), Color(0.54, 0.67, 0.80),
 		Color(0.38, 0.52, 0.66), Color(0.24, 0.38, 0.53),
 	])
@@ -1185,7 +1207,7 @@ func _draw_gym_interior() -> void:
 			var mleft  = wx + win_w * 0.5 - mtn_span * 0.5 + mpar
 			var mstep  = mtn_span / float(msegs)
 			var mbase  = win_bot + 6.0
-			var mcol: Color = gym_mtn_colors[mi] if mi < gym_mtn_colors.size() else Color(0.24, 0.38, 0.53)
+			var mcol : Color = gym_mtn_colors[mi] if mi < gym_mtn_colors.size() else Color(0.24, 0.38, 0.53)
 			mcol = mcol.lerp(Color(0.22, 0.24, 0.30), rb * 0.6)
 
 			var ridge: Array = []
@@ -1351,15 +1373,14 @@ func _draw_polygon_wall() -> void:
 			draw_polygon(p2, cols)
 
 # =============================================================================
-# ICE WALL SHEEN — glassy specular overlay on the climbing wall
+# ICE WALL SHEEN
 # =============================================================================
 
 func _draw_ice_wall_sheen() -> void:
 	if not wall_valid: return
-	var sheen_c: Color = _env.get("ice_sheen_color", Color(0.88, 0.96, 1.00))
+	var sheen_c : Color = _env.get("ice_sheen_color", Color(0.88, 0.96, 1.00))
 	var ws = wall_max - wall_min
 
-	# Vertical gloss bands — simulate refracted light columns through ice
 	for bi in range(5):
 		var bseed  = (_scenery_seed ^ 0xACE0) + bi * 37
 		var bx     = wall_min.x + _hf(bseed) * ws.x
@@ -1372,12 +1393,10 @@ func _draw_ice_wall_sheen() -> void:
 			Color(sheen_c.r, sheen_c.g, sheen_c.b, balpha),
 			Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.0))
 
-	# Top-edge catch light — sky reflection
 	_draw_grad_quad(wall_min.x, wall_min.y, ws.x, wall_min.y + ws.y * 0.08,
 		Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.14),
 		Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.0))
 
-	# Subtle overall tint — makes the wall read as translucent ice
 	draw_rect(Rect2(wall_min, ws), Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.06), true)
 
 # =============================================================================
@@ -1596,14 +1615,15 @@ func _draw_ground() -> void:
 # =============================================================================
 
 func _draw_ground_grass() -> void:
-	var left  = wall_min.x - BACKGROUND_EXPANSION
-	var right = wall_max.x + BACKGROUND_EXPANSION
+	var vr    = _get_view_rect()
+	var left  = vr.position.x
+	var right = vr.end.x
 	var width = right - left
 	var rb    = _get_weather_blend()
 
-	var ct: Color = _env.get("ground_top",  Color(0.22, 0.52, 0.14))
-	var cm: Color = _env.get("ground_mid",  Color(0.32, 0.22, 0.12))
-	var cd: Color = _env.get("ground_deep", Color(0.20, 0.14, 0.08))
+	var ct : Color = _env.get("ground_top",  Color(0.22, 0.52, 0.14))
+	var cm : Color = _env.get("ground_mid",  Color(0.32, 0.22, 0.12))
+	var cd : Color = _env.get("ground_deep", Color(0.20, 0.14, 0.08))
 	ct = ct.lerp(Color(0.14, 0.28, 0.10), rb * 0.55)
 	cm = cm.lerp(Color(0.20, 0.16, 0.10), rb * 0.40)
 	cd = cd.lerp(Color(0.14, 0.12, 0.08), rb * 0.30)
@@ -1636,7 +1656,7 @@ func _draw_ground_grass() -> void:
 	if _polygon_valid(pts):
 		draw_colored_polygon(pts, ct)
 
-	var sky_h: Color = _env.get("sky_horizon", background_color.lightened(0.15))
+	var sky_h : Color = _env.get("sky_horizon", background_color.lightened(0.15))
 	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
 	_draw_grad_quad(left, ground_y - 1.0, width, ground_y + 18.0,
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.18 * (1.0 - rb * 0.5)),
@@ -1675,11 +1695,12 @@ func _draw_ground_puddles(left: float, right: float, blend: float) -> void:
 # =============================================================================
 
 func _draw_ground_gym() -> void:
-	var left  = wall_min.x - BACKGROUND_EXPANSION
-	var right = wall_max.x + BACKGROUND_EXPANSION
+	var vr    = _get_view_rect()
+	var left  = vr.position.x
+	var right = vr.end.x
 	var width = right - left
-	var ct: Color = _env.get("ground_top",  Color(0.22, 0.22, 0.24))
-	var cd: Color = _env.get("ground_deep", Color(0.11, 0.11, 0.12))
+	var ct : Color = _env.get("ground_top",  Color(0.22, 0.22, 0.24))
+	var cd : Color = _env.get("ground_deep", Color(0.11, 0.11, 0.12))
 
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), ct, true)
 
@@ -1713,13 +1734,14 @@ func _draw_ground_gym() -> void:
 # =============================================================================
 
 func _draw_ground_city() -> void:
-	var left  = wall_min.x - BACKGROUND_EXPANSION
-	var right = wall_max.x + BACKGROUND_EXPANSION
+	var vr    = _get_view_rect()
+	var left  = vr.position.x
+	var right = vr.end.x
 	var width = right - left
 	var rb    = _get_weather_blend()
 	var tod   : int = _env.get("city_time", 0)
 
-	var ct: Color; var cd: Color
+	var ct : Color; var cd : Color
 	match tod:
 		1:  ct = Color(0.20, 0.17, 0.13); cd = Color(0.10, 0.08, 0.06)
 		2:  ct = Color(0.12, 0.12, 0.14); cd = Color(0.06, 0.06, 0.08)
@@ -1729,7 +1751,7 @@ func _draw_ground_city() -> void:
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
 	_draw_grad_quad(left, ground_y, width, ground_y + 220.0, ct.lightened(0.04), cd)
 
-	var sky_h: Color = _env.get("sky_horizon", background_color)
+	var sky_h : Color = _env.get("sky_horizon", background_color)
 	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
 	_draw_grad_quad(left, ground_y, width, ground_y + 22.0,
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.25 * (1.0 - rb * 0.4)),
@@ -1754,18 +1776,19 @@ func _draw_ground_city() -> void:
 		_draw_ground_puddles(left, right, rb)
 
 # =============================================================================
-# GROUND — SAND (Sandstone environment)
+# GROUND — SAND
 # =============================================================================
 
 func _draw_ground_sand() -> void:
-	var left  = wall_min.x - BACKGROUND_EXPANSION
-	var right = wall_max.x + BACKGROUND_EXPANSION
+	var vr    = _get_view_rect()
+	var left  = vr.position.x
+	var right = vr.end.x
 	var width = right - left
 	var rb    = _get_weather_blend()
 
-	var ct: Color = _env.get("ground_top",  Color(0.82, 0.62, 0.32))
-	var cm: Color = _env.get("ground_mid",  Color(0.62, 0.40, 0.16))
-	var cd: Color = _env.get("ground_deep", Color(0.42, 0.24, 0.08))
+	var ct : Color = _env.get("ground_top",  Color(0.82, 0.62, 0.32))
+	var cm : Color = _env.get("ground_mid",  Color(0.62, 0.40, 0.16))
+	var cd : Color = _env.get("ground_deep", Color(0.42, 0.24, 0.08))
 	ct = ct.lerp(Color(0.58, 0.44, 0.20), rb * 0.40)
 	cm = cm.lerp(Color(0.44, 0.28, 0.10), rb * 0.30)
 
@@ -1781,7 +1804,6 @@ func _draw_ground_sand() -> void:
 	_draw_grad_quad(left, ground_y + close_h + mid_h, width, ground_y + close_h + mid_h + near_h,
 		cm, cd)
 
-	# Dune ripple undulation
 	var segs      = 90
 	var step      = width / float(segs)
 	var dune_seed = _scenery_seed ^ 0xD4A7
@@ -1797,8 +1819,7 @@ func _draw_ground_sand() -> void:
 	if _polygon_valid(pts):
 		draw_colored_polygon(pts, ct)
 
-	# Horizon haze — warm desert shimmer
-	var sky_h: Color = _env.get("sky_horizon", Color(0.88, 0.70, 0.40))
+	var sky_h : Color = _env.get("sky_horizon", Color(0.88, 0.70, 0.40))
 	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
 	_draw_grad_quad(left, ground_y - 1.0, width, ground_y + 22.0,
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.22 * (1.0 - rb * 0.4)),
@@ -1809,18 +1830,19 @@ func _draw_ground_sand() -> void:
 	draw_line(Vector2(left, ground_y), Vector2(right, ground_y), hc, wall_outline_width, true)
 
 # =============================================================================
-# GROUND — ICE / SNOW (Ice environment)
+# GROUND — ICE / SNOW
 # =============================================================================
 
 func _draw_ground_ice_snow() -> void:
-	var left  = wall_min.x - BACKGROUND_EXPANSION
-	var right = wall_max.x + BACKGROUND_EXPANSION
+	var vr    = _get_view_rect()
+	var left  = vr.position.x
+	var right = vr.end.x
 	var width = right - left
 	var rb    = _get_weather_blend()
 
-	var ct: Color = _env.get("ground_top",  Color(0.90, 0.94, 0.98))
-	var cm: Color = _env.get("ground_mid",  Color(0.70, 0.80, 0.92))
-	var cd: Color = _env.get("ground_deep", Color(0.46, 0.60, 0.78))
+	var ct : Color = _env.get("ground_top",  Color(0.90, 0.94, 0.98))
+	var cm : Color = _env.get("ground_mid",  Color(0.70, 0.80, 0.92))
+	var cd : Color = _env.get("ground_deep", Color(0.46, 0.60, 0.78))
 	ct = ct.lerp(Color(0.80, 0.86, 0.94), rb * 0.35)
 
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), cd, true)
@@ -1829,7 +1851,6 @@ func _draw_ground_ice_snow() -> void:
 	_draw_grad_quad(left, ground_y + 40.0,  width, ground_y + 110.0, ct, cm)
 	_draw_grad_quad(left, ground_y + 110.0, width, ground_y + 300.0, cm, cd)
 
-	# Snowdrift silhouette — soft rounded undulation
 	var segs      = 100
 	var step      = width / float(segs)
 	var snow_seed = _scenery_seed ^ 0xF1E2
@@ -1845,7 +1866,6 @@ func _draw_ground_ice_snow() -> void:
 	if _polygon_valid(pts):
 		draw_colored_polygon(pts, ct)
 
-	# Ice crack details — thin blue-grey lines
 	for ci in range(12):
 		var cseed = (_scenery_seed ^ 0x2F3A) + ci * 53
 		var cx1   = left + _hf(cseed) * width
@@ -1856,14 +1876,12 @@ func _draw_ground_ice_snow() -> void:
 		draw_line(Vector2(cx1, cy1), Vector2(cx2, cy2),
 				  Color(0.48, 0.62, 0.82, 0.28 + _hf(cseed + 5) * 0.18), 0.8, true)
 
-	# Sheen specular highlight strip — glassy ice
-	var sheen_c: Color = _env.get("ice_sheen_color", Color(0.88, 0.96, 1.00))
+	var sheen_c : Color = _env.get("ice_sheen_color", Color(0.88, 0.96, 1.00))
 	_draw_grad_quad(left, ground_y - 2.0, width, ground_y + 8.0,
 		Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.22),
 		Color(sheen_c.r, sheen_c.g, sheen_c.b, 0.0))
 
-	# Horizon aerial haze
-	var sky_h: Color = _env.get("sky_horizon", Color(0.70, 0.88, 0.98))
+	var sky_h : Color = _env.get("sky_horizon", Color(0.70, 0.88, 0.98))
 	sky_h = _rain_lerp_color(sky_h, "sky_horizon", rb)
 	_draw_grad_quad(left, ground_y - 1.0, width, ground_y + 18.0,
 		Color(sky_h.r, sky_h.g, sky_h.b, 0.20 * (1.0 - rb * 0.4)),
@@ -1878,8 +1896,9 @@ func _draw_ground_ice_snow() -> void:
 # =============================================================================
 
 func _draw_ground_water() -> void:
-	var left  = wall_min.x - BACKGROUND_EXPANSION
-	var right = wall_max.x + BACKGROUND_EXPANSION
+	var vr    = _get_view_rect()
+	var left  = vr.position.x
+	var right = vr.end.x
 	var width = right - left
 	draw_rect(Rect2(Vector2(left, ground_y), Vector2(width, 99999.0)), Color(0.01, 0.06, 0.16), true)
 	var depth_bands = 16; var band_h = 90.0
@@ -1906,8 +1925,9 @@ func _draw_ground_water() -> void:
 
 func _draw_water_surface() -> void:
 	if not wall_valid: return
-	var bl    = wall_min.x - BACKGROUND_EXPANSION
-	var br    = wall_max.x + BACKGROUND_EXPANSION
+	var vr    = _get_view_rect()
+	var bl    = vr.position.x
+	var br    = vr.end.x
 	var width = br - bl
 	var t     = _water_time
 
@@ -1937,7 +1957,7 @@ func _draw_water_surface() -> void:
 		var amp   = 11.0  - wi * 2.2
 		var yoff  = ground_y - 2.0 + wi * 3.0
 		var phase = t * speed + wi * 1.3
-		var wcol: Color
+		var wcol : Color
 		match wi:
 			0: wcol = Color(0.04, 0.24, 0.52, 0.80)
 			1: wcol = Color(0.06, 0.30, 0.60, 0.86)
@@ -2043,7 +2063,7 @@ func check_water_collision(player_pos: Vector2, player_velocity: Vector2) -> Dic
 
 func _draw_underwater_wall_depth() -> void:
 	if not wall_valid: return
-	var base_l: Vector2; var base_r: Vector2
+	var base_l : Vector2; var base_r : Vector2
 	if use_polygon_mode and ground_left_index >= 0 and ground_right_index >= 0:
 		base_l = control_points[ground_left_index]; base_r = control_points[ground_right_index]
 	else:
@@ -2070,7 +2090,7 @@ func _draw_underwater_wall_depth() -> void:
 	var segs          = 32
 	var rock_col_top  = Color(0.22, 0.28, 0.30)
 	var rock_col_deep = Color(0.04, 0.06, 0.08)
-	var bot_pts: Array[Vector2] = []
+	var bot_pts : Array[Vector2] = []
 	for si in range(segs + 1):
 		var frac      = float(si) / float(segs)
 		var base_pt   = base_l.lerp(base_r, frac)
@@ -2476,7 +2496,7 @@ func set_polygon_data(data: Dictionary) -> void:
 func _draw_grad_quad(x: float, y0: float, w: float, y1: float,
 					 c_top: Color, c_bot: Color) -> void:
 	if w < 0.5 or absf(y1 - y0) < 0.5: return
-	var tl = Vector2(x,     y0); var tr2 = Vector2(x + w, y0)
+	var tl  = Vector2(x,     y0); var tr2 = Vector2(x + w, y0)
 	var br2 = Vector2(x + w, y1); var bl  = Vector2(x,     y1)
 	draw_polygon(PackedVector2Array([tl, tr2, br2]), PackedColorArray([c_top, c_top, c_bot]))
 	draw_polygon(PackedVector2Array([tl, br2, bl]),  PackedColorArray([c_top, c_bot, c_bot]))
