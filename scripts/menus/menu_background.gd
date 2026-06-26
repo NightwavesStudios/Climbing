@@ -20,28 +20,25 @@ extends Node2D
 # ─────────────────────────────────────────────────────────────────────────────
 
 ## Total seconds for one full day/night cycle.
-@export var cycle_duration: float       = 180.0
+@export var cycle_duration: float       = 60.0
 ## How strongly the mountains drift with the mouse (pixels).
-@export var parallax_strength: Vector2  = Vector2(28.0, 14.0)
+@export var parallax_strength: Vector2  = Vector2(10.0, 5.0)
 ## Lerp speed for the parallax drift.
-@export var parallax_speed:    float    = 2.8
+@export var parallax_speed:    float    = 1.5
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 
 const CLOUD_COUNT   = 5
-const CLOUD_LAYERS  = 2
-const REDRAW_HZ     = 60.0          # target internal redraws per second
-const REDRAW_DT     = 1.0 / REDRAW_HZ
+const CLOUD_LAYERS  = 3
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PRIVATE STATE
 # ─────────────────────────────────────────────────────────────────────────────
 
-var _cycle_t:      float = 0.35     # 0..1, starts near sunset
+var _cycle_t:      float = 0.08     # 0..1, starts at dawn — sun just peeking over horizon
 var _cloud_time:   float = 0.0
-var _redraw_timer: float = 0.0
 
 var _clouds:       Array[Dictionary] = []
 var _scenery_seed: int = 0
@@ -65,15 +62,14 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_cycle_t = fmod(_cycle_t + delta / cycle_duration, 1.0)
 	_cloud_time += delta
-	_redraw_timer += delta
 
 	# Update cloud positions every frame (cheap)
 	_update_clouds(delta)
 
-	# Limit GPU redraws
-	if _redraw_timer >= REDRAW_DT:
-		_redraw_timer = 0.0
-		queue_redraw()
+	# Redraw every frame so the parallax offset (updated below) and the
+	# drawn mountain/cloud positions stay in perfect sync.  The draws are
+	# lightweight polygon primitives — no rate limit needed.
+	queue_redraw()
 
 	# Mouse parallax
 	var vp   := get_viewport_rect().size
@@ -138,15 +134,15 @@ func _get_palette() -> Dictionary:
 	]
 	# sun / moon — richer golds
 	var sun_colors := [
-		Color(1.00, 0.64, 0.22),  # dawn warm
-		Color(1.00, 0.86, 0.54),  # day golden
-		Color(1.00, 0.86, 0.54),
-		Color(1.00, 0.78, 0.36),
-		Color(1.00, 0.52, 0.12),  # sunset deep orange
-		Color(0.0,  0.0,  0.0 ),  # dusk (sun gone)
-		Color(0.0,  0.0,  0.0 ),
-		Color(0.0,  0.0,  0.0 ),
-		Color(1.00, 0.64, 0.22),
+		Color(0.0,  0.0,  0.0 ),  # t=0.00 pre-dawn (black — sun hidden)
+		Color(1.00, 0.64, 0.22),  # t=0.12 dawn warm
+		Color(1.00, 0.86, 0.54),  # t=0.25 day golden
+		Color(1.00, 0.78, 0.36),  # t=0.40
+		Color(1.00, 0.52, 0.12),  # t=0.50 sunset deep orange
+		Color(0.0,  0.0,  0.0 ),  # t=0.62 dusk (sun gone)
+		Color(0.0,  0.0,  0.0 ),  # t=0.75 night
+		Color(0.0,  0.0,  0.0 ),  # t=0.90 late night
+		Color(0.0,  0.0,  0.0 ),  # t=1.00 loop back (stays black)
 	]
 	# mountain colors — list of 4 layers per key frame (more purple/gray tones)
 	var mtn_palettes := [
@@ -213,23 +209,37 @@ func _get_palette() -> Dictionary:
 
 func _make_cloud(rng: RandomNumberGenerator, spread: bool) -> Dictionary:
 	var vp    := get_viewport_rect()
-	var sx    := 70.0 + rng.randf() * 200.0 + float(rng.randi() % CLOUD_LAYERS) * 55.0
-	var sy    := 24.0 + rng.randf() * 42.0
 	var layer := rng.randi() % CLOUD_LAYERS
-	var speed := (0.18 + rng.randf() * 0.28) * (1.0 + float(layer) * 0.55) * 38.0
-	var alpha := 0.32 + rng.randf() * 0.38
-	var y     := vp.size.y * (0.04 + rng.randf() * 0.40)
-	var x     := vp.size.x * rng.randf() if spread else vp.size.x + sx + rng.randf() * 200.0
-	return { "x": x, "y": y, "sx": sx, "sy": sy,
-			 "speed": speed, "alpha": alpha, "layer": layer, "seed": rng.randi() }
+	var depth_t := float(layer) / float(CLOUD_LAYERS - 1)
+
+	# Layer-based sizing: far (layer 0) smaller → near (layer 2) larger
+	var sx := 80.0 + rng.randf() * 160.0 + depth_t * 100.0
+	var sy := 26.0 + rng.randf() * 34.0  + depth_t * 24.0
+
+	# Speed parallax: far slow, near fast
+	var speed := (0.10 + rng.randf() * 0.18) * (1.0 + depth_t * 0.9) * 42.0
+
+	# Alpha depth cue: far more transparent
+	var alpha: float = lerp(0.22, 0.48, depth_t) + rng.randf() * 0.32
+
+	var y := vp.size.y * (0.02 + rng.randf() * 0.42)
+	var x := vp.size.x * rng.randf() if spread else vp.size.x + sx + rng.randf() * 200.0
+
+	return {
+		"x": x, "y": y, "sx": sx, "sy": sy,
+		"speed": speed, "alpha": alpha, "layer": layer, "seed": rng.randi(),
+		"phase": rng.randf() * TAU,
+	}
 
 func _update_clouds(delta: float) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(_cloud_time * 80.0) ^ 0xDEADBEEF
-	var speed_mult := 1.0
 	for i in _clouds.size():
 		var c = _clouds[i]
-		c["x"] -= c["speed"] * delta * speed_mult
+		# Horizontal drift
+		c["x"] -= c["speed"] * delta
+		# Gentle vertical bob — each cloud on its own phase
+		c["y"] += sin(_cloud_time * (0.6 + float(c["layer"]) * 0.3) + c["phase"]) * delta * 3.5 * (1.0 + float(c["layer"]) * 0.4)
 		if c["x"] + c["sx"] < -200.0:
 			_clouds[i] = _make_cloud(rng, false)
 		else:
@@ -306,12 +316,27 @@ func _draw_sun(vp: Rect2, pal: Dictionary) -> void:
 	var sc  : Color = pal["sun"]
 	if sc.r + sc.g + sc.b < 0.01: return
 
-	# Sun arc: rises left, sets right
-	var ang := _cycle_t * TAU - TAU * 0.25
-	var sx  := vp.size.x * 0.5 + cos(ang) * vp.size.x * 0.38
-	var sy  := vp.size.y * 0.42 - sin(ang) * vp.size.y * 0.45
+	# Sun traces a parabolic arc — rises from the left horizon, arcs higher
+	# across the sky, and sets off the right horizon. Once it leaves the
+	# viewport it disappears — no wrapping back into the screen.
 	var horizon_y := vp.size.y * 0.82
-	if sy > horizon_y: return
+
+	# Map _cycle_t to a 0→1 progress from dawn to sunset (t=0.02→0.58).
+	var rise_t: float = 0.02
+	var set_t:  float = 0.58
+	var progress := clampf((_cycle_t - rise_t) / (set_t - rise_t), 0.0, 1.0)
+
+	# Horizontal: far left off-screen → far right off-screen
+	var sx := -vp.size.x * 0.25 + progress * vp.size.x * 1.5
+
+	# Vertical: parabolic arc peaking mid-way, much higher than before.
+	var arc_amplitude := vp.size.y * 0.70
+	var sy := horizon_y - arc_amplitude * sin(progress * PI)
+
+	# Clip — vanish once fully outside the viewport (no re-entry).
+	var sun_radius := 200.0
+	if sx + sun_radius < 0.0 or sx - sun_radius > vp.size.x: return
+	if sy + sun_radius < 0.0: return
 
 	# Outer glow — soft atmospheric falloff
 	for gi in range(12):
@@ -393,10 +418,15 @@ func _draw_mountains(vp: Rect2, pal: Dictionary) -> void:
 						  float(lc[1]), float(lc[2]), int(lc[3]), col,
 						  _scenery_seed ^ int(lc[5]))
 
-	# Horizon haze
+	# Broad atmospheric haze — softens mountain crests into the sky
 	var horiz : Color = pal["sky_horiz"]
-	_draw_vgrad(0.0, ground_y - 28.0, w, ground_y + 10.0,
-		Color(horiz.r, horiz.g, horiz.b, 0.0),
+	var sky_t: Color = pal["sky_top"]
+	_draw_vgrad(0.0, ground_y - 280.0, w, ground_y - 40.0,
+		Color(sky_t.r * 0.5 + horiz.r * 0.5, sky_t.g * 0.5 + horiz.g * 0.5, sky_t.b * 0.5 + horiz.b * 0.5, 0.0),
+		Color(horiz.r, horiz.g, horiz.b, 0.18))
+	# Richer horizon haze
+	_draw_vgrad(0.0, ground_y - 40.0, w, ground_y + 10.0,
+		Color(horiz.r, horiz.g, horiz.b, 0.18),
 		Color(horiz.r, horiz.g, horiz.b, 0.44))
 	_draw_vgrad(0.0, ground_y + 10.0, w, ground_y + 40.0,
 		Color(horiz.r, horiz.g, horiz.b, 0.44),
@@ -405,18 +435,43 @@ func _draw_mountains(vp: Rect2, pal: Dictionary) -> void:
 func _draw_hill_layer(left: float, right: float, base_y: float,
 					  min_h: float, max_h: float, segs: int,
 					  color: Color, hill_seed: int) -> void:
+	## Draws mountain silhouette with a soft vertex gradient so the crest
+	## fades gently into the sky, matching the painterly cloud style.
 	if segs < 1 or right <= left: return
 	var step := (right - left) / float(segs)
-	var pts  := PackedVector2Array()
-	pts.append(Vector2(left, base_y + 600.0))
+
+	# Compute crest points first to find the peak range
+	var crest_pts := PackedVector2Array()
+	var min_y: float = INF
 	for i in segs + 1:
 		var h0 := _hf(hill_seed + (i - 1) * 7) * (max_h - min_h) + min_h
 		var h1 := _hf(hill_seed + i       * 7) * (max_h - min_h) + min_h
 		var h2 := _hf(hill_seed + (i + 1) * 7) * (max_h - min_h) + min_h
-		pts.append(Vector2(left + i * step, base_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2)))
+		var y := base_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2)
+		crest_pts.append(Vector2(left + i * step, y))
+		if y < min_y: min_y = y
+
+	var pts  := PackedVector2Array()
+	var cols := PackedColorArray()
+	var crest_range := maxf(base_y - min_y, 1.0)
+
+	# Bottom-left (fully opaque)
+	pts.append(Vector2(left, base_y + 600.0))
+	cols.append(color)
+
+	# Crest points with vertical fade: higher up = more transparent
+	for i in crest_pts.size():
+		pts.append(crest_pts[i])
+		var height_t := (base_y - crest_pts[i].y) / crest_range
+		var fade := height_t * 0.35
+		cols.append(Color(color.r, color.g, color.b, color.a * (1.0 - fade)))
+
+	# Bottom-right (fully opaque)
 	pts.append(Vector2(right, base_y + 600.0))
+	cols.append(color)
+
 	if _polygon_valid(pts):
-		draw_colored_polygon(pts, color)
+		draw_polygon(pts, cols)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLOUDS
@@ -424,36 +479,106 @@ func _draw_hill_layer(left: float, right: float, base_y: float,
 
 func _draw_clouds(pal: Dictionary) -> void:
 	var cc : Color = pal["cloud"]
-	var sc : Color = cc.darkened(0.22)
-	sc.a = cc.a * 0.42
-
 	if cc.a < 0.02: return
+
+	var sc : Color = Color(cc.r * 0.68, cc.g * 0.65, cc.b * 0.70, cc.a * 0.42)
 
 	for layer in CLOUD_LAYERS:
 		for c in _clouds:
 			if c["layer"] != layer: continue
-			var ba: float = c["alpha"] * cc.a
-			ba = minf(ba, 0.90)
-			_draw_cloud(c["x"], c["y"], c["sx"], c["sy"],
-						Color(cc.r, cc.g, cc.b, ba),
-						Color(sc.r, sc.g, sc.b, ba * 0.44),
-						c["seed"])
+			var ba: float = minf(c["alpha"] * cc.a, 0.90)
 
-func _draw_cloud(cx: float, cy: float, sx: float, sy: float,
-				 col: Color, shadow: Color, cseed: int) -> void:
-	_draw_oval(cx, cy + sy * 0.38, sx * 0.84, sy * 0.50, shadow)
-	_draw_oval(cx, cy, sx, sy, col)
+			var cloud_col := Color(cc.r, cc.g, cc.b, ba)
+			var shadow_col := Color(sc.r, sc.g, sc.b, ba * 0.40)
+
+			# Subtle top warmer / bottom cooler variation based on layer
+			var warmth := 1.0 + float(layer) * 0.06
+			var top_tint := Color(
+				minf(cloud_col.r * warmth, 1.0),
+				minf(cloud_col.g * warmth, 1.0),
+				cloud_col.b,
+				ba * 0.92)
+			var bot_tint := Color(
+				cloud_col.r * 0.85,
+				cloud_col.g * 0.82,
+				minf(cloud_col.b * 1.12, 1.0),
+				ba * 0.80)
+
+			_draw_painterly_cloud(c["x"], c["y"], c["sx"], c["sy"],
+								  top_tint, bot_tint, shadow_col, c["seed"], layer)
+
+func _draw_painterly_cloud(cx: float, cy: float, sx: float, sy: float,
+						   top_col: Color, bot_col: Color, shadow: Color,
+						   cseed: int, _layer: int) -> void:
+	## Soft painterly cumulus cloud built from many layered soft puffs.
+	# ── Shadow base ────────────────────────────────────────────────────────
+	_draw_soft_puff(cx - sx * 0.04, cy + sy * 0.32, sx * 0.90, sy * 0.50, shadow, 0.55)
+
+	# ── Main body puff (wider, flatter base) ──────────────────────────────
+	_draw_soft_puff(cx, cy, sx * 0.92, sy * 0.78, top_col, 0.65)
+	_draw_soft_puff(cx, cy + sy * 0.08, sx * 0.86, sy * 0.52, bot_col, 0.50)
+
+	# ── Sub-puff layout: natural cumulus cluster ──────────────────────────
 	var offsets := [
-		Vector2(-sx * 0.32, -sy * 0.44), Vector2( sx * 0.30, -sy * 0.37),
-		Vector2(  0.0,      -sy * 0.64), Vector2(-sx * 0.52, -sy * 0.20),
-		Vector2( sx * 0.48, -sy * 0.22),
+		# Top crown (3 puffs)
+		Vector2(0.0,     -0.50), Vector2(-0.18,  -0.38), Vector2(0.18,  -0.38),
+		# Upper-mid body (3 puffs)
+		Vector2(-0.28,   -0.22), Vector2(0.28,   -0.22), Vector2(0.0,   -0.22),
+		# Mid body (3 puffs)
+		Vector2(-0.40,   -0.06), Vector2(0.40,   -0.06), Vector2(0.0,   -0.04),
+		# Lower flanks (3 puffs)
+		Vector2(-0.48,    0.12), Vector2(0.48,    0.12),
+		Vector2(-0.22,    0.22), Vector2(0.22,    0.22),
+		# Bottom wisps (2 puffs)
+		Vector2(-0.34,    0.34), Vector2(0.34,    0.34),
 	]
-	var szs := [0.50, 0.44, 0.48, 0.38, 0.36]
+	var sizes := [
+		0.42, 0.34, 0.34,
+		0.36, 0.36, 0.40,
+		0.32, 0.32, 0.38,
+		0.28, 0.28, 0.26, 0.26,
+		0.22, 0.22,
+	]
+	var is_top := [
+		true,  true,  true,
+		true,  true,  true,
+		false, false, false,
+		false, false, false, false,
+		false, false,
+	]
+
 	for pi in offsets.size():
-		var wob := Vector2((_hf(cseed + pi * 3) - 0.5) * sx * 0.08,
-						   (_hf(cseed + pi * 3 + 1) - 0.5) * sy * 0.10)
-		_draw_oval(cx + offsets[pi].x + wob.x, cy + offsets[pi].y + wob.y,
-				   sx * szs[pi], sy * (szs[pi] + 0.10), col)
+		var wob := Vector2(
+			(_hf(cseed + pi * 7) - 0.50) * sx * 0.14,
+			(_hf(cseed + pi * 7 + 3) - 0.50) * sy * 0.16)
+		var px: float = cx + offsets[pi].x * sx + wob.x
+		var py: float = cy + offsets[pi].y * sy + wob.y
+		var psx: float = sx * sizes[pi]
+		var psy: float = sy * (sizes[pi] + 0.18)
+
+		var puff_col: Color = top_col if is_top[pi] else bot_col
+		var alpha_mod: float = 0.70 if is_top[pi] else 0.60
+
+		_draw_soft_puff(px, py, psx, psy, puff_col, alpha_mod)
+
+func _draw_soft_puff(cx: float, cy: float, rx: float, ry: float,
+					 color: Color, density: float) -> void:
+	## Draws a soft radial-gradient puff by stacking translucent ovals.
+	## Outer rings feather the edge; inner rings build density toward the core.
+	if rx < 1.5 or ry < 1.5 or color.a < 0.005: return
+	var a: float = color.a * density
+
+	# Outer glow (soft feather edge)
+	_draw_oval(cx, cy, rx * 1.20, ry * 1.20, Color(color.r, color.g, color.b, a * 0.06))
+	_draw_oval(cx, cy, rx * 1.08, ry * 1.08, Color(color.r, color.g, color.b, a * 0.14))
+
+	# Mid body
+	_draw_oval(cx, cy, rx * 0.95, ry * 0.95, Color(color.r, color.g, color.b, a * 0.38))
+	_draw_oval(cx, cy, rx * 0.78, ry * 0.78, Color(color.r, color.g, color.b, a * 0.62))
+
+	# Core (brightest)
+	_draw_oval(cx, cy, rx * 0.55, ry * 0.55, Color(color.r, color.g, color.b, a * 0.85))
+	_draw_oval(cx, cy, rx * 0.30, ry * 0.30, Color(color.r, color.g, color.b, a * 1.00))
 
 func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color) -> void:
 	if rx < 0.5 or ry < 0.5: return

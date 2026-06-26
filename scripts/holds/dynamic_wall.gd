@@ -1,4 +1,4 @@
-## dynamic_wall.gd
+## dynamic_wall.gd NEW AND BROKEN ONE
 ## Procedural climbing-wall renderer.  Handles sky, mountains, clouds,
 ## ground, weather, the wall surface itself, and the polygon editor overlay.
 ##
@@ -33,18 +33,19 @@ class_name DynamicWall
 const WALL_PADDING_TOP    = 100.0
 const WALL_PADDING_BOTTOM = 150.0
 const WALL_PADDING_SIDES  = 100.0
+const BACKGROUND_EXPANSION = 2000.0
 
 const POINT_RADIUS    = 10.0
 const POINT_GRAB_RADIUS = 20.0
 const EDGE_CLICK_DISTANCE = 15.0
 
-const CLOUD_COUNT  = 22
+const CLOUD_COUNT  = 14
 const CLOUD_LAYERS = 3
 
 const SPLASH_DURATION      = 1.4
 const SPLASH_DROPLET_COUNT = 22
 
-const REDRAW_INTERVAL = 0.05
+const REDRAW_INTERVAL = 1.0 / 60.0   # 60 fps for smooth camera tracking
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STATE
@@ -87,8 +88,8 @@ var _env:          Dictionary = {}
 var _scenery_seed: int        = 0
 
 # Clouds
-var _clouds:     Array[Dictionary] = []
-var _cloud_time: float             = 0.0
+var _clouds:       Array[Dictionary] = []
+var _cloud_time:   float             = 0.0
 
 # Water
 var _water_time:      float = 0.0
@@ -129,37 +130,26 @@ func _process(delta: float) -> void:
 	_redraw_timer += delta
 	if _redraw_timer < REDRAW_INTERVAL:
 		return
-	_redraw_timer = 0.0
+	_redraw_timer -= REDRAW_INTERVAL  # subtract, don't reset — smooth timing
 
-	var rb            := _get_weather_blend()
-	var has_animation: bool = _env.get("has_stars", false) \
-		or (_env.get("cloud_color", Color(1,1,1)).a > 0.02) \
-		or _env.get("has_gym_interior", false) \
-		or _env.get("has_water", false) \
-		or _env.get("has_city", false) \
-		or rb > 0.01 \
-		or _splashes.size() > 0
+	# Always advance animated state so clouds, water, etc. keep moving.
+	_cloud_time += REDRAW_INTERVAL
+	_water_time += REDRAW_INTERVAL
+	_update_clouds(REDRAW_INTERVAL)
+	_update_splashes(REDRAW_INTERVAL)
 
-	if has_animation:
-		_cloud_time += REDRAW_INTERVAL
-		_water_time += REDRAW_INTERVAL
-		_update_clouds(REDRAW_INTERVAL)
-		_update_splashes(REDRAW_INTERVAL)
-		queue_redraw()
+	# Redraw every tick so background (sky, mountains, clouds, wall) stays
+	# in sync with the camera.  The old has_animation gate meant the wall
+	# would freeze at the initial camera position in static environments.
+	queue_redraw()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VIEWPORT HELPER
+# BACKGROUND EXTENT HELPER  (replaces _get_view_rect — fixed expansion)
 # ─────────────────────────────────────────────────────────────────────────────
 
-## Returns the world-space rect currently visible plus padding.
-## All background drawing uses this — NOT wall_min/wall_max for extents.
-func _get_view_rect(pad: float = 400.0) -> Rect2:
-	var ct  := get_canvas_transform()
-	var inv := ct.affine_inverse()
-	var vp  := get_viewport_rect().size
-	var tl  := inv * Vector2.ZERO
-	var br  := inv * vp
-	return Rect2(tl - Vector2(pad, pad), (br - tl) + Vector2(pad * 2.0, pad * 2.0))
+func _bg_left()  -> float: return wall_min.x - BACKGROUND_EXPANSION if wall_valid else -3000.0
+func _bg_right() -> float: return wall_max.x + BACKGROUND_EXPANSION if wall_valid else  3000.0
+func _bg_top()   -> float: return wall_min.y - BACKGROUND_EXPANSION if wall_valid else -2000.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WEATHER — PUBLIC API
@@ -212,30 +202,45 @@ func _init_clouds() -> void:
 		_clouds.append(_make_cloud(rng, true))
 
 func _make_cloud(rng: RandomNumberGenerator, initial_spread: bool) -> Dictionary:
-	var vr     := _get_view_rect(600.0)
-	var sx     := 60.0 + rng.randf() * 220.0 + float(rng.randi() % CLOUD_LAYERS) * 50.0
-	var sy     := 22.0 + rng.randf() * 38.0  + float(rng.randi() % CLOUD_LAYERS) * 8.0
-	var layer  := rng.randi() % CLOUD_LAYERS
-	var speed  := (0.18 + rng.randf() * 0.25) * (1.0 + float(layer) * 0.6) * 40.0
-	var sky_top := vr.position.y
-	var sky_bot := ground_y - 120.0 if wall_valid else vr.end.y - 120.0
-	var x: float = vr.position.x + rng.randf() * (vr.end.x - vr.position.x) \
-			if initial_spread else vr.end.x + sx + rng.randf() * 200.0
+	var layer   := rng.randi() % CLOUD_LAYERS
+	var bl      := _bg_left()
+	var br      := _bg_right()
+	var sky_top := _bg_top()
+	var sky_bot := ground_y - 120.0 if wall_valid else -400.0
+
+	var sx    := 70.0 + rng.randf() * 140.0 + float(layer) * 90.0 / float(CLOUD_LAYERS - 1)
+	var sy    := 22.0 + rng.randf() * 26.0  + float(layer) * 20.0 / float(CLOUD_LAYERS - 1)
+	var speed := (0.08 + rng.randf() * 0.16) * (1.0 + float(layer) * 0.8 / float(CLOUD_LAYERS - 1)) * 10.0
+	var alpha = lerp(0.20, 0.45, float(layer) / float(CLOUD_LAYERS - 1)) + rng.randf() * 0.28
+
+	var y_range = max(sky_bot - sky_top - 100.0, 100.0)
+	var x: float
+	if initial_spread:
+		x = bl + rng.randf() * (br - bl)
+	else:
+		x = br + sx + rng.randf() * 200.0
+
 	return {
-		"x": x, "y": sky_top + 40.0 + rng.randf() * max(sky_bot - sky_top - 100.0, 100.0),
-		"sx": sx, "sy": sy, "speed": speed, "alpha": 0.35 + rng.randf() * 0.35,
-		"layer": layer, "seed": rng.randi()
+		"x": x,
+		"y": sky_top + 40.0 + rng.randf() * y_range,
+		"sx": sx, "sy": sy, "speed": speed, "alpha": alpha,
+		"layer": layer, "seed": rng.randi(),
+		"phase": rng.randf() * TAU,
 	}
 
 func _update_clouds(delta: float) -> void:
-	var vr         := _get_view_rect(600.0)
+	var bl         := _bg_left()
 	var speed_mult := 1.0 + _get_weather_blend() * 0.5
 	var rng        := RandomNumberGenerator.new()
 	rng.seed        = int(_cloud_time * 100.0) ^ 0xDEADBEEF
 	for i in _clouds.size():
 		var c = _clouds[i]
 		c["x"] -= c["speed"] * delta * speed_mult
-		_clouds[i] = _make_cloud(rng, false) if c["x"] + c["sx"] < vr.position.x - 100.0 else c
+		c["y"] += sin(_cloud_time * (0.6 + float(c["layer"]) * 0.3) + c["phase"]) * delta * 0.8 * (1.0 + float(c["layer"]) * 0.35)
+		if c["x"] + c["sx"] < bl - 100.0:
+			_clouds[i] = _make_cloud(rng, false)
+		else:
+			_clouds[i] = c
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SPLASH SYSTEM
@@ -617,38 +622,42 @@ func _draw() -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _draw_sky() -> void:
-	var vr    := _get_view_rect()
+	var bl    := _bg_left()
+	var br    := _bg_right()
+	var st    := _bg_top()
+	var sw    := br - bl
 	var rb    := _get_weather_blend()
 	var ctop  := _rain_lerp_color(_env.get("sky_top",    background_color),                "sky_top",    rb)
 	var choriz := _rain_lerp_color(_env.get("sky_horizon", background_color.lightened(0.15)),"sky_horizon",rb)
-	var sw    := vr.size.x
-	var total_h := ground_y - vr.position.y
+	var total_h := ground_y - st
 	for i in 20:
 		var t0 := float(i)     / 20.0
 		var t1 := float(i + 1) / 20.0
-		_draw_grad_quad(vr.position.x, vr.position.y + t0 * total_h, sw, vr.position.y + t1 * total_h,
+		_draw_grad_quad(bl, st + t0 * total_h, sw, st + t1 * total_h,
 			ctop.lerp(choriz, t0 * t0), ctop.lerp(choriz, t1 * t1))
-	draw_rect(Rect2(Vector2(vr.position.x, ground_y), Vector2(sw, 99999.0)), choriz, true)
+	draw_rect(Rect2(Vector2(bl, ground_y), Vector2(sw, 99999.0)), choriz, true)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CELESTIAL
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _draw_stars() -> void:
-	var vr := _get_view_rect(); var rb := _get_weather_blend()
-	var bl := vr.position.x; var sw := vr.size.x
+	var bl := _bg_left(); var br := _bg_right(); var st := _bg_top()
+	var sw := br - bl
+	var rb := _get_weather_blend()
 	for i in 80:
 		var ss     := (_scenery_seed ^ 0xBEEF) + i * 17
 		var bright := (0.5 + _hf(ss + 2) * 0.5) * (1.0 - rb)
 		var tw     := 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(ss + 4) * 3.0) + float(i))
-		draw_circle(Vector2(bl + _hf(ss) * sw, vr.position.y + _hf(ss+1) * (ground_y - vr.position.y - 80.0)),
+		draw_circle(Vector2(bl + _hf(ss) * sw, st + _hf(ss+1) * (ground_y - st - 80.0)),
 					1.0 + _hf(ss + 3) * 1.8, Color(1.0, 1.0, 1.0, bright * tw * 0.85))
 
 func _draw_sun() -> void:
-	var vr := _get_view_rect(); var rb := _get_weather_blend()
-	var sx := vr.position.x + vr.size.x * 0.78; var sy := vr.position.y + 180.0
+	var bl := _bg_left(); var br := _bg_right(); var st := _bg_top()
+	var sx := bl + (br - bl) * 0.78
+	var sy := st + 180.0
 	var sc : Color = _env.get("sun_color", Color(1.0,0.95,0.70))
-	var fade := 1.0 - rb
+	var fade := 1.0 - _get_weather_blend()
 	for gi in 8:
 		draw_circle(Vector2(sx, sy), 45.0 + float(gi) * 28.0,
 					Color(sc.r, sc.g, sc.b, (0.05 - float(gi) * 0.005) * fade))
@@ -656,8 +665,9 @@ func _draw_sun() -> void:
 	draw_circle(Vector2(sx, sy), 32.0, Color(1.0, 1.0, 0.97, fade * 0.9))
 
 func _draw_moon() -> void:
-	var vr := _get_view_rect()
-	var mx := vr.position.x + vr.size.x * 0.72; var my := vr.position.y + 220.0
+	var bl := _bg_left(); var br := _bg_right(); var st := _bg_top()
+	var mx := bl + (br - bl) * 0.72
+	var my := st + 220.0
 	var mr := 36.0
 	for gi in 5:
 		draw_circle(Vector2(mx, my), mr + float(gi) * 20.0, Color(0.7,0.75,0.9, 0.04))
@@ -673,8 +683,8 @@ func _draw_moon() -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _draw_mountains() -> void:
-	var vr := _get_view_rect(); var rb := _get_weather_blend()
-	var bl := vr.position.x; var br := vr.end.x
+	var bl := _bg_left(); var br := _bg_right()
+	var rb  := _get_weather_blend()
 	var hs : Color = _rain_lerp_color(_env.get("sky_horizon", background_color), "sky_horizon", rb)
 	var ht : Color = _rain_lerp_color(_env.get("sky_top",     background_color), "sky_top",     rb)
 
@@ -684,12 +694,10 @@ func _draw_mountains() -> void:
 		_draw_hill_layer(bl, br, ground_y-120.0, 280.0, 680.0, 110, hs.lerp(ht,0.7).darkened(0.08), _scenery_seed^0x111222)
 		_draw_hill_layer(bl, br, ground_y-70.0,  200.0, 520.0, 95,  hs.lerp(ht,0.5).darkened(0.12), _scenery_seed^0x333444)
 
-	var haze := _rain_lerp_color(hs.lightened(0.08), "sky_horizon", rb * 0.5)
-	var sw   := br - bl
-	_draw_grad_quad(bl, ground_y-55.0-20.0, sw, ground_y-55.0+8.0,
-		Color(haze.r,haze.g,haze.b,0.0), Color(haze.r,haze.g,haze.b,0.50*(1.0-rb*0.4)))
-	_draw_grad_quad(bl, ground_y-55.0+8.0,  sw, ground_y-55.0+36.0,
-		Color(haze.r,haze.g,haze.b,0.50*(1.0-rb*0.4)), Color(haze.r,haze.g,haze.b,0.0))
+	var sw := br - bl
+	_draw_grad_quad(bl, ground_y-40.0, sw, ground_y-10.0,
+		Color(hs.r, hs.g, hs.b, 0.14*(1.0-rb*0.4)),
+		Color(hs.r, hs.g, hs.b, 0.40*(1.0-rb*0.4)))
 
 	_draw_hill_layer(bl, br, ground_y-5.0, 90.0,  230.0, 55, hs.darkened(0.22), _scenery_seed^0x4D5E6F)
 	_draw_hill_layer(bl, br, ground_y,     40.0,  110.0, 45, hs.darkened(0.38), _scenery_seed^0x7F8A9B)
@@ -707,23 +715,26 @@ func _draw_hill_layer(left: float, right: float, base_y: float,
 		var h2 := _hf(hill_seed+(i+1)*7)*(max_h-min_h)+min_h
 		pts.append(Vector2(left + i * step, base_y - (h0*0.2+h1*0.6+h2*0.2)))
 	pts.append(Vector2(right, base_y + 500.0))
-	if _polygon_valid(pts): draw_colored_polygon(pts, color)
+	if _polygon_valid(pts):
+		draw_colored_polygon(pts, color)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CITY SILHOUETTE
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _draw_city_silhouette() -> void:
-	var vr  := _get_view_rect()
-	var bl  := vr.position.x; var br := vr.end.x
+	var bl  := _bg_left(); var br := _bg_right()
 	var rb  := _get_weather_blend()
 	var tod : int = _env.get("city_time", 0)
 
 	var sil_colors: Array
 	match tod:
-		1: sil_colors = [Color(0.10,0.08,0.16),Color(0.16,0.12,0.22),Color(0.24,0.16,0.24),Color(0.34,0.20,0.22)]
-		2: sil_colors = [Color(0.04,0.04,0.09),Color(0.06,0.06,0.13),Color(0.09,0.09,0.17),Color(0.13,0.13,0.20)]
-		_: sil_colors = [Color(0.50,0.54,0.60),Color(0.40,0.44,0.52),Color(0.30,0.34,0.42),Color(0.20,0.24,0.32)]
+		1: sil_colors = [Color(0.10,0.08,0.16),Color(0.16,0.12,0.22),
+						  Color(0.24,0.16,0.24),Color(0.34,0.20,0.22)]
+		2: sil_colors = [Color(0.04,0.04,0.09),Color(0.06,0.06,0.13),
+						  Color(0.09,0.09,0.17),Color(0.13,0.13,0.20)]
+		_: sil_colors = [Color(0.50,0.54,0.60),Color(0.40,0.44,0.52),
+						  Color(0.30,0.34,0.42),Color(0.20,0.24,0.32)]
 	for i in sil_colors.size():
 		sil_colors[i] = (sil_colors[i] as Color).lerp(Color(0.18,0.20,0.24), rb * 0.4)
 
@@ -770,7 +781,7 @@ func _draw_city_silhouette() -> void:
 				var win_rows := int(bh/20.0); var win_cols := int(bw/16.0)
 				for wr in win_rows:
 					for wc in win_cols:
-						var ws := bs+wr*97+wc*31
+						var ws  := bs+wr*97+wc*31
 						if _hf(ws) > lit_prob: continue
 						var wlit := (win_warm if _hf(ws+5)>0.42 else win_cool)
 						var hv   := (_hf(ws+6)-0.5)*0.10
@@ -801,29 +812,78 @@ func _draw_clouds() -> void:
 		for c in _clouds:
 			if c["layer"] != layer: continue
 			var ba := minf(c["alpha"] * cc.a * (1.0 + rb * 0.4), 0.92)
-			_draw_cloud_shape(c["x"], c["y"], c["sx"], c["sy"],
-				Color(cc.r,cc.g,cc.b,ba), Color(sc.r,sc.g,sc.b,ba*0.45), c["seed"], rb)
+
+			var warmth := 1.0 + float(layer) * 0.05 + rb * 0.08
+			var top_col := Color(
+				minf(cc.r * warmth, 1.0), minf(cc.g * warmth, 1.0), cc.b, ba * 0.92)
+			var bot_col := Color(
+				cc.r * 0.82, cc.g * 0.80, minf(cc.b * 1.15, 1.0), ba * 0.78)
+			var shadow_col := Color(sc.r, sc.g, sc.b, ba * 0.38)
+
+			_draw_painterly_cloud(c["x"], c["y"], c["sx"], c["sy"],
+				top_col, bot_col, shadow_col, c["seed"], layer, rb)
 
 func _draw_overcast_layer(blend: float, cc: Color) -> void:
-	var vr := _get_view_rect(); var sw := vr.size.x; var base := vr.position.y
-	var h := blend * vr.size.y * 0.55
+	var bl   := _bg_left(); var br := _bg_right(); var st := _bg_top()
+	var sw   := br - bl
+	var h    := blend * BACKGROUND_EXPANSION * 0.55
+	var base := st
 	for i in 10:
 		var t0 := float(i)/10.0; var t1 := float(i+1)/10.0
-		_draw_grad_quad(vr.position.x, base+t0*h, sw, base+t1*h,
+		_draw_grad_quad(bl, base+t0*h, sw, base+t1*h,
 			Color(cc.r,cc.g,cc.b, lerp(blend*0.65,0.0,t0*t0)),
 			Color(cc.r,cc.g,cc.b, lerp(blend*0.65,0.0,t1*t1)))
 
-func _draw_cloud_shape(cx: float, cy: float, sx: float, sy: float,
-					   color: Color, shadow: Color, cseed: int, rb: float = 0.0) -> void:
+func _draw_painterly_cloud(cx: float, cy: float, sx: float, sy: float,
+						   top_col: Color, bot_col: Color, shadow: Color,
+						   cseed: int, _layer: int, rb: float = 0.0) -> void:
 	var rym := 1.0 + rb * 0.30
-	_draw_oval(cx, cy+sy*0.38, sx*0.85, sy*0.52*rym, shadow)
-	_draw_oval(cx, cy, sx, sy*rym, color)
-	var offsets := [Vector2(-sx*0.32,-sy*0.42),Vector2(sx*0.30,-sy*0.36),Vector2(0.0,-sy*0.62),Vector2(-sx*0.52,-sy*0.18),Vector2(sx*0.48,-sy*0.22)]
-	var sizes   := [0.50, 0.44, 0.48, 0.38, 0.36]
+
+	_draw_soft_puff(cx - sx * 0.04, cy + sy * 0.32 * rym, sx * 0.90, sy * 0.50 * rym, shadow, 0.55)
+	_draw_soft_puff(cx, cy, sx * 0.92, sy * 0.78 * rym, top_col, 0.65)
+	_draw_soft_puff(cx, cy + sy * 0.08 * rym, sx * 0.86, sy * 0.52 * rym, bot_col, 0.50)
+
+	var offsets := [
+		Vector2(0.0,     -0.50), Vector2(-0.18,  -0.38), Vector2(0.18,  -0.38),
+		Vector2(-0.28,   -0.22), Vector2(0.28,   -0.22), Vector2(0.0,   -0.22),
+		Vector2(-0.40,   -0.06), Vector2(0.40,   -0.06), Vector2(0.0,   -0.04),
+		Vector2(-0.48,    0.12), Vector2(0.48,    0.12),
+		Vector2(-0.22,    0.22), Vector2(0.22,    0.22),
+		Vector2(-0.34,    0.34), Vector2(0.34,    0.34),
+	]
+	var sizes := [
+		0.42, 0.34, 0.34, 0.36, 0.36, 0.40,
+		0.32, 0.32, 0.38, 0.28, 0.28, 0.26, 0.26, 0.22, 0.22,
+	]
+	var is_top := [
+		true,  true,  true,  true,  true,  true,
+		false, false, false, false, false, false, false, false, false,
+	]
+
 	for pi in offsets.size():
-		var wob := Vector2((_hf(cseed+pi*3)-0.5)*sx*0.08, (_hf(cseed+pi*3+1)-0.5)*sy*0.10)
-		_draw_oval(cx+offsets[pi].x+wob.x, cy+offsets[pi].y+wob.y,
-				   sx*sizes[pi], sy*(sizes[pi]+0.1)*rym, color)
+		var wob: Vector2 = Vector2(
+			(_hf(cseed + pi * 7) - 0.50) * sx * 0.14,
+			(_hf(cseed + pi * 7 + 3) - 0.50) * sy * 0.16 * rym)
+		var px: float = cx + offsets[pi].x * sx + wob.x
+		var py: float = cy + offsets[pi].y * sy * rym + wob.y
+		var psx: float = sx * sizes[pi]
+		var psy: float = sy * (sizes[pi] + 0.18) * rym
+
+		var puff_col: Color = top_col if is_top[pi] else bot_col
+		var alpha_mod: float = 0.70 if is_top[pi] else 0.60
+
+		_draw_soft_puff(px, py, psx, psy, puff_col, alpha_mod)
+
+func _draw_soft_puff(cx: float, cy: float, rx: float, ry: float,
+					 color: Color, density: float) -> void:
+	if rx < 1.5 or ry < 1.5 or color.a < 0.005: return
+	var a: float = color.a * density
+	_draw_oval(cx, cy, rx * 1.20, ry * 1.20, Color(color.r, color.g, color.b, a * 0.06))
+	_draw_oval(cx, cy, rx * 1.08, ry * 1.08, Color(color.r, color.g, color.b, a * 0.14))
+	_draw_oval(cx, cy, rx * 0.95, ry * 0.95, Color(color.r, color.g, color.b, a * 0.38))
+	_draw_oval(cx, cy, rx * 0.78, ry * 0.78, Color(color.r, color.g, color.b, a * 0.62))
+	_draw_oval(cx, cy, rx * 0.55, ry * 0.55, Color(color.r, color.g, color.b, a * 0.85))
+	_draw_oval(cx, cy, rx * 0.30, ry * 0.30, Color(color.r, color.g, color.b, a * 1.00))
 
 func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color) -> void:
 	if rx < 0.5 or ry < 0.5: return
@@ -841,11 +901,12 @@ func _draw_fog() -> void:
 	var rb := _get_weather_blend()
 	var fc : Color = _rain_lerp_color(_env.get("fog_color",Color(0,0,0,0)),"fog_color",rb)
 	if fc.a < 0.01: return
-	var vr := _get_view_rect(); var sw := vr.size.x
-	var total_h := vr.size.y + 99999.0
+	var bl := _bg_left(); var br := _bg_right(); var st := _bg_top()
+	var sw := br - bl
+	var total_h := (ground_y + 99999.0) - st
 	for i in 10:
 		var t0 := float(i)/10.0; var t1 := float(i+1)/10.0
-		_draw_grad_quad(vr.position.x, vr.position.y+t0*total_h, sw, vr.position.y+t1*total_h,
+		_draw_grad_quad(bl, st+t0*total_h, sw, st+t1*total_h,
 			Color(fc.r,fc.g,fc.b, fc.a*(1.0-t0*0.65)),
 			Color(fc.r,fc.g,fc.b, fc.a*(1.0-t1*0.65)))
 
@@ -854,8 +915,7 @@ func _draw_fog() -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _draw_gym_interior() -> void:
-	var vr      := _get_view_rect()
-	var bl      := vr.position.x; var br := vr.end.x
+	var bl      := _bg_left(); var br := _bg_right()
 	var width   := br - bl
 	var vis_top := wall_min.y
 	var vis_bot := ground_y if ground_y > vis_top + 10.0 else vis_top + (wall_max.y - wall_min.y)
@@ -863,7 +923,7 @@ func _draw_gym_interior() -> void:
 	if width < 1.0 or vis_h < 10.0: return
 
 	for i in 12:
-		var t := float(i)/12.0
+		var t := float(i) / 12.0
 		draw_rect(Rect2(Vector2(bl, vis_top+t*vis_h), Vector2(width, vis_h/12.0+2.0)),
 				  Color(0.93-t*0.025, 0.93-t*0.022, 0.94-t*0.018), true)
 
@@ -916,8 +976,10 @@ func _draw_gym_interior() -> void:
 		if tod != 2 and gsc.r+gsc.g+gsc.b > 0.05 and rb < 0.85 and sun_wx >= wx+20.0 and sun_wx <= wx2-20.0:
 			var sun_y := win_top+win_h*sun_y_frac; var sf := 1.0-rb
 			for ri in 7:
-				draw_circle(Vector2(sun_wx,sun_y), 7.0+ri*18.0, Color(gsc.r,gsc.g,gsc.b,(0.042-ri*0.005)*sf))
-			draw_circle(Vector2(sun_wx,sun_y), 10.0, Color(gsc.r+0.05,gsc.g+0.02,gsc.b*0.8,0.70*sf))
+				draw_circle(Vector2(sun_wx,sun_y), 7.0+ri*18.0,
+							Color(gsc.r,gsc.g,gsc.b,(0.042-ri*0.005)*sf))
+			draw_circle(Vector2(sun_wx,sun_y), 10.0,
+						Color(gsc.r+0.05,gsc.g+0.02,gsc.b*0.8,0.70*sf))
 			if tod == 1:
 				for gsi in 8:
 					var gt := float(gsi)/8.0
@@ -1182,11 +1244,11 @@ func _draw_ground() -> void:
 		_:                                  _draw_ground_grass()
 
 func _draw_ground_grass() -> void:
-	var vr    := _get_view_rect(); var rb := _get_weather_blend()
-	var left  := vr.position.x; var right := vr.end.x; var width := right-left
-	var ct := (_env.get("ground_top",  Color(0.22,0.52,0.14)) as Color).lerp(Color(0.14,0.28,0.10),rb*0.55)
-	var cm := (_env.get("ground_mid",  Color(0.32,0.22,0.12)) as Color).lerp(Color(0.20,0.16,0.10),rb*0.40)
-	var cd := (_env.get("ground_deep", Color(0.20,0.14,0.08)) as Color).lerp(Color(0.14,0.12,0.08),rb*0.30)
+	var left  := _bg_left(); var right := _bg_right(); var width := right - left
+	var rb    := _get_weather_blend()
+	var ct: Color = (_env.get("ground_top",  Color(0.22,0.52,0.14)) as Color).lerp(Color(0.14,0.28,0.10),rb*0.55)
+	var cm: Color = (_env.get("ground_mid",  Color(0.32,0.22,0.12)) as Color).lerp(Color(0.20,0.16,0.10),rb*0.40)
+	var cd: Color = (_env.get("ground_deep", Color(0.20,0.14,0.08)) as Color).lerp(Color(0.14,0.12,0.08),rb*0.30)
 	draw_rect(Rect2(Vector2(left,ground_y), Vector2(width,99999.0)), cd, true)
 	_draw_grad_quad(left,ground_y,        width,ground_y+38.0,    ct.lightened(0.06),ct)
 	_draw_grad_quad(left,ground_y+38.0,   width,ground_y+128.0,   ct,cm)
@@ -1215,7 +1277,7 @@ func _draw_ground_puddles(left: float, right: float, blend: float) -> void:
 		draw_line(Vector2(px-pw*0.3,ground_y+1.0),Vector2(px+pw*0.3,ground_y+1.0),Color(0.55,0.65,0.80,0.20*blend*0.35),1.2,true)
 
 func _draw_ground_gym() -> void:
-	var vr := _get_view_rect(); var left := vr.position.x; var width := vr.size.x
+	var left  := _bg_left(); var right := _bg_right(); var width := right - left
 	var ct : Color = _env.get("ground_top",  Color(0.22,0.22,0.24))
 	var cd : Color = _env.get("ground_deep", Color(0.11,0.11,0.12))
 	draw_rect(Rect2(Vector2(left,ground_y), Vector2(width,99999.0)), ct, true)
@@ -1226,10 +1288,10 @@ func _draw_ground_gym() -> void:
 	for ti in tc: draw_line(Vector2(left+float(ti)*200.0,ground_y),Vector2(left+float(ti)*200.0,ground_y+85.0),Color(cd.r,cd.g,cd.b,0.11),0.7,true)
 	for hy in [18.0,42.0,80.0,145.0,245.0]: draw_line(Vector2(left,ground_y+hy),Vector2(left+width,ground_y+hy),Color(cd.r,cd.g,cd.b,0.07),0.6,true)
 	var fc := ct.darkened(wall_outline_darken); fc.a=minf(wall_outline_darken*2.4,1.0)
-	draw_line(Vector2(left,ground_y),Vector2(left+width,ground_y),fc,wall_outline_width,true)
+	draw_line(Vector2(left,ground_y),Vector2(right,ground_y),fc,wall_outline_width,true)
 
 func _draw_ground_city() -> void:
-	var vr := _get_view_rect(); var left := vr.position.x; var right := vr.end.x; var width := right-left
+	var left  := _bg_left(); var right := _bg_right(); var width := right - left
 	var rb := _get_weather_blend(); var tod : int = _env.get("city_time",0)
 	var ct: Color; var cd: Color
 	match tod:
@@ -1252,8 +1314,8 @@ func _draw_ground_city() -> void:
 	if rb>0.1: _draw_ground_puddles(left,right,rb)
 
 func _draw_ground_sand() -> void:
-	var vr:= _get_view_rect(); var rb := _get_weather_blend()
-	var left := vr.position.x; var right := vr.end.x; var width := right-left
+	var left  := _bg_left(); var right := _bg_right(); var width := right - left
+	var rb    := _get_weather_blend()
 	var ct := (_env.get("ground_top",  Color(0.82,0.62,0.32)) as Color).lerp(Color(0.58,0.44,0.20),rb*0.40)
 	var cm := (_env.get("ground_mid",  Color(0.62,0.40,0.16)) as Color).lerp(Color(0.44,0.28,0.10),rb*0.30)
 	var cd : Color = _env.get("ground_deep",Color(0.42,0.24,0.08))
@@ -1274,8 +1336,8 @@ func _draw_ground_sand() -> void:
 	draw_line(Vector2(left,ground_y),Vector2(right,ground_y),hc,wall_outline_width,true)
 
 func _draw_ground_ice_snow() -> void:
-	var vr:=_get_view_rect(); var rb:=_get_weather_blend()
-	var left:=vr.position.x; var right:=vr.end.x; var width:=right-left
+	var left  := _bg_left(); var right := _bg_right(); var width := right - left
+	var rb    := _get_weather_blend()
 	var ct:=(_env.get("ground_top", Color(0.90,0.94,0.98)) as Color).lerp(Color(0.80,0.86,0.94),rb*0.35)
 	var cm:Color=_env.get("ground_mid", Color(0.70,0.80,0.92))
 	var cd:Color=_env.get("ground_deep",Color(0.46,0.60,0.78))
@@ -1303,7 +1365,7 @@ func _draw_ground_ice_snow() -> void:
 	draw_line(Vector2(left,ground_y),Vector2(right,ground_y),hc,wall_outline_width,true)
 
 func _draw_ground_water() -> void:
-	var vr:=_get_view_rect(); var left:=vr.position.x; var width:=vr.size.x
+	var left  := _bg_left(); var right := _bg_right(); var width := right - left
 	draw_rect(Rect2(Vector2(left,ground_y),Vector2(width,99999.0)),Color(0.01,0.06,0.16),true)
 	for di in 16:
 		var t:=float(di)/15.0
@@ -1321,7 +1383,7 @@ func _draw_ground_water() -> void:
 
 func _draw_water_surface() -> void:
 	if not wall_valid: return
-	var vr:=_get_view_rect(); var bl:=vr.position.x; var br:=vr.end.x; var width:=br-bl
+	var bl:=_bg_left(); var br:=_bg_right(); var width:=br-bl
 	var t:=_water_time
 	for di in 8:
 		var t0:=float(di)/8.0; var t1:=float(di+1)/8.0
@@ -1438,7 +1500,6 @@ func draw_textured_wall(start_pos: Vector2, size: Vector2) -> void:
 			if cl.has_area():
 				draw_rect(cl,Color(current_wall_color.r+v,current_wall_color.g+v,current_wall_color.b+v,current_wall_color.a))
 
-## Stub — bolt holes rendered by hold sprites in gameplay scenes.
 func draw_bolt_holes(_start_pos: Vector2, _end_pos: Vector2) -> void: pass
 func draw_bolt_holes_on_polygon() -> void: pass
 
@@ -1704,7 +1765,6 @@ func _draw_grad_quad_h(x0: float, y0: float, x1: float, y1: float, c_left: Color
 	draw_polygon(PackedVector2Array([tl,tr_,br]),PackedColorArray([c_left,c_right,c_right]))
 	draw_polygon(PackedVector2Array([tl,br,bl]),PackedColorArray([c_left,c_right,c_left]))
 
-## Returns the shortest distance from point p to the line segment a-b.
 func _point_to_segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:
 	var ab := b - a
 	var ap := p - a
@@ -1719,5 +1779,3 @@ func _polygon_valid(pts: PackedVector2Array) -> bool:
 
 func _hf(v: int) -> float:
 	return float(hash(v)%10000)/10000.0
-
-func hash_to_float(v: int) -> float: return _hf(v)

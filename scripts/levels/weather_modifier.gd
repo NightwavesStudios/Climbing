@@ -1363,6 +1363,10 @@ func get_wind_force() -> Vector2:
 			return Vector2.ZERO
 
 func _get_draw_bounds() -> Vector4:
+	# Guard: not in tree yet — use safe fallback
+	if not is_inside_tree():
+		return Vector4(-4000.0, -4000.0, 8000.0, 8000.0)
+
 	# Always derive bounds from the actual camera viewport in world space.
 	# This covers any zoom level — zooming out just makes the viewport rect larger
 	# in world coords, so the weather always fills it with a safety margin.
@@ -1370,6 +1374,8 @@ func _get_draw_bounds() -> Vector4:
 	if vp:
 		var ct      := vp.get_canvas_transform()
 		var vp_size := vp.get_visible_rect().size
+		if vp_size.length_squared() < 1.0:
+			return Vector4(-4000.0, -4000.0, 8000.0, 8000.0)
 		# Inverse of canvas transform gives the world-space rect of the visible area.
 		var ct_inv   := ct.affine_inverse()
 		var tl_world := ct_inv * Vector2.ZERO
@@ -1389,5 +1395,4 @@ func _get_draw_bounds() -> Vector4:
 			return Vector4(b["min"].x - EXP, b["min"].y - EXP,
 						   (b["max"].x - b["min"].x) + EXP * 2.0,
 						   (b["max"].y - b["min"].y) + EXP * 2.0)
-	var vs := get_viewport_rect().size
-	return Vector4(-vs.x * 2.0, -vs.y * 2.0, vs.x * 4.0, vs.y * 4.0)
+	return Vector4(-4000.0, -4000.0, 8000.0, 8000.0)
