@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://ca1j1id3nxv3l"]
 
-[ext_resource type="Script" uid="uid://nsfftbyrolbv" path="res://scripts/menus/level_completed.gd" id="1_hw4ma"]
-[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_qpkrs"]
+[ext_resource type="Script" uid="uid://nsfftbyrolbv" path="res://scripts/ui/menus/level_completed.gd" id="1_hw4ma"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_qpkrs"]
 
 [node name="LevelCompleted" type="CanvasLayer"]
 script = ExtResource("1_hw4ma")

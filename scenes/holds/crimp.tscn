@@ -1,6 +1,6 @@
 [gd_scene load_steps=9 format=3 uid="uid://dk5b2diiuw66b"]
 
-[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_r3qd0"]
+[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/climbing/holds.gd" id="1_r3qd0"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_gdk8g"]
 [ext_resource type="Texture2D" uid="uid://dy8pu12a3tj7a" path="res://assets/images/holds/gym/crimp.png" id="2_xpqss"]
 [ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_x313x"]

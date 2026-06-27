@@ -1,8 +1,8 @@
 [gd_scene load_steps=5 format=3 uid="uid://cmudrme1ntc3v"]
 
-[ext_resource type="Script" uid="uid://cih6ocoqb46qx" path="res://scripts/menus/main_menu.gd" id="1_xqga4"]
+[ext_resource type="Script" uid="uid://bswtu3764leu6" path="res://scripts/ui/menus/main_menu.gd" id="1_xqga4"]
 [ext_resource type="Texture2D" uid="uid://dusadgoemwud7" path="res://assets/textures/discord.png" id="4_ng0o5"]
-[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="5_imvie"]
+[ext_resource type="Script" uid="uid://cqm0cfbqrodcb" path="res://scripts/ui/components/buttons.gd" id="5_imvie"]
 [ext_resource type="Texture2D" uid="uid://cxjxb5bobileg" path="res://assets/textures/CLIMBING (14).svg" id="6_ng0o5"]
 
 [node name="MainMenu" type="Control"]
@@ -45,6 +45,7 @@ script = ExtResource("5_imvie")
 
 [node name="LevelEditor" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
+disabled = true
 text = "Level Editor"
 script = ExtResource("5_imvie")
 

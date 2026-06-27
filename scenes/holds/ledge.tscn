@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3 uid="uid://bsj5cbi2cyk7e"]
 
-[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_degdq"]
+[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/climbing/holds.gd" id="1_degdq"]
 [ext_resource type="Texture2D" uid="uid://0bmchxa7idjr" path="res://assets/images/holds/building/ledge.png" id="2_degdq"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_uua57"]

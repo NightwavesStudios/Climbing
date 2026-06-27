@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3 uid="uid://8bidc47q0n2h"]
 
-[ext_resource type="Script" uid="uid://psgvu1sihkrc" path="res://scripts/menus/level_select.gd" id="1_xqyeo"]
-[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_pymjq"]
+[ext_resource type="Script" uid="uid://psgvu1sihkrc" path="res://scripts/ui/menus/level_select.gd" id="1_xqyeo"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_pymjq"]
 
 [node name="level_select" type="Control"]
 layout_mode = 3

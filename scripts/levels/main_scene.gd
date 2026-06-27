@@ -242,10 +242,10 @@ func _check_paths() -> void:
 		"res://scenes/holds/foothold.tscn",
 		"res://scenes/holds/window.tscn",
 		"res://scenes/holds/ledge.tscn",
-		"res://scripts/holds/dynamic_wall.gd",
-		"res://scripts/holds/hold_modifiers.gd",
-		"res://scripts/levels/weather_modifier.gd",
-		"res://scripts/systems/rope_system.gd",
+		"res://scripts/climbing/dynamic_wall.gd",
+		"res://scripts/climbing/hold_modifiers.gd",
+		"res://scripts/environment/weather_modifier.gd",
+		"res://scripts/player/rope_system.gd",
 		"res://scripts/levels/speed_timer.gd",
 		"res://scenes/levels/granite_crag/granite_crag_01.json",
 	]
@@ -579,7 +579,7 @@ func setup_roped_climbing(loader, plyr):
 		_force_free_node(rope_system)
 		rope_system = null
 
-	var RopeSystemScript = load("res://scripts/systems/rope_system.gd")
+	var RopeSystemScript = load("res://scripts/player/rope_system.gd")
 	if not RopeSystemScript:
 		print("  ERROR: Could not load rope_system.gd!")
 		return

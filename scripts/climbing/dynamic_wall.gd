@@ -177,7 +177,7 @@ func _bg_top()   -> float: return wall_min.y - BACKGROUND_EXPANSION if wall_vali
 func _init_weather() -> void:
 	weather_modifier = get_node_or_null("WeatherModifier")
 	if weather_modifier == null:
-		var script = load("res://scripts/levels/weather_modifier.gd")
+		var script = load("res://scripts/environment/weather_modifier.gd")
 		if script:
 			weather_modifier = script.new()
 			weather_modifier.name = "WeatherModifier"

@@ -10,9 +10,9 @@ func _ready():
 	# Check if scripts exist
 	print("\n1. Checking if scripts exist:")
 	var scripts_to_check = [
-		"res://scripts/systems/rope_system.gd",
+		"res://scripts/player/rope_system.gd",
 		"res://scripts/levels/speed_timer.gd",
-		"res://scripts/systems/climbing_discipline.gd"
+		"res://scripts/player/climbing_discipline.gd"
 	]
 	
 	for script_path in scripts_to_check:
@@ -24,7 +24,7 @@ func _ready():
 	# Check if we can load them
 	print("\n2. Checking if scripts can be loaded:")
 	
-	var rope_script = load("res://scripts/systems/rope_system.gd")
+	var rope_script = load("res://scripts/player/rope_system.gd")
 	if rope_script:
 		print("  ✓ RopeSystem script loaded")
 	else:
@@ -36,7 +36,7 @@ func _ready():
 	else:
 		print("  ✗ FAILED to load SpeedTimer")
 	
-	var discipline_script = load("res://scripts/systems/climbing_discipline.gd")
+	var discipline_script = load("res://scripts/player/climbing_discipline.gd")
 	if discipline_script:
 		print("  ✓ ClimbingDiscipline script loaded")
 	else:

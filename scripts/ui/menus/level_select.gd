@@ -368,8 +368,8 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 	cam.zoom = Vector2(0.75, 0.75)
 	svp.add_child(cam)
 
-	if ResourceLoader.exists("res://scripts/holds/dynamic_wall.gd"):
-		var wall_script = load("res://scripts/holds/dynamic_wall.gd")
+	if ResourceLoader.exists("res://scripts/climbing/dynamic_wall.gd"):
+		var wall_script = load("res://scripts/climbing/dynamic_wall.gd")
 		var wall = wall_script.new()
 		wall.z_index = -10
 		wall.set("current_environment", environment.to_lower())
@@ -498,8 +498,8 @@ func _build_route_diagram(
 	svp.add_child(cam)
 
 	# ── Dynamic wall ──────────────────────────────────────────────────────────
-	const WALL_SCRIPT_PATH    := "res://scripts/holds/dynamic_wall.gd"
-	const WEATHER_SCRIPT_PATH := "res://scripts/levels/weather_modifier.gd"
+	const WALL_SCRIPT_PATH    := "res://scripts/climbing/dynamic_wall.gd"
+	const WEATHER_SCRIPT_PATH := "res://scripts/environment/weather_modifier.gd"
 
 	if not ResourceLoader.exists(WALL_SCRIPT_PATH):
 		push_warning("LevelLoader preview: dynamic_wall.gd not found")

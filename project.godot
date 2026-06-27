@@ -19,15 +19,15 @@ config/icon="uid://b2ck0fmegil3"
 [autoload]
 
 EditorState="*res://scripts/editor/editor_state.gd"
-GameState="*res://scripts/levels/game_state.gd"
+GameState="*res://scripts/systems/game_state.gd"
 LevelManager="*res://scripts/levels/level_manager.gd"
-Transition="*res://scripts/menus/transition.gd"
+Transition="*res://scripts/ui/transition.gd"
 LevelTransition="*res://scripts/levels/level_transition.gd"
-EnvironmentConfig="*res://scripts/levels/enviornment_config.gd"
-HoldRegistry="*res://scripts/holds/hold-registry.gd"
+EnvironmentConfig="*res://scripts/environment/environment_config.gd"
+HoldRegistry="*res://scripts/climbing/hold_registry.gd"
 MusicPlayer="*res://scripts/systems/music_player.gd"
 CustomCursor="*res://scripts/systems/custom_cursor.gd"
-MenuBackgroundManager="*res://scripts/menus/menu_background_manager.gd"
+MenuBackgroundManager="*res://scripts/environment/menu_background_manager.gd"
 
 [display]
 

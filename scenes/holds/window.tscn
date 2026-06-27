@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3 uid="uid://ckxnmicehteyu"]
 
-[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/holds/holds.gd" id="1_gcrx1"]
+[ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/climbing/holds.gd" id="1_gcrx1"]
 [ext_resource type="Texture2D" uid="uid://bep6an4kwyxq" path="res://assets/images/holds/building/window.png" id="2_rewkd"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_uua57"]

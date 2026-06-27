@@ -14,7 +14,7 @@
 extends Node
 
 # Path to hold_modifiers.gd (contains HoldModifierBase + all inner-class modifiers)
-const HOLD_MODIFIERS_PATH := "res://scripts/holds/hold_modifiers.gd"
+const HOLD_MODIFIERS_PATH := "res://scripts/climbing/hold_modifiers.gd"
 
 const MODIFIER_DISPLAY_NAMES: Dictionary = {
 	"falling": "Falling",

@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3 uid="uid://cvh05ua3mejf8"]
 
-[ext_resource type="Script" uid="uid://cvjpqvmksm6r5" path="res://scripts/holds/crashpad.gd" id="1_otgl3"]
+[ext_resource type="Script" uid="uid://cvjpqvmksm6r5" path="res://scripts/systems/crashpad.gd" id="1_otgl3"]
 [ext_resource type="Texture2D" path="res://assets/images/crashpad.png" id="2_otgl3"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_fajlm"]

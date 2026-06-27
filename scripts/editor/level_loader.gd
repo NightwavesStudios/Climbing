@@ -71,7 +71,7 @@ func _create_dynamic_wall():
 		print("LevelLoader: dynamic_wall already exists — skipping creation")
 		return
 
-	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
+	var wall_script = preload("res://scripts/climbing/dynamic_wall.gd")
 	dynamic_wall = wall_script.new()
 	assert(dynamic_wall != null, "dynamic_wall.gd must extend Node2D")
 	dynamic_wall.name    = "DynamicWall"
@@ -117,7 +117,7 @@ func load_level(path: String) -> bool:
 	# Must happen synchronously before any awaits so nothing touches the old
 	# wall reference during the async hold-spawning phase.
 	_free_dynamic_wall()
-	var wall_script = preload("res://scripts/holds/dynamic_wall.gd")
+	var wall_script = preload("res://scripts/climbing/dynamic_wall.gd")
 	dynamic_wall = wall_script.new()
 	dynamic_wall.name    = "DynamicWall"
 	dynamic_wall.z_index = -10
@@ -389,7 +389,7 @@ func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 				print("  [_attach_modifiers] Wrapper root — targeting child Area2D: %s" % child.name)
 				break
 
-	const MODIFIERS_PATH := "res://scripts/holds/hold_modifiers.gd"
+	const MODIFIERS_PATH := "res://scripts/climbing/hold_modifiers.gd"
 	var modifiers_script = load(MODIFIERS_PATH) if ResourceLoader.exists(MODIFIERS_PATH) else null
 
 	if modifiers_script == null:

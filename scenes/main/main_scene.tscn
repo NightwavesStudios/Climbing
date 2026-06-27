@@ -6,7 +6,7 @@
 [ext_resource type="PackedScene" uid="uid://cpx7icuo3usgd" path="res://scenes/menus/pause_menu.tscn" id="6_l7pil"]
 [ext_resource type="Script" uid="uid://c206qolxvk6u1" path="res://scripts/systems/debug.gd" id="7_0jrka"]
 [ext_resource type="Texture2D" uid="uid://cer0dg4pqys0f" path="res://assets/images/popups/tutorial_popup.png" id="7_271kv"]
-[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="8_a4cr6"]
+[ext_resource type="Script" uid="uid://cqm0cfbqrodcb" path="res://scripts/ui/components/buttons.gd" id="8_a4cr6"]
 [ext_resource type="AudioStream" uid="uid://bg8l3oejc540l" path="res://assets/audio/music/Track_1.mp3" id="9_0jrka"]
 
 [node name="MainScene" type="Node2D"]

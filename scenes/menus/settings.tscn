@@ -1,7 +1,7 @@
-[gd_scene load_steps=5 format=3 uid="uid://yajtbkqrwd1m"]
+[gd_scene load_steps=4 format=3 uid="uid://yajtbkqrwd1m"]
 
-[ext_resource type="Script" uid="uid://bkpjoeawvlf41" path="res://scripts/menus/settings.gd" id="1_del6v"]
-[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_erjg3"]
+[ext_resource type="Script" uid="uid://fo0rurnb0k5s" path="res://scripts/ui/menus/settings.gd" id="1_del6v"]
+[ext_resource type="Script" uid="uid://cqm0cfbqrodcb" path="res://scripts/ui/components/buttons.gd" id="2_erjg3"]
 [ext_resource type="Texture2D" uid="uid://cyhnri1hhq6yj" path="res://assets/locked.png" id="3_g2810"]
 
 [node name="Settings" type="Control"]
@@ -20,19 +20,28 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -99.0
-offset_top = -169.5
-offset_right = 99.0
-offset_bottom = 169.5
+offset_left = -170.0
+offset_top = -200.0
+offset_right = 170.0
+offset_bottom = 200.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
 
 [node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
 layout_mode = 2
+theme_override_constants/separation = 8
 
 [node name="VolumeLabel" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 text = "Volume"
+
+[node name="VolumeUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
 
 [node name="Volume" type="HSlider" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
@@ -41,7 +50,11 @@ step = 0.01
 
 [node name="WindowModeLabel" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 text = "Window Mode"
+
+[node name="WindowModeUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
 
 [node name="WindowMode" type="OptionButton" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
@@ -56,14 +69,22 @@ popup/item_2/id = 2
 
 [node name="VSyncLabel" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 text = "Toggle VSync"
+
+[node name="VSyncUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
 
 [node name="VSync" type="CheckBox" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 
 [node name="FPSCapLabel" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 text = "Set FPS Cap"
+
+[node name="FPSCapUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
 
 [node name="FPSCap" type="OptionButton" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
@@ -80,21 +101,31 @@ popup/item_3/id = 3
 
 [node name="KeybindsLabel" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 text = "Key Bindings"
+
+[node name="KeybindsUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
 
 [node name="KeybindsContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 
 [node name="ResetDataLabel" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 18
 text = "Reset"
 
-[node name="ResetData" type="Button" parent="MarginContainer/VBoxContainer"]
+[node name="ResetDataUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+
+[node name="ResetData" type="Button" parent="MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+size_flags_horizontal = 4
 text = "Reset Data"
 script = ExtResource("2_erjg3")
 
-[node name="MarginContainer" type="MarginContainer" parent="MarginContainer/VBoxContainer"]
+[node name="ButtonSpacer" type="Control" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 size_flags_vertical = 3
 

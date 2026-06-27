@@ -1,7 +1,7 @@
 [gd_scene load_steps=7 format=3 uid="uid://phva7vynr56p"]
 
-[ext_resource type="Script" uid="uid://3c1r06go1w6k" path="res://scripts/menus/collections_select.gd" id="1_ns5ma"]
-[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_rcboh"]
+[ext_resource type="Script" uid="uid://3c1r06go1w6k" path="res://scripts/ui/menus/collections_select.gd" id="1_ns5ma"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_rcboh"]
 [ext_resource type="Texture2D" uid="uid://cq0kntyvpbx64" path="res://assets/images/map/gym_location_icon.png" id="3_dfhjo"]
 [ext_resource type="Texture2D" uid="uid://cedoa8r2y51cp" path="res://assets/images/map/granite_location_map.png" id="4_45fai"]
 [ext_resource type="Texture2D" uid="uid://cyhnri1hhq6yj" path="res://assets/locked.png" id="6_edj87"]
