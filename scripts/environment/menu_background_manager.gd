@@ -24,15 +24,19 @@ func _ready() -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 
 ## Make sure the shared background is visible.  Call from any menu's _ready.
+## Resumes processing if it was paused by hide().
 func show() -> void:
 	_ensure_background()
-	if _bg and not _bg.visible:
+	if _bg:
 		_bg.visible = true
+		_bg.process_mode = PROCESS_MODE_INHERIT
 
 ## Hide the shared background (e.g. when transitioning to gameplay).
+## Also pauses processing so the background doesn't waste CPU.
 func hide() -> void:
 	if _bg and is_instance_valid(_bg):
 		_bg.visible = false
+		_bg.process_mode = PROCESS_MODE_DISABLED
 
 ## Returns true if the shared background is currently visible.
 func is_showing() -> bool:

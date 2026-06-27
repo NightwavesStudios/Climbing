@@ -1894,7 +1894,7 @@ func _build_granite_cache(tw: int, th: int) -> void:
 	var img := Image.create(tw, th, false, Image.FORMAT_RGBA8)
 	var rs := int(wall_min.x + wall_min.y)
 	var base := current_wall_color
-	var line_count := maxi(tw / 200 + 2, 3)
+	var line_count := maxi(int(tw / 200.0) + 2, 3)
 
 	for i in line_count:
 		var frac := float(i) / float(line_count - 1)

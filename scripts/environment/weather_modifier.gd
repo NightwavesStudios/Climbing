@@ -20,10 +20,6 @@ signal wind_force_changed(force: Vector2)
 # Nodes in this group receive automatic wind velocity push each physics frame.
 const PLAYER_GROUP := "player"
 
-## Maximum redraw rate (Hz) — particle effects don't need 60 fps.
-const MAX_REDRAW_RATE: float = 20.0
-const MIN_REDRAW_INTERVAL: float = 1.0 / MAX_REDRAW_RATE
-
 var weather: int = WeatherType.NONE : set = set_weather
 var intensity: float = 1.0
 
@@ -32,7 +28,7 @@ var rain_color       := Color(0.72, 0.82, 0.95, 0.72)
 var rain_streak_len  := 80.0
 var rain_angle_deg   := 12.0
 var rain_speed       := 1100.0
-var rain_density     := 180  # reduced from 600
+var rain_density     := 600
 var rain_wind        := 0.0
 
 var splash_duration  := 0.30
@@ -62,7 +58,7 @@ var night_cloud_shadow := Color(0.02, 0.02, 0.05)
 var night_fog_color    := Color(0.04, 0.04, 0.08, 0.12)
 
 # ── Snow parameters ────────────────────────────────────────────────────────────
-var snow_density        := 200  # reduced from 800
+var snow_density        := 800
 var snow_speed          := 160.0
 var snow_drift_speed    := 40.0
 var snow_sway_frequency := 0.6
@@ -93,7 +89,7 @@ var lightning_glow_width       := 7.0
 var lightning_segments         := 10
 var lightning_jitter           := 55.0
 var lightning_branch_chance    := 0.30
-var lightning_rain_density     := 200  # reduced from 700
+var lightning_rain_density     := 700
 var lightning_rain_speed       := 1300.0
 var lightning_rain_angle_deg   := 18.0
 
@@ -121,7 +117,7 @@ var fog_cloud_shadow := Color(0.54, 0.56, 0.60)
 var fog_fog_color    := Color(0.76, 0.78, 0.82, 0.45)
 
 # ── Hail parameters ───────────────────────────────────────────────────────────
-var hail_density         := 120  # reduced from 500
+var hail_density         := 500
 var hail_speed           := 900.0
 var hail_angle_deg       := 8.0
 var hail_min_radius      := 2.0
@@ -143,7 +139,7 @@ var hail_fog_color    := Color(0.30, 0.32, 0.38, 0.30)
 # ── Sandstorm parameters ──────────────────────────────────────────────────────
 # Dense horizontal dust — looks like a wall of blowing sand, not rain.
 # Streaks are long and nearly flat; particles are tiny elongated specks.
-var sandstorm_density      := 250        # reduced from 900
+var sandstorm_density      := 900        # number of streak particles
 var sandstorm_speed        := 680.0      # horizontal pixels / sec (base)
 var sandstorm_wind         := 260.0      # extra horizontal push applied uniformly
 var sandstorm_min_len      := 12.0       # shortest streak
@@ -175,19 +171,12 @@ var _ambient_light: PointLight2D = null
 
 # ── Shared internal state ─────────────────────────────────────────────────────
 var _time:       float = 0.0
-var _drops:      Array[Dictionary] = []
 var _splashes:   Array[Dictionary] = []
-var _snowflakes: Array[Dictionary] = []
 var _wall_ref:   Node2D = null
 
 var _blend: float = 0.0
 const BLEND_SPEED := 1.2
 const LAYERS      := 3
-
-# ── Frame cache (reduces redundant bound/ground-y queries) ────────────────────
-var _cached_bounds:   Vector4 = Vector4()
-var _cached_ground_y: float = 0.0
-var _redraw_accum:    float = 0.0
 
 var _audio:              AudioStreamPlayer = null
 var _audio_fading_in:    bool  = false
@@ -213,11 +202,11 @@ const LIGHTNING_SFX_PATH := "res://assets/audio/sfx/thunder_sfx.wav"
 # ── Fog internal state ─────────────────────────────────────────────────────────
 var _fog_offsets: Array[float] = []
 
-# ── Hail internal state ────────────────────────────────────────────────────────
+# ── Hail internal state (dictionaries — moderate count, draw_circle per stone) ─
 var _hailstones:   Array[Dictionary] = []
 var _hail_bounces: Array[Dictionary] = []
 
-# ── Sandstorm internal state ──────────────────────────────────────────────────
+# ── Sandstorm internal state (dictionaries — moderate count, draw_multiline) ──
 var _sand_particles: Array[Dictionary] = []
 # Per-layer packed line arrays: interleaved [from, to] pairs for draw_multiline.
 var _sand_lines: Array[PackedVector2Array] = [
@@ -225,17 +214,33 @@ var _sand_lines: Array[PackedVector2Array] = [
 var _sand_udx: float = 0.0   # precomputed unit direction x
 var _sand_udy: float = 0.0   # precomputed unit direction y (slight downward)
 
-# ── Packed draw arrays — rain (per layer) ────────────────────────────────────
-var _rain_lines:  Array[PackedVector2Array] = [
+# ── RAIN: Flat arrays for high-performance particle updates (600 drops) ───────
+# Structure-of-arrays eliminates Dictionary key-lookup overhead.
+var _rain_count: int = 0
+var _rain_x: PackedFloat32Array
+var _rain_y: PackedFloat32Array
+var _rain_speed: PackedFloat32Array
+var _rain_alpha: PackedFloat32Array
+var _rain_len: PackedFloat32Array
+var _rain_width: PackedFloat32Array
+var _rain_wx: PackedFloat32Array
+var _rain_layer: PackedByteArray
+# Pre-allocated line arrays: filled in-place each frame, no clear+rebuild churn.
+var _rain_lines: Array[PackedVector2Array] = [
 	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
 
-# ── Packed draw arrays — snow (per layer) ────────────────────────────────────
-var _snow_points: Array[PackedVector2Array] = [
-	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
-var _snow_radii:  Array[PackedFloat32Array] = [
-	PackedFloat32Array(), PackedFloat32Array(), PackedFloat32Array()]
+# ── SNOW: Flat arrays for high-performance particle updates (800 flakes) ──────
+var _snow_count: int = 0
+var _snow_x: PackedFloat32Array
+var _snow_y: PackedFloat32Array
+var _snow_radius: PackedFloat32Array
+var _snow_speed: PackedFloat32Array
+var _snow_phase: PackedFloat32Array
+var _snow_drift: PackedFloat32Array
+var _snow_alpha: PackedFloat32Array
+var _snow_layer: PackedByteArray
 
-# ── Packed draw arrays — hail (per layer) ────────────────────────────────────
+# ── HAIL: packed draw arrays (dictionaries still store particle state) ────────
 var _hail_points:  Array[PackedVector2Array] = [
 	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
 var _hail_radii:   Array[PackedFloat32Array] = [
@@ -340,9 +345,25 @@ func update_player_data(head_world_pos: Vector2, limb_world_pos: Vector2) -> voi
 
 func set_weather(new_weather: int) -> void:
 	weather = new_weather
-	_drops.clear()
+	_rain_count = 0
+	_snow_count = 0
+	_rain_x.clear()
+	_rain_y.clear()
+	_rain_speed.clear()
+	_rain_alpha.clear()
+	_rain_len.clear()
+	_rain_width.clear()
+	_rain_wx.clear()
+	_rain_layer.clear()
+	_snow_x.clear()
+	_snow_y.clear()
+	_snow_radius.clear()
+	_snow_speed.clear()
+	_snow_phase.clear()
+	_snow_drift.clear()
+	_snow_alpha.clear()
+	_snow_layer.clear()
 	_splashes.clear()
-	_snowflakes.clear()
 	_hailstones.clear()
 	_hail_bounces.clear()
 	_sand_particles.clear()
@@ -353,12 +374,10 @@ func set_weather(new_weather: int) -> void:
 
 	for i in range(LAYERS):
 		_rain_lines[i].clear()
-		_snow_points[i].clear()
-		_snow_radii[i].clear()
+		_sand_lines[i].clear()
 		_hail_points[i].clear()
 		_hail_radii[i].clear()
 		_hail_streaks[i].clear()
-		_sand_lines[i].clear()
 
 	match weather:
 		WeatherType.RAIN:
@@ -449,79 +468,68 @@ func _cache_sand_angle() -> void:
 
 
 # =============================================================================
-# RAIN INIT / DROP FACTORY
+# RAIN INIT — flat arrays for 600 drops
 # =============================================================================
 
 func _init_rain() -> void:
 	var density := lightning_rain_density if weather == WeatherType.LIGHTNING else rain_density
 	var count   := int(density * clamp(intensity, 0.05, 1.0))
-	_drops.resize(count)
+	_rain_count = count
+	_rain_x.resize(count)
+	_rain_y.resize(count)
+	_rain_speed.resize(count)
+	_rain_alpha.resize(count)
+	_rain_len.resize(count)
+	_rain_width.resize(count)
+	_rain_wx.resize(count)
+	_rain_layer.resize(count)
+
+	var b := _get_draw_bounds()
+	var spd := lightning_rain_speed if weather == WeatherType.LIGHTNING else rain_speed
 	for i in range(count):
-		_drops[i] = _make_drop(true)
-	_rebuild_rain_packed()
+		var layer := _drop_rng.randi() % LAYERS
+		var speed_scale = lerp(0.6, 1.0, float(layer) / float(LAYERS - 1))
+		var alpha_scale = lerp(0.45, 1.0, float(layer) / float(LAYERS - 1))
+		_rain_x[i]      = _drop_rng.randf_range(b.x - 200.0, b.x + b.z + 200.0)
+		_rain_y[i]      = _drop_rng.randf_range(b.y, b.y + b.w)
+		_rain_speed[i]  = spd * speed_scale * (0.82 + _drop_rng.randf() * 0.36)
+		_rain_alpha[i]  = (0.55 + _drop_rng.randf() * 0.45) * alpha_scale
+		_rain_len[i]    = rain_streak_len * speed_scale * (0.7 + _drop_rng.randf() * 0.6)
+		_rain_width[i]  = lerp(1.0, 2.2, float(layer) / float(LAYERS - 1))
+		_rain_wx[i]     = (_drop_rng.randf() - 0.5) * 0.04
+		_rain_layer[i]  = layer
 
-func _make_drop(spread: bool) -> Dictionary:
-	var b           := _get_draw_bounds()
-	var layer       := _drop_rng.randi() % LAYERS
-	var speed_scale  = lerp(0.6, 1.0, float(layer) / float(LAYERS - 1))
-	var alpha_scale  = lerp(0.45, 1.0, float(layer) / float(LAYERS - 1))
-	var spd         := lightning_rain_speed if weather == WeatherType.LIGHTNING else rain_speed
-	var x           := _drop_rng.randf_range(b.x - 200.0, b.x + b.z + 200.0)
-	var y           := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
-					   else b.y - _drop_rng.randf() * 150.0
-	return {
-		"x":     x,  "y":     y,
-		"layer": layer,
-		"speed": spd * speed_scale * (0.82 + _drop_rng.randf() * 0.36),
-		"alpha": (0.55 + _drop_rng.randf() * 0.45) * alpha_scale,
-		"len":   rain_streak_len * speed_scale * (0.7 + _drop_rng.randf() * 0.6),
-		"width": lerp(1.0, 2.2, float(layer) / float(LAYERS - 1)),
-		"wx":    (_drop_rng.randf() - 0.5) * 0.04,
-	}
-
-func _rebuild_rain_packed() -> void:
-	for i in range(LAYERS): _rain_lines[i].clear()
-	for d in _drops: _append_rain_line(d)
-
-func _append_rain_line(d: Dictionary) -> void:
-	var layer: int = d["layer"]
-	_rain_lines[layer].append(Vector2(d["x"], d["y"]))
-	_rain_lines[layer].append(Vector2(d["x"] - _rain_udx * d["len"], d["y"] - _rain_udy * d["len"]))
+	_build_rain_lines()
 
 
 # =============================================================================
-# SNOW INIT / FLAKE FACTORY
+# SNOW INIT — flat arrays for 800 flakes
 # =============================================================================
 
 func _init_snow() -> void:
 	var count := int(snow_density * clamp(intensity, 0.05, 1.0))
-	_snowflakes.resize(count)
-	for i in range(count): _snowflakes[i] = _make_flake(true)
-	_rebuild_snow_packed()
+	_snow_count = count
+	_snow_x.resize(count)
+	_snow_y.resize(count)
+	_snow_radius.resize(count)
+	_snow_speed.resize(count)
+	_snow_phase.resize(count)
+	_snow_drift.resize(count)
+	_snow_alpha.resize(count)
+	_snow_layer.resize(count)
 
-func _make_flake(spread: bool) -> Dictionary:
-	var b       := _get_draw_bounds()
-	var layer   := _drop_rng.randi() % LAYERS
-	var depth_t := float(layer) / float(LAYERS - 1)
-	var x       := _drop_rng.randf_range(b.x - 50.0, b.x + b.z + 50.0)
-	var y       := _drop_rng.randf_range(b.y, b.y + b.w) if spread \
-				   else b.y - _drop_rng.randf() * 80.0
-	return {
-		"x": x, "y": y, "layer": layer,
-		"radius": lerp(snow_min_radius * 0.6, snow_max_radius, depth_t) * (0.7 + _drop_rng.randf() * 0.6),
-		"speed":  snow_speed * lerp(0.5, 1.0, depth_t) * (0.75 + _drop_rng.randf() * 0.5),
-		"phase":  _drop_rng.randf() * TAU,
-		"drift":  snow_drift_speed * (0.3 + _drop_rng.randf() * 0.7),
-		"alpha":  (0.30 + _drop_rng.randf() * 0.35) * lerp(0.45, 1.0, depth_t),
-	}
-
-func _rebuild_snow_packed() -> void:
-	for i in range(LAYERS):
-		_snow_points[i].clear()
-		_snow_radii[i].clear()
-	for f in _snowflakes:
-		_snow_points[f["layer"]].append(Vector2(f["x"], f["y"]))
-		_snow_radii[f["layer"]].append(f["radius"])
+	var b := _get_draw_bounds()
+	for i in range(count):
+		var layer   := _drop_rng.randi() % LAYERS
+		var depth_t := float(layer) / float(LAYERS - 1)
+		_snow_x[i]      = _drop_rng.randf_range(b.x - 50.0, b.x + b.z + 50.0)
+		_snow_y[i]      = _drop_rng.randf_range(b.y, b.y + b.w)
+		_snow_layer[i]  = layer
+		_snow_radius[i] = lerp(snow_min_radius * 0.6, snow_max_radius, depth_t) * (0.7 + _drop_rng.randf() * 0.6)
+		_snow_speed[i]  = snow_speed * lerp(0.5, 1.0, depth_t) * (0.75 + _drop_rng.randf() * 0.5)
+		_snow_phase[i]  = _drop_rng.randf() * TAU
+		_snow_drift[i]  = snow_drift_speed * (0.3 + _drop_rng.randf() * 0.7)
+		_snow_alpha[i]  = (0.30 + _drop_rng.randf() * 0.35) * lerp(0.45, 1.0, depth_t)
 
 
 # =============================================================================
@@ -671,7 +679,44 @@ func _append_sand_line(s: Dictionary) -> void:
 
 
 # =============================================================================
-# PROCESS
+# BUILD RAIN LINES (in-place, no alloc)
+# =============================================================================
+
+# Fills the pre-allocated _rain_lines arrays from current flat particle data.
+func _build_rain_lines() -> void:
+	# First pass: count drops per layer (layers change each frame as
+	# recycled drops are randomly reassigned).
+	var layer_counts: Array[int] = [0, 0, 0]
+	for i in range(_rain_count):
+		var layer: int = _rain_layer[i]
+		layer_counts[layer] += 1
+
+	# Resize each layer's line array to exactly the needed size so
+	# draw_multiline never sees stale entries from previous frames.
+	for i in range(LAYERS):
+		_rain_lines[i].resize(layer_counts[i] * 2)
+
+	# Reset counts for the fill pass
+	layer_counts = [0, 0, 0]
+
+	var dx := _rain_udx
+	var dy := _rain_udy
+	for i in range(_rain_count):
+		var layer: int = _rain_layer[i]
+		var idx := layer_counts[layer]
+		var sx := _rain_x[i]
+		var sy := _rain_y[i]
+		var slen := _rain_len[i]
+		# Write start + end point at correct positions
+		var lines := _rain_lines[layer]
+		var pos := idx * 2
+		lines[pos]     = Vector2(sx, sy)
+		lines[pos + 1] = Vector2(sx - dx * slen, sy - dy * slen)
+		layer_counts[layer] = idx + 1
+
+
+# =============================================================================
+# PROCESS — queue_redraw() every frame (no throttle)
 # =============================================================================
 
 func _process(delta: float) -> void:
@@ -682,17 +727,6 @@ func _process(delta: float) -> void:
 
 	var target_blend := intensity if weather != WeatherType.NONE else 0.0
 	_blend = move_toward(_blend, target_blend, BLEND_SPEED * delta)
-
-	# Update frame cache ONCE per frame so all draw methods reuse the same values.
-	# Bypass cache lookup by calling the raw function directly.
-	_cached_bounds   = _calc_draw_bounds()
-	_cached_ground_y = _calc_ground_y()
-
-	# Throttle redraws — particles at 20fps looks identical to 60fps
-	_redraw_accum += delta
-	var should_redraw := _redraw_accum >= MIN_REDRAW_INTERVAL
-	if should_redraw:
-		_redraw_accum = 0.0
 
 	match weather:
 		WeatherType.RAIN:
@@ -714,36 +748,40 @@ func _process(delta: float) -> void:
 		WeatherType.SANDSTORM:
 			_update_sandstorm(delta)
 
-	# Advance splashes — remove expired entries in-place (no alloc)
-	var si := 0
-	while si < _splashes.size():
-		var s := _splashes[si]
+	# Advance splashes — remove expired entries
+	var alive_splashes: Array[Dictionary] = []
+	alive_splashes.resize(_splashes.size())
+	var alive_count := 0
+	for s in _splashes:
 		s["t"] += delta
-		if s["t"] >= splash_duration:
-			_splashes.remove_at(si)
-		else:
-			si += 1
+		if s["t"] < splash_duration:
+			alive_splashes[alive_count] = s
+			alive_count += 1
+	alive_splashes.resize(alive_count)
+	_splashes = alive_splashes
 
-	# Advance hail bounces — in-place removal
-	var bi := 0
-	while bi < _hail_bounces.size():
-		var b := _hail_bounces[bi]
+	# Advance hail bounces
+	var alive_bounces: Array[Dictionary] = []
+	alive_bounces.resize(_hail_bounces.size())
+	var bounce_count := 0
+	for b in _hail_bounces:
 		b["t"]  += delta
 		b["vy"] += hail_bounce_gravity * delta
 		b["x"]  += b["vx"] * delta
 		b["y"]  += b["vy"] * delta
-		if b["t"] >= hail_bounce_duration:
-			_hail_bounces.remove_at(bi)
-		else:
-			bi += 1
+		if b["t"] < hail_bounce_duration:
+			alive_bounces[bounce_count] = b
+			bounce_count += 1
+	alive_bounces.resize(bounce_count)
+	_hail_bounces = alive_bounces
 
 	# Emit current wind so external systems can react
 	var wf := get_wind_force()
 	if wf != Vector2.ZERO or weather == WeatherType.NONE:
 		wind_force_changed.emit(wf)
 
-	if should_redraw:
-		queue_redraw()
+	# Redraw every frame — no throttle for smooth natural motion
+	queue_redraw()
 
 # Applies wind push directly to any CharacterBody2D / RigidBody2D in PLAYER_GROUP.
 # This runs at physics rate for smooth, frame-rate-independent force application.
@@ -774,41 +812,50 @@ func _physics_process(delta: float) -> void:
 		if node is RigidBody2D:
 			(node as RigidBody2D).apply_central_impulse(wf * delta)
 
-# Fast path: returns cached value when available (set once per frame in _process).
 func _get_ground_y() -> float:
-	if _cached_ground_y != 0.0:
-		return _cached_ground_y
-	return _calc_ground_y()
-
-func _calc_ground_y() -> float:
 	if _wall_ref and "ground_y" in _wall_ref:
 		return _wall_ref.ground_y
-	var b := _calc_draw_bounds()
+	var b := _get_draw_bounds()
 	return b.y + b.w
 
-# ── Rain update ───────────────────────────────────────────────────────────────
+
+# =============================================================================
+# RAIN UPDATE — flat arrays, in-place line building
+# =============================================================================
+
 func _update_rain(delta: float) -> void:
 	var dx  := _rain_udx + rain_wind / rain_speed
 	var dy  := _rain_udy
 	var b   := _get_draw_bounds()
 	var ground_y := _get_ground_y()
+	var count := _rain_count
 
-	for i in range(LAYERS): _rain_lines[i].clear()
+	for i in range(count):
+		_rain_x[i] += (dx + _rain_wx[i]) * _rain_speed[i] * delta
+		_rain_y[i] += dy * _rain_speed[i] * delta
 
-	for i in range(_drops.size()):
-		var d := _drops[i]
-		d["x"] += (dx + d["wx"]) * d["speed"] * delta
-		d["y"] += dy * d["speed"] * delta
-
-		var out_bottom = d["y"] >= ground_y
-		var out_sides  = d["x"] > b.x + b.z + 300.0 or d["x"] < b.x - 300.0
+		var out_bottom = _rain_y[i] >= ground_y
+		var out_sides  = _rain_x[i] > b.x + b.z + 300.0 or _rain_x[i] < b.x - 300.0
 
 		if out_bottom or out_sides:
-			if out_bottom: _spawn_splash(d["x"], ground_y, d["alpha"], d["layer"])
-			d = _make_drop(false)
-			_drops[i] = d
+			if out_bottom:
+				_spawn_splash(_rain_x[i], ground_y, _rain_alpha[i], _rain_layer[i])
+			# Respawn drop at top of screen
+			var layer := _drop_rng.randi() % LAYERS
+			var speed_scale = lerp(0.6, 1.0, float(layer) / float(LAYERS - 1))
+			var alpha_scale = lerp(0.45, 1.0, float(layer) / float(LAYERS - 1))
+			var spd := lightning_rain_speed if weather == WeatherType.LIGHTNING else rain_speed
+			_rain_x[i]      = _drop_rng.randf_range(b.x - 200.0, b.x + b.z + 200.0)
+			_rain_y[i]      = b.y - _drop_rng.randf() * 150.0
+			_rain_speed[i]  = spd * speed_scale * (0.82 + _drop_rng.randf() * 0.36)
+			_rain_alpha[i]  = (0.55 + _drop_rng.randf() * 0.45) * alpha_scale
+			_rain_len[i]    = rain_streak_len * speed_scale * (0.7 + _drop_rng.randf() * 0.6)
+			_rain_width[i]  = lerp(1.0, 2.2, float(layer) / float(LAYERS - 1))
+			_rain_wx[i]     = (_drop_rng.randf() - 0.5) * 0.04
+			_rain_layer[i]  = layer
 
-		_append_rain_line(d)
+	# Build line arrays in-place from updated flat data
+	_build_rain_lines()
 
 func _update_rain_audio(delta: float) -> void:
 	var target_db = lerp(RAIN_VOLUME_MIN, RAIN_VOLUME_DB, intensity)
@@ -840,30 +887,39 @@ func _update_fog(delta: float) -> void:
 	for i in range(_fog_offsets.size()):
 		_fog_offsets[i] += fog_scroll_speeds[i % fog_scroll_speeds.size()] * delta
 
-# ── Snow update ───────────────────────────────────────────────────────────────
+
+# =============================================================================
+# SNOW UPDATE — flat arrays
+# =============================================================================
+
 func _update_snow(delta: float) -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 	var sway_t   := _time * snow_sway_frequency * TAU
+	var count    := _snow_count
 
-	for i in range(LAYERS):
-		_snow_points[i].clear()
-		_snow_radii[i].clear()
+	for i in range(count):
+		_snow_y[i] += _snow_speed[i] * delta
+		_snow_x[i] += sin(sway_t + _snow_phase[i]) * _snow_drift[i] * delta
 
-	for i in range(_snowflakes.size()):
-		var f := _snowflakes[i]
-		f["y"] += f["speed"] * delta
-		f["x"] += sin(sway_t + f["phase"]) * f["drift"] * delta
+		if _snow_y[i] >= ground_y or _snow_x[i] > b.x + b.z + 80.0 or _snow_x[i] < b.x - 80.0:
+			# Respawn flake at top
+			var layer   := _drop_rng.randi() % LAYERS
+			var depth_t := float(layer) / float(LAYERS - 1)
+			_snow_x[i]      = _drop_rng.randf_range(b.x - 50.0, b.x + b.z + 50.0)
+			_snow_y[i]      = b.y - _drop_rng.randf() * 80.0
+			_snow_layer[i]  = layer
+			_snow_radius[i] = lerp(snow_min_radius * 0.6, snow_max_radius, depth_t) * (0.7 + _drop_rng.randf() * 0.6)
+			_snow_speed[i]  = snow_speed * lerp(0.5, 1.0, depth_t) * (0.75 + _drop_rng.randf() * 0.5)
+			_snow_phase[i]  = _drop_rng.randf() * TAU
+			_snow_drift[i]  = snow_drift_speed * (0.3 + _drop_rng.randf() * 0.7)
+			_snow_alpha[i]  = (0.30 + _drop_rng.randf() * 0.35) * lerp(0.45, 1.0, depth_t)
 
-		if f["y"] >= ground_y or f["x"] > b.x + b.z + 80.0 or f["x"] < b.x - 80.0:
-			f = _make_flake(false)
-			_snowflakes[i] = f
 
-		_snow_points[f["layer"]].append(Vector2(f["x"], f["y"]))
-		_snow_radii[f["layer"]].append(f["radius"])
-		_snowflakes[i] = f
+# =============================================================================
+# HAIL UPDATE
+# =============================================================================
 
-# ── Hail update ───────────────────────────────────────────────────────────────
 func _update_hail(delta: float) -> void:
 	var dx  := _hail_udx + hail_wind / hail_speed
 	var dy  := _hail_udy
@@ -888,7 +944,11 @@ func _update_hail(delta: float) -> void:
 
 		_append_hail_stone(s)
 
-# ── Sandstorm update ──────────────────────────────────────────────────────────
+
+# =============================================================================
+# SANDSTORM UPDATE
+# =============================================================================
+
 func _update_sandstorm(delta: float) -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
@@ -973,7 +1033,10 @@ func _draw() -> void:
 			_draw_splashes()
 			_draw_lightning_bolt()
 		WeatherType.FOG:
-			_draw_simple_fullscreen_fog()
+			_draw_fog_ambient()
+			_draw_fog_layers()
+			_draw_fog_ground()
+			_draw_fog_vignette()
 		WeatherType.HAIL:
 			_draw_hail_fog()
 			_draw_hailstones()
@@ -991,7 +1054,7 @@ func _draw() -> void:
 
 func _draw_night_darkness() -> void:
 	var b := _get_draw_bounds()
-	draw_rect(Rect2(b.x - 400, b.y - 400, b.z + 800, b.w + 800),
+	draw_rect(Rect2(b.x, b.y, b.z, b.w),
 		Color(night_dark_color.r, night_dark_color.g, night_dark_color.b,
 			  night_darkness_alpha * _blend * intensity))
 
@@ -1002,12 +1065,13 @@ func _draw_night_darkness() -> void:
 
 func _draw_rain_streaks() -> void:
 	for layer in range(LAYERS):
-		if _rain_lines[layer].size() < 2: continue
+		var lines := _rain_lines[layer]
+		if lines.size() < 2: continue
 		var alpha_scale = lerp(0.45, 1.0, float(layer) / float(LAYERS - 1))
 		var a = 0.75 * alpha_scale * _blend * intensity
 		if a < 0.02: continue
 		draw_multiline(
-			_rain_lines[layer],
+			lines,
 			Color(rain_color.r, rain_color.g, rain_color.b, a),
 			lerp(1.0, 2.2, float(layer) / float(LAYERS - 1)))
 
@@ -1033,9 +1097,9 @@ func _draw_ellipse_ring(cx: float, cy: float, rx: float, ry: float,
 
 # Single non-overlapping gradient quad helper (used by multiple weather types)
 func _draw_grad_quad(x: float, y0: float, w: float, y1: float, c_top: Color, c_bot: Color) -> void:
-	var tl := Vector2(x,     y0); var _tr := Vector2(x + w, y0)
+	var tl := Vector2(x,     y0); var tr_ := Vector2(x + w, y0)
 	var br := Vector2(x + w, y1); var bl := Vector2(x,     y1)
-	draw_polygon(PackedVector2Array([tl, _tr, br]), PackedColorArray([c_top, c_top, c_bot]))
+	draw_polygon(PackedVector2Array([tl, tr_, br]), PackedColorArray([c_top, c_top, c_bot]))
 	draw_polygon(PackedVector2Array([tl, br, bl]), PackedColorArray([c_top, c_bot, c_bot]))
 
 func _draw_rain_fog() -> void:
@@ -1060,7 +1124,7 @@ func _draw_rain_fog() -> void:
 
 
 # =============================================================================
-# SNOW DRAW
+# SNOW DRAW — draw_circle for natural-looking flakes
 # =============================================================================
 
 func _draw_snow_fog() -> void:
@@ -1073,30 +1137,19 @@ func _draw_snow_fog() -> void:
 		Color(snow_fog_color_mid.r, snow_fog_color_mid.g, snow_fog_color_mid.b, a1))
 
 func _draw_snowflakes() -> void:
-	for layer in range(LAYERS):
-		var pts  := _snow_points[layer]
-		var rads := _snow_radii[layer]
-		if pts.is_empty(): continue
-		var depth_t := float(layer) / float(LAYERS - 1)
-		var a = lerp(0.30, 0.65, depth_t) * _blend * intensity
-		if a < 0.02: continue
-		var color := Color(snow_color.r, snow_color.g, snow_color.b, a)
-		# Batch all snowflakes into a single draw_multiline call (horizontal dashes)
-		var lines := PackedVector2Array()
-		var max_w := 1.0
-		for j in range(pts.size()):
-			var r := rads[j] * 0.5
-			lines.append(pts[j] + Vector2(-r, 0.0))
-			lines.append(pts[j] + Vector2(r, 0.0))
-			if rads[j] > max_w: max_w = rads[j]
-		if lines.size() >= 2:
-			draw_multiline(lines, color, max_w * 0.7)
+	var count := _snow_count
+	if count == 0: return
+	var a = _blend * intensity
+	if a < 0.02: return
+	var color := Color(snow_color.r, snow_color.g, snow_color.b, 0.60 * a)
+	for i in range(count):
+		draw_circle(Vector2(_snow_x[i], _snow_y[i]), _snow_radius[i], color)
 
 func _draw_snow_accumulation() -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 	var strip_h  = snow_accum_height * clamp(intensity, 0.2, 1.0)
-	_draw_grad_quad(b.x - 400, ground_y - strip_h - 100, b.z + 800, ground_y + 100,
+	_draw_grad_quad(b.x, ground_y - strip_h, b.z, ground_y,
 		Color(snow_color.r, snow_color.g, snow_color.b, 0.0),
 		Color(snow_color.r, snow_color.g, snow_color.b, snow_accum_alpha * _blend * intensity))
 
@@ -1137,7 +1190,7 @@ func _draw_bolt_path(pts: Array[Vector2], color: Color, width: float) -> void:
 
 
 # =============================================================================
-# FOG DRAW
+# FOG DRAW — multi-layer bands + ambient darkening + ground strip + vignettes
 # =============================================================================
 
 func _draw_fog_ambient() -> void:
@@ -1148,50 +1201,45 @@ func _draw_fog_ambient() -> void:
 			  fog_ambient_darken * _blend * intensity))
 
 func _draw_fog_layers() -> void:
-	# SINGLE full-screen fog layer — no multiple bands/gaps (as requested)
-	var b := _get_draw_bounds()
-	var fog_alpha = lerp(0.22, 0.68, _blend * intensity)
-	var scroll := fmod(_time * 12.0, b.z + 1200.0)  # gentle animated drift
-
-	# Full coverage base rect (extra padding for camera movement/zoom)
-	draw_rect(Rect2(b.x - 300, b.y - 300, b.z + 600, b.w + 600),
-		Color(fog_color.r * 0.92, fog_color.g * 0.92, fog_color.b * 0.92, fog_alpha * 0.75))
-
-	# Subtle vertical gradient for depth (single layer)
-	_draw_grad_quad(b.x - 200 + scroll * 0.2, b.y - 200, b.z + 600, b.y + b.w * 0.45,
-		Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
-		Color(fog_color.r * 0.96, fog_color.g * 0.96, fog_color.b * 0.96, fog_alpha * 0.55))
-
-	_draw_grad_quad(b.x - 200, b.y + b.w * 0.35, b.z + 600, b.y + b.w + 300,
-		Color(fog_color.r * 0.94, fog_color.g * 0.94, fog_color.b * 0.94, fog_alpha * 0.65),
-		Color(fog_color.r, fog_color.g, fog_color.b, 0.0))
+	if _fog_offsets.is_empty(): return
+	var b        := _get_draw_bounds()
+	var y_cursor := b.y
+	for i in range(fog_layers):
+		var layer_h    = b.w * fog_layer_heights[i % fog_layer_heights.size()]
+		var base_alpha = fog_layer_alphas[i % fog_layer_alphas.size()] * _blend * intensity
+		var offset     := fmod(_fog_offsets[i], b.z + 400.0)
+		for tile in range(2):
+			var tile_x := b.x - 200.0 + offset + float(tile) * (b.z + 400.0) - (b.z + 400.0)
+			var mid_a  = base_alpha * (0.6 + 0.4 * sin(_time * 0.3 + float(i) * 1.7))
+			_draw_grad_quad(tile_x, y_cursor, b.z + 400.0, y_cursor + layer_h * 0.5,
+				Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
+				Color(fog_color.r, fog_color.g, fog_color.b, mid_a))
+			_draw_grad_quad(tile_x, y_cursor + layer_h * 0.5, b.z + 400.0, y_cursor + layer_h,
+				Color(fog_color.r, fog_color.g, fog_color.b, mid_a),
+				Color(fog_color.r, fog_color.g, fog_color.b, 0.0))
+		y_cursor += layer_h * 0.55
 
 func _draw_fog_ground() -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 	var strip_h  = fog_ground_height * clamp(intensity, 0.2, 1.0)
-	_draw_grad_quad(b.x - 400, ground_y - strip_h - 150, b.z + 800, ground_y + 100,
+	_draw_grad_quad(b.x, ground_y - strip_h, b.z, ground_y,
 		Color(fog_color.r, fog_color.g, fog_color.b, 0.0),
-		Color(fog_color.r, fog_color.g, fog_color.b, fog_ground_alpha * _blend * intensity * 1.1))
+		Color(fog_color.r, fog_color.g, fog_color.b, fog_ground_alpha * _blend * intensity))
 
 func _draw_fog_vignette() -> void:
 	var b  := _get_draw_bounds()
 	var va := fog_vignette_alpha * _blend * intensity
-	var vw := b.z * 0.30   # wider vignette
+	var vw := b.z * 0.22
 	var vc := Color(fog_color.r * 0.6, fog_color.g * 0.6, fog_color.b * 0.6)
-	_draw_grad_quad(b.x - 200, b.y - 200, vw + 200, b.y + b.w + 400,
-		Color(vc.r, vc.g, vc.b, va * 0.9), Color(vc.r, vc.g, vc.b, 0.0))
-	_draw_grad_quad(b.x + b.z - vw, b.y - 200, vw + 200, b.y + b.w + 400,
-		Color(vc.r, vc.g, vc.b, 0.0), Color(vc.r, vc.g, vc.b, va * 0.85))
+	_draw_grad_quad(b.x, b.y, vw, b.y + b.w,
+		Color(vc.r, vc.g, vc.b, va), Color(vc.r, vc.g, vc.b, 0.0))
+	_draw_grad_quad(b.x + b.z - vw, b.y, vw, b.y + b.w,
+		Color(vc.r, vc.g, vc.b, 0.0), Color(vc.r, vc.g, vc.b, va))
 
-func _draw_simple_fullscreen_fog() -> void:
-	var b := _get_draw_bounds()
-	# White-ish fog with adjustable opacity. Covers everything (wall, timer, etc.)
-	var fog_col := Color(0.92, 0.94, 0.97, lerp(0.38, 0.72, _blend * intensity))
-	draw_rect(Rect2(b.x - 1500, b.y - 1500, b.z + 3000, b.w + 3000), fog_col)
 
 # =============================================================================
-# HAIL DRAW
+# HAIL DRAW — draw_circle for natural stones
 # =============================================================================
 
 func _draw_hail_fog() -> void:
@@ -1212,15 +1260,8 @@ func _draw_hailstones() -> void:
 		if a < 0.02: continue
 		var color        := Color(hail_color.r, hail_color.g, hail_color.b, a)
 		var streak_color := Color(hail_color.r, hail_color.g, hail_color.b, a * 0.45)
-		var hlines := PackedVector2Array()
-		var hmax_w := 1.0
 		for j in range(pts.size()):
-			var r := rads[j] * 0.5
-			hlines.append(pts[j] + Vector2(-r, 0.0))
-			hlines.append(pts[j] + Vector2(r, 0.0))
-			if rads[j] > hmax_w: hmax_w = rads[j]
-		if hlines.size() >= 2:
-			draw_multiline(hlines, color, hmax_w * 0.9)
+			draw_circle(pts[j], rads[j], color)
 		if streaks.size() >= 2:
 			draw_multiline(streaks, streak_color, rads[0] * 0.5)
 
@@ -1234,7 +1275,7 @@ func _draw_hail_bounces() -> void:
 
 
 # =============================================================================
-# SANDSTORM DRAW  — everything in one method for clarity and efficiency
+# SANDSTREAM DRAW  — everything in one method for clarity and efficiency
 # =============================================================================
 
 func _draw_sandstorm() -> void:
@@ -1403,17 +1444,7 @@ func get_wind_force() -> Vector2:
 		_:
 			return Vector2.ZERO
 
-# Fast path: returns cached value when available (set once per frame in _process).
 func _get_draw_bounds() -> Vector4:
-	if _cached_bounds != Vector4():
-		return _cached_bounds
-	return _calc_draw_bounds()
-
-func _calc_draw_bounds() -> Vector4:
-	# Guard: not in tree yet — use safe fallback
-	if not is_inside_tree():
-		return Vector4(-4000.0, -4000.0, 8000.0, 8000.0)
-
 	# Always derive bounds from the actual camera viewport in world space.
 	# This covers any zoom level — zooming out just makes the viewport rect larger
 	# in world coords, so the weather always fills it with a safety margin.
@@ -1421,14 +1452,12 @@ func _calc_draw_bounds() -> Vector4:
 	if vp:
 		var ct      := vp.get_canvas_transform()
 		var vp_size := vp.get_visible_rect().size
-		if vp_size.length_squared() < 1.0:
-			return Vector4(-4000.0, -4000.0, 8000.0, 8000.0)
 		# Inverse of canvas transform gives the world-space rect of the visible area.
 		var ct_inv   := ct.affine_inverse()
 		var tl_world := ct_inv * Vector2.ZERO
 		var br_world := ct_inv * vp_size
 		# Add a generous margin so particles don't pop in at screen edges.
-		const MARGIN := 1200.0
+		const MARGIN := 400.0
 		var x := tl_world.x - MARGIN
 		var y := tl_world.y - MARGIN
 		var w := (br_world.x - tl_world.x) + MARGIN * 2.0
@@ -1442,4 +1471,8 @@ func _calc_draw_bounds() -> Vector4:
 			return Vector4(b["min"].x - EXP, b["min"].y - EXP,
 						   (b["max"].x - b["min"].x) + EXP * 2.0,
 						   (b["max"].y - b["min"].y) + EXP * 2.0)
-	return Vector4(-4000.0, -4000.0, 8000.0, 8000.0)
+	if is_inside_tree():
+		var vs := get_viewport_rect().size
+		return Vector4(-vs.x * 2.0, -vs.y * 2.0, vs.x * 4.0, vs.y * 4.0)
+	# Node not in tree — return a safe large rect
+	return Vector4(-2000.0, -2000.0, 4000.0, 4000.0)

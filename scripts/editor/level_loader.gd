@@ -473,9 +473,10 @@ func get_player_spawn_position() -> Vector2:
 	print("  _custom_spawn_position:  ", _custom_spawn_position)
 
 	# ── Custom spawn takes absolute priority ──────────────────────────────────
+	var spawn_pos: Vector2
 	if is_instance_valid(custom_spawn_hold):
 		if _custom_spawn_position != Vector2.ZERO:
-			var spawn_pos = _custom_spawn_position + Vector2(0, 80)
+			spawn_pos = _custom_spawn_position + Vector2(0, 80)
 			print("  → Custom spawn (cached): ", spawn_pos)
 			print("================================\n")
 			return spawn_pos
@@ -484,7 +485,7 @@ func get_player_spawn_position() -> Vector2:
 		_resolve_custom_spawn_position()
 
 		if _custom_spawn_position != Vector2.ZERO:
-			var spawn_pos = _custom_spawn_position + Vector2(0, 80)
+			spawn_pos = _custom_spawn_position + Vector2(0, 80)
 			print("  → Custom spawn (on-the-fly): ", spawn_pos)
 			print("================================\n")
 			return spawn_pos
@@ -493,7 +494,7 @@ func get_player_spawn_position() -> Vector2:
 		var raw: Vector2 = hold_point.global_position if hold_point else custom_spawn_hold.global_position
 		print("  [custom_spawn] Last-resort direct read: ", raw)
 		if raw != Vector2.ZERO:
-			var spawn_pos = raw + Vector2(0, 80)
+			spawn_pos = raw + Vector2(0, 80)
 			print("  → Custom spawn (last-resort): ", spawn_pos)
 			print("================================\n")
 			return spawn_pos
@@ -510,18 +511,18 @@ func get_player_spawn_position() -> Vector2:
 		if holds_container:
 			for i in min(10, holds_container.get_child_count()):
 				var hold       = holds_container.get_child(i)
-				var has_method = hold.has_method("is_start_hold")
-				var is_start   = has_method and hold.is_start_hold()
+				var has_method_flag = hold.has_method("is_start_hold")
+				var is_start   = has_method_flag and hold.is_start_hold()
 				var hold_type  = hold.get("hold_type") if "hold_type" in hold else "NO_TYPE"
-				print("  [%d] hold_type='%s', has_method=%s, is_start=%s, pos=(%.1f, %.1f)" % [
-					i, hold_type, has_method, is_start,
+				print("  [%d] hold_type='%s', has_method_flag=%s, is_start=%s, pos=(%.1f, %.1f)" % [
+					i, hold_type, has_method_flag, is_start,
 					hold.global_position.x, hold.global_position.y])
 		print("================================\n")
 		return Vector2.ZERO
 
 	if starts.size() == 1:
 		var hold_point = starts[0].get_node_or_null("HoldPoint")
-		var spawn_pos  = (hold_point.global_position if hold_point
+		spawn_pos  = (hold_point.global_position if hold_point
 						  else starts[0].global_position) + Vector2(0, 80)
 		print("  Single START hold spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
 		print("================================\n")
@@ -539,7 +540,7 @@ func get_player_spawn_position() -> Vector2:
 			print("  START hold at: (%.1f, %.1f)" % [
 				hold.global_position.x, hold.global_position.y])
 
-	var spawn_pos = sum / starts.size() + Vector2(0, 80)
+	spawn_pos = sum / starts.size() + Vector2(0, 80)
 	print("  Averaged START spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
 	print("================================\n")
 	return spawn_pos

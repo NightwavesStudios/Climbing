@@ -2,7 +2,7 @@ extends Node
 ## Autoload singleton for managing game state, collections, and progression
 
 # Debug flags
-var debug_unlock_all: bool = false  # Set to true to unlock all collections and levels
+var debug_unlock_all: bool = true  # Set to true to unlock all collections and levels
 
 # Current gameplay state
 var current_level: String = ""

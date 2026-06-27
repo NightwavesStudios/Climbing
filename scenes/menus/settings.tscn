@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3 uid="uid://yajtbkqrwd1m"]
 
-[ext_resource type="Script" uid="uid://fo0rurnb0k5s" path="res://scripts/ui/menus/settings.gd" id="1_del6v"]
-[ext_resource type="Script" uid="uid://cqm0cfbqrodcb" path="res://scripts/ui/components/buttons.gd" id="2_erjg3"]
+[ext_resource type="Script" uid="uid://bkpjoeawvlf41" path="res://scripts/ui/menus/settings.gd" id="1_del6v"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_erjg3"]
 [ext_resource type="Texture2D" uid="uid://cyhnri1hhq6yj" path="res://assets/locked.png" id="3_g2810"]
 
 [node name="Settings" type="Control"]

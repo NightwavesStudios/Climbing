@@ -348,6 +348,7 @@ var _rf_hover_jitter: Vector2 = Vector2.ZERO
 
 # -- Input gate (set by main.gd during route preview) -------------------------
 var _input_enabled: bool = true
+var _r_was_pressed: bool = false
 
 # =============================================================================
 #  INIT
@@ -446,13 +447,15 @@ func handle_input() -> void:
 	if not _input_enabled:
 		return
 
-	if Input.is_action_just_pressed("ui_cancel") or Input.is_key_pressed(KEY_R):
+	var r_pressed := Input.is_key_pressed(KEY_R)
+	if Input.is_action_just_pressed("ui_cancel") or (r_pressed and not _r_was_pressed):
 		var main = get_tree().current_scene
 		if main and main.has_method("on_player_reset"):
 			main.on_player_reset()
 		else:
 			reset_climb()
 		return
+	_r_was_pressed = r_pressed
 
 	building_momentum = false
 	var shift_held = Input.is_key_pressed(KEY_SHIFT)
@@ -962,7 +965,7 @@ func _pin_held_limbs() -> void:
 			s.reset_velocity()
 
 
-func _apply_limb_tension(delta: float, held_foot_count: int) -> void:
+func _apply_limb_tension(_delta: float, held_foot_count: int) -> void:
 	var target_pos   = Vector2.ZERO
 	var total_weight = 0.0
 	for s in _hands:
@@ -1031,7 +1034,7 @@ func _apply_mouse_control(delta: float) -> void:
 		s.reset_velocity()
 
 
-func _apply_adaptive_leg_assistance(delta: float) -> void:
+func _apply_adaptive_leg_assistance(_delta: float) -> void:
 	if not use_mouse_aim: return
 	if not (lh in selected_limbs or rh in selected_limbs): return
 	var reach_dir      = (mouse_aim_position - global_position).normalized()
@@ -1053,8 +1056,9 @@ func _apply_natural_limb_positions(_delta: float) -> void:
 		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
 		var shoulder  = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
 		var sx        = -1.0 if s.is_left else 1.0
-		var tgt_elbow = shoulder + Vector2(sx * 18.0, ARM_UPPER_LENGTH * 0.85)
-		var tgt_hand  = tgt_elbow + Vector2(sx * 6.0, ARM_LOWER_LENGTH * 0.90)
+		# Natural hang: elbows slightly out, hands angled outward (not crossed).
+		var tgt_elbow = shoulder + Vector2(sx * 12.0, ARM_UPPER_LENGTH * 0.60)
+		var tgt_hand  = tgt_elbow + Vector2(sx * 4.0,  ARM_LOWER_LENGTH * 0.85)
 		s.joint.global_position = s.joint.global_position.lerp(tgt_elbow, FREE_ARM_RELAXATION_SPEED)
 		s.node.global_position  = s.node.global_position.lerp(tgt_hand,  FREE_ARM_RELAXATION_SPEED)
 		s.reset_velocity()
@@ -1451,8 +1455,78 @@ func reset_climb() -> void:
 		speed_timer.stop_timer()
 	_weather_modifier = get_tree().get_first_node_in_group("weather_modifier")
 	_spotlight        = get_node_or_null("SpotLight2D")
-	await get_tree().process_frame
-	call_deferred("initial_grab")
+
+	# ── Synchronous initial grab — no frame delays so player appears at start holds immediately ──
+	_zero_all()
+	global_position = spawn_position
+	com_position    = spawn_position + Vector2(0, COM_OFFSET_Y)
+
+	for s in _limbs:
+		if s.hold: release_limb(s)
+		s.is_grabbing = false
+	_zero_all()
+
+	var start_holds := _find_start_holds()
+	if start_holds.size() == 1:
+		var hold := start_holds[0]
+		var hp := hold.get_node_or_null("HoldPoint") as Marker2D
+		var pos := hp.global_position if hp else hold.global_position
+		var offsets: Array[Vector2] = [Vector2(-SHARED_HOLD_HAND_OFFSET, 0), Vector2(SHARED_HOLD_HAND_OFFSET, 0)]
+		var hand_idx := 0
+		for s in _hands:
+			if hold.can_grab(s.node, false):
+				var grab_pos: Vector2 = pos + offsets[hand_idx] if hand_idx < offsets.size() else pos
+				if hold.try_claim(s.node, false, grab_pos):
+					s.hold = hold
+					s.node.global_position = hold.get_limb_anchor(s.node)
+					s.anchor = s.node.global_position
+					s.pin    = s.node.global_position
+			hand_idx += 1
+		global_position = Vector2(pos.x, pos.y + 80)
+	elif start_holds.size() >= 2:
+		var ha := start_holds[0].get_node_or_null("HoldPoint") as Marker2D
+		var hb := start_holds[1].get_node_or_null("HoldPoint") as Marker2D
+		if ha and hb:
+			var ls := start_holds[0] if ha.global_position.x <= hb.global_position.x else start_holds[1]
+			var rs := start_holds[1] if ha.global_position.x <= hb.global_position.x else start_holds[0]
+			var lp := (ls.get_node("HoldPoint") as Marker2D).global_position
+			var rp := (rs.get_node("HoldPoint") as Marker2D).global_position
+			if ls.can_grab(lh.node, false) and ls.try_claim(lh.node, false, lp):
+				lh.hold = ls; lh.node.global_position = lp; lh.anchor = lp; lh.pin = lp
+			if rs.can_grab(rh.node, false) and rs.try_claim(rh.node, false, rp):
+				rh.hold = rs; rh.node.global_position = rp; rh.anchor = rp; rh.pin = rp
+			global_position = Vector2((lp.x + rp.x) / 2.0, lp.y + 80)
+	else:
+		for s in _hands:
+			var other := rh if s == lh else lh
+			var nearest := _find_nearest_hold(com_position)
+			if nearest == null:
+				nearest = _find_nearest_hold_radius(com_position, 400.0)
+			if nearest and nearest != other.hold and nearest.can_grab(s.node, false):
+				var hp := nearest.get_node_or_null("HoldPoint")
+				var sn := nearest.get_node_or_null("CollisionShape2D")
+				var grab_pos: Vector2
+				if hp:
+					grab_pos = hp.global_position
+				elif sn:
+					grab_pos = nearest.to_global(sn.position)
+				else:
+					grab_pos = nearest.global_position
+				var side_offset := Vector2(-SHARED_HOLD_HAND_OFFSET if s.is_left else SHARED_HOLD_HAND_OFFSET, 0)
+				var final_pos := grab_pos + side_offset
+				if nearest.try_claim(s.node, false, final_pos):
+					s.hold = nearest
+					s.node.global_position = nearest.get_limb_anchor(s.node)
+					s.anchor = s.node.global_position
+					s.pin = s.node.global_position
+
+	com_position = global_position + Vector2(0, COM_OFFSET_Y)
+	_snap_feet_on_spawn()
+	for _i in range(15): _apply_joint_constraints()
+	_pin_held_limbs(); _zero_all(); _reset_ghost_targets()
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold.has_method("notify_climb_start"): hold.notify_climb_start()
+	_grab_initialized = true
 
 
 func _zero_all() -> void:

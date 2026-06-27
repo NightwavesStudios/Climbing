@@ -497,25 +497,25 @@ Levels are stored as **JSON files** with the following structure:
   "time_of_day": 0.5,
   "belayer_position": { "x": -150, "y": 200 },
   "holds": [
-    { "type": "START", "x": 32.0, "y": 0.0 },
-    { "type": "JUG",   "x": -32.0, "y": -96.0, "modifiers": ["falling"] },
-    { "type": "TOP",   "x": 0.0, "y": -448.0 }
+	{ "type": "START", "x": 32.0, "y": 0.0 },
+	{ "type": "JUG",   "x": -32.0, "y": -96.0, "modifiers": ["falling"] },
+	{ "type": "TOP",   "x": 0.0, "y": -448.0 }
   ],
   "crashpads": [
-    { "x": 0.0, "y": 192.0 },
-    { "x": -224.0, "y": 192.0 }
+	{ "x": 0.0, "y": 192.0 },
+	{ "x": -224.0, "y": 192.0 }
   ],
   "wall_polygon": {
-    "enabled": true,
-    "points": [
-      { "x": -222.99, "y": -545.92 },
-      { "x": 237.93, "y": -544.16 },
-      { "x": 244.59, "y": 214.0 },
-      { "x": -215.29, "y": 214.0 }
-    ],
-    "ground_left_index": 3,
-    "ground_right_index": 2,
-    "top_edge_indices": []
+	"enabled": true,
+	"points": [
+	  { "x": -222.99, "y": -545.92 },
+	  { "x": 237.93, "y": -544.16 },
+	  { "x": 244.59, "y": 214.0 },
+	  { "x": -215.29, "y": 214.0 }
+	],
+	"ground_left_index": 3,
+	"ground_right_index": 2,
+	"top_edge_indices": []
   }
 }
 ```

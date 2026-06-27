@@ -211,6 +211,7 @@ func show_popup_image(image_path: String) -> void:
 		else:
 			push_error("show_popup_image: Failed to load texture: " + image_path)
 
+	instructions.process_mode = PROCESS_MODE_INHERIT
 	instructions_root.modulate.a = 0.0
 	instructions.show()
 	instructions_root.show()
@@ -259,6 +260,11 @@ func _check_paths() -> void:
 func _ready():
 	print("=== MAIN SCENE READY ===")
 
+	# Hide the menu background — it's persistent at root level and
+	# wastes CPU on _process / _draw even when invisible.
+	if has_node("/root/MenuBackgroundManager"):
+		MenuBackgroundManager.hide()
+
 	_build_popup_configs()
 	add_to_group("main_scene")
 
@@ -273,6 +279,10 @@ func _ready():
 
 	if instructions_root:
 		instructions_root.modulate.a = 0.0
+
+	# The popup instructions are hidden by default — don't waste
+	# CPU running their internal Button._process every frame.
+	instructions.process_mode = PROCESS_MODE_DISABLED
 
 	_setup_skip_level()
 	_setup_level_complete_overlay()
@@ -321,9 +331,10 @@ func _setup_skip_level() -> void:
 		push_error("SkipLevel nodes not found — check scene tree paths ($SkipLevel and $SkipLevel/SkipLevel)")
 		return
 
-	skip_level_container.modulate.a = 0.0
-	skip_level_container.visible    = false
-	skip_level_container.scale      = Vector2.ONE
+	skip_level_container.modulate.a       = 0.0
+	skip_level_container.visible          = false
+	skip_level_container.scale            = Vector2.ONE
+	skip_level_container.process_mode     = PROCESS_MODE_DISABLED
 
 	skip_level_btn.pressed.connect(_on_skip_level_pressed)
 
@@ -343,9 +354,10 @@ func _show_skip_button() -> void:
 	if not skip_level_container or skip_level_container.visible:
 		return
 
-	skip_level_container.visible    = true
-	skip_level_container.scale      = Vector2(0.5, 0.5)
-	skip_level_container.modulate.a = 0.0
+	skip_level_container.visible       = true
+	skip_level_container.scale         = Vector2(0.5, 0.5)
+	skip_level_container.modulate.a    = 0.0
+	skip_level_container.process_mode  = PROCESS_MODE_INHERIT
 
 	var tw := create_tween()
 	tw.set_parallel(true)
@@ -362,14 +374,18 @@ func _hide_skip_button(instant: bool = false) -> void:
 		return
 
 	if instant:
-		skip_level_container.visible    = false
+		skip_level_container.visible       = false
 		skip_level_container.modulate.a = 0.0
+		skip_level_container.process_mode = PROCESS_MODE_DISABLED
 		return
 
 	var tw := create_tween()
 	tw.tween_property(skip_level_container, "modulate:a", 0.0, 0.2) \
 		.set_ease(Tween.EASE_IN)
-	tw.tween_callback(func(): skip_level_container.visible = false)
+	tw.tween_callback(func():
+		skip_level_container.visible = false
+		skip_level_container.process_mode = PROCESS_MODE_DISABLED
+	)
 
 
 func _reset_skip_state() -> void:
@@ -693,26 +709,6 @@ func center_camera_on_route():
 #  TOP-OUT DETECTION
 # =============================================================================
 
-func check_player_top_out() -> bool:
-	if not player or not dynamic_wall:
-		return false
-	if not dynamic_wall.has_method("get_top_edge_y"):
-		return false
-
-	var env_config = get_node_or_null("/root/EnvironmentConfig")
-	if not env_config or env_config.get_current_environment() != 1:
-		return false
-
-	return player.global_position.y < (dynamic_wall.get_top_edge_y() + 50.0)
-
-# =============================================================================
-#  PROCESS
-# =============================================================================
-
-func _process(_delta: float) -> void:
-	if check_player_top_out():
-		pass
-
 # =============================================================================
 #  PUBLIC API
 # =============================================================================
@@ -768,7 +764,7 @@ func on_player_reset():
 		return
 
 	position_player_at_spawn()
-	center_camera_on_route()
+	camera_owned_by_main = false
 
 	if player and player.has_method("reset_climb"):
 		player.reset_climb()
@@ -962,6 +958,7 @@ func _on_hide_instructions_pressed() -> void:
 
 	if not instructions_root:
 		instructions.hide()
+		instructions.process_mode = PROCESS_MODE_DISABLED
 		return
 
 	var tween = create_tween()
@@ -969,4 +966,5 @@ func _on_hide_instructions_pressed() -> void:
 		.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_CUBIC)
 	tween.tween_callback(func():
 		instructions.hide()
+		instructions.process_mode = PROCESS_MODE_DISABLED
 	)
