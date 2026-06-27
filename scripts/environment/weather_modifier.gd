@@ -254,6 +254,36 @@ var _rain_udy: float = 0.0
 var _hail_udx: float = 0.0
 var _hail_udy: float = 0.0
 
+# ── Cached player reference (avoids get_nodes_in_group every physics frame) ──
+var _cached_players: Array[Node2D] = []
+
+# ── Wind gust system ─────────────────────────────────────────────────────────
+var _gust_time:   float = 0.0
+var _gust_strength: float = 0.0
+var _gust_target: float = 0.0
+const GUST_CHANGE_INTERVAL := 2.5
+
+# ── Puddle accumulation (atmospheric ground pooling for rain/lightning/hail) ──
+var _puddle_alpha: float = 0.0          # grows over time while rain is active
+var _puddle_ripple_time: float = 0.0
+const PUDDLE_MAX_ALPHA := 0.18
+const PUDDLE_RAMP_SPEED := 0.04         # per second
+const PUDDLE_DECAY_SPEED := 0.03
+
+# ── Lightning afterglow (brief residual light after flash fades) ────────────
+var _lightning_afterglow: float = 0.0
+const AFTERGLOW_DECAY := 2.5
+
+# ── Rain single-pass scratch (avoids re-creating arrays each frame) ─────────
+var _rain_write_idx: Array[int] = [0, 0, 0]
+
+# ── Atmospheric scene tint (weather bleeds color into environment) ──────────
+var _scene_tint_color: Color = Color.TRANSPARENT
+
+# ── Cached textures for GPU-batched particle rendering ─────────────────────
+var _snowflake_tex: ImageTexture         # small white circle, GPU-friendly
+var _hailstone_tex:  ImageTexture        # small light-grey circle for hail
+
 
 # =============================================================================
 # LIFECYCLE
@@ -266,10 +296,21 @@ func _ready() -> void:
 	add_to_group("weather_modifier")
 	_wall_ref = get_parent() if get_parent().has_method("get_bounds") else null
 	_drop_rng.randomize()
+	_cache_player_nodes()
 	_setup_audio()
 	_setup_lights()
+	_setup_particle_textures()
 	_setup_lightning_audio()
 	set_weather(weather)
+
+func _cache_player_nodes() -> void:
+	_cached_players.clear()
+	var tree := get_tree()
+	if tree == null:
+		return
+	for node in tree.get_nodes_in_group(PLAYER_GROUP):
+		if node is Node2D:
+			_cached_players.append(node)
 
 func _setup_audio() -> void:
 	_audio = AudioStreamPlayer.new()
@@ -328,6 +369,23 @@ func _make_radial_texture(size: int) -> ImageTexture:
 func _range_to_texture_scale(world_radius: float, tex_size: int) -> float:
 	return (world_radius * 2.0) / float(tex_size)
 
+func _setup_particle_textures() -> void:
+	# Pre-generate a small white circle texture for GPU-batched snowflake rendering.
+	# This avoids 800+ expensive draw_circle CPU calls each frame.
+	var tex_size := 16
+	var img := Image.create(tex_size, tex_size, false, Image.FORMAT_RGBA8)
+	var centre := Vector2(tex_size * 0.5, tex_size * 0.5)
+	var radius := tex_size * 0.5 - 0.5
+	for y in range(tex_size):
+		for x in range(tex_size):
+			var d := Vector2(x, y).distance_to(centre)
+			var a := 1.0 - smoothstep(radius - 0.5, radius + 0.5, d)
+			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
+	_snowflake_tex = ImageTexture.create_from_image(img)
+
+	# Hail texture — slightly different shade (set at runtime)
+	_hailstone_tex = _snowflake_tex
+
 
 # =============================================================================
 # PLAYER DATA FEED
@@ -371,6 +429,13 @@ func set_weather(new_weather: int) -> void:
 	_lightning_bolt_points = []
 	_lightning_branches    = []
 	_fog_offsets           = []
+	_gust_time            = 0.0
+	_gust_strength        = 0.0
+	_gust_target          = 0.0
+	_puddle_alpha         = 0.0
+	_puddle_ripple_time   = 0.0
+	_lightning_afterglow  = 0.0
+	_scene_tint_color     = Color.TRANSPARENT
 
 	for i in range(LAYERS):
 		_rain_lines[i].clear()
@@ -560,12 +625,14 @@ func _trigger_lightning_strike() -> void:
 			var branch_end := _lightning_bolt_points[i] + branch_dir * (bot_y - top_y) * 0.35
 			_lightning_branches.append(_generate_bolt(_lightning_bolt_points[i], branch_end, branch_len))
 
-	_lightning_active     = true
+	_lightning_active      = true
 	_lightning_bolt_timer  = lightning_bolt_duration
 	_lightning_flash_timer = lightning_flash_duration
+	_lightning_afterglow   = 1.0
 
 	if _lightning_audio and _lightning_audio.stream:
-		_lightning_audio.pitch_scale = _drop_rng.randf_range(0.85, 1.15)
+		var gust_pitch_offset := _gust_strength * 0.08
+		_lightning_audio.pitch_scale = _drop_rng.randf_range(0.85, 1.15) + gust_pitch_offset
 		_lightning_audio.play()
 
 func _generate_bolt(start: Vector2, end: Vector2, segments: int) -> Array[Vector2]:
@@ -683,27 +750,26 @@ func _append_sand_line(s: Dictionary) -> void:
 # =============================================================================
 
 # Fills the pre-allocated _rain_lines arrays from current flat particle data.
+# Single-pass: pre-count then fill using reused scratch array (no alloc per frame).
 func _build_rain_lines() -> void:
-	# First pass: count drops per layer (layers change each frame as
-	# recycled drops are randomly reassigned).
-	var layer_counts: Array[int] = [0, 0, 0]
+	# First pass: count drops per layer using reused scratch array
+	_rain_write_idx[0] = 0
+	_rain_write_idx[1] = 0
+	_rain_write_idx[2] = 0
 	for i in range(_rain_count):
 		var layer: int = _rain_layer[i]
-		layer_counts[layer] += 1
+		_rain_write_idx[layer] += 1
 
-	# Resize each layer's line array to exactly the needed size so
-	# draw_multiline never sees stale entries from previous frames.
+	# Resize each layer's line array to exactly the needed size
 	for i in range(LAYERS):
-		_rain_lines[i].resize(layer_counts[i] * 2)
-
-	# Reset counts for the fill pass
-	layer_counts = [0, 0, 0]
+		_rain_lines[i].resize(_rain_write_idx[i] * 2)
+		_rain_write_idx[i] = 0  # reset for fill pass
 
 	var dx := _rain_udx
 	var dy := _rain_udy
 	for i in range(_rain_count):
 		var layer: int = _rain_layer[i]
-		var idx := layer_counts[layer]
+		var idx := _rain_write_idx[layer]
 		var sx := _rain_x[i]
 		var sy := _rain_y[i]
 		var slen := _rain_len[i]
@@ -712,7 +778,7 @@ func _build_rain_lines() -> void:
 		var pos := idx * 2
 		lines[pos]     = Vector2(sx, sy)
 		lines[pos + 1] = Vector2(sx - dx * slen, sy - dy * slen)
-		layer_counts[layer] = idx + 1
+		_rain_write_idx[layer] = idx + 1
 
 
 # =============================================================================
@@ -728,10 +794,19 @@ func _process(delta: float) -> void:
 	var target_blend := intensity if weather != WeatherType.NONE else 0.0
 	_blend = move_toward(_blend, target_blend, BLEND_SPEED * delta)
 
+	# ── Wind gust system (used by rain, snow, lightning, sandstorm) ─────────
+	_gust_time += delta
+	if _gust_time >= GUST_CHANGE_INTERVAL:
+		_gust_time = 0.0
+		_gust_target = _drop_rng.randf_range(-1.0, 1.0)
+	_gust_strength = move_toward(_gust_strength, _gust_target, 4.0 * delta)
+
 	match weather:
 		WeatherType.RAIN:
 			_update_rain(delta)
 			_update_rain_audio(delta)
+			_puddle_alpha = min(_puddle_alpha + PUDDLE_RAMP_SPEED * _blend * delta, PUDDLE_MAX_ALPHA)
+			_puddle_ripple_time += delta * (0.6 + _gust_strength * 0.3)
 		WeatherType.NIGHT:
 			_update_night_lamp(delta)
 			_update_night_lights()
@@ -741,39 +816,43 @@ func _process(delta: float) -> void:
 			_update_rain(delta)
 			_update_rain_audio(delta)
 			_update_lightning(delta)
+			_puddle_alpha = min(_puddle_alpha + PUDDLE_RAMP_SPEED * _blend * delta * 1.4, PUDDLE_MAX_ALPHA)
+			_puddle_ripple_time += delta * (0.8 + _gust_strength * 0.3)
+			# Lightning afterglow decays
+			if _lightning_afterglow > 0.0:
+				_lightning_afterglow = max(_lightning_afterglow - AFTERGLOW_DECAY * delta, 0.0)
 		WeatherType.FOG:
 			_update_fog(delta)
 		WeatherType.HAIL:
 			_update_hail(delta)
+			_puddle_alpha = min(_puddle_alpha + PUDDLE_RAMP_SPEED * _blend * delta * 0.5, PUDDLE_MAX_ALPHA * 0.5)
+			_puddle_ripple_time += delta * 0.3
 		WeatherType.SANDSTORM:
 			_update_sandstorm(delta)
+			_puddle_alpha = max(_puddle_alpha - PUDDLE_DECAY_SPEED * delta, 0.0)
 
-	# Advance splashes — remove expired entries
-	var alive_splashes: Array[Dictionary] = []
-	alive_splashes.resize(_splashes.size())
-	var alive_count := 0
-	for s in _splashes:
-		s["t"] += delta
-		if s["t"] < splash_duration:
-			alive_splashes[alive_count] = s
-			alive_count += 1
-	alive_splashes.resize(alive_count)
-	_splashes = alive_splashes
+	# If no rain/hail, puddles gradually dry
+	if weather not in [WeatherType.RAIN, WeatherType.LIGHTNING, WeatherType.HAIL]:
+		_puddle_alpha = max(_puddle_alpha - PUDDLE_DECAY_SPEED * delta, 0.0)
 
-	# Advance hail bounces
-	var alive_bounces: Array[Dictionary] = []
-	alive_bounces.resize(_hail_bounces.size())
-	var bounce_count := 0
-	for b in _hail_bounces:
-		b["t"]  += delta
-		b["vy"] += hail_bounce_gravity * delta
-		b["x"]  += b["vx"] * delta
-		b["y"]  += b["vy"] * delta
-		if b["t"] < hail_bounce_duration:
-			alive_bounces[bounce_count] = b
-			bounce_count += 1
-	alive_bounces.resize(bounce_count)
-	_hail_bounces = alive_bounces
+	# Cull expired splashes in-place (no alloc)
+	if not _splashes.is_empty():
+		var new_count := _cull_splashes(delta)
+		if new_count < _splashes.size():
+			_splashes.resize(new_count)
+
+	# Cull expired hail bounces in-place (no alloc)
+	if not _hail_bounces.is_empty():
+		var new_count := _cull_hail_bounces(delta)
+		if new_count < _hail_bounces.size():
+			_hail_bounces.resize(new_count)
+
+	# Compute atmospheric scene tint from weather
+	_scene_tint_color = _compute_scene_tint()
+
+	# Re-cache player nodes periodically (handles reparenting / scene changes)
+	if Engine.get_process_frames() % 120 == 0:
+		_cache_player_nodes()
 
 	# Emit current wind so external systems can react
 	var wf := get_wind_force()
@@ -783,19 +862,17 @@ func _process(delta: float) -> void:
 	# Redraw every frame — no throttle for smooth natural motion
 	queue_redraw()
 
-# Applies wind push directly to any CharacterBody2D / RigidBody2D in PLAYER_GROUP.
+# Applies wind push directly to cached player nodes.
 # This runs at physics rate for smooth, frame-rate-independent force application.
+# Uses cached node references instead of scanning group every frame.
 func _physics_process(delta: float) -> void:
 	if _blend < 0.01:
 		return
 	var wf := get_wind_force()
 	if wf.is_zero_approx():
 		return
-	var tree := get_tree()
-	if tree == null:
-		return
-	for node in tree.get_nodes_in_group(PLAYER_GROUP):
-		if not node is Node2D:
+	for node in _cached_players:
+		if not is_instance_valid(node):
 			continue
 		# Preferred: custom hook the player exposes
 		if node.has_method("apply_wind_force"):
@@ -818,13 +895,38 @@ func _get_ground_y() -> float:
 	var b := _get_draw_bounds()
 	return b.y + b.w
 
+func _compute_scene_tint() -> Color:
+	# Returns a subtle atmospheric tint color that blends into the scene
+	# based on the current weather type and intensity.
+	if _blend < 0.02:
+		return Color.TRANSPARENT
+	var t := _blend * intensity * 0.12  # very subtle — 12% max
+	match weather:
+		WeatherType.RAIN:
+			return Color(0.08, 0.10, 0.16, t)
+		WeatherType.NIGHT:
+			return Color(0.01, 0.01, 0.04, _blend * intensity * 0.20)
+		WeatherType.SNOW:
+			return Color(0.12, 0.14, 0.18, t * 0.5)
+		WeatherType.LIGHTNING:
+			return Color(0.06, 0.08, 0.14, t * 1.2)
+		WeatherType.FOG:
+			return Color(0.14, 0.14, 0.16, t * 0.6)
+		WeatherType.HAIL:
+			return Color(0.10, 0.12, 0.18, t)
+		WeatherType.SANDSTORM:
+			return Color(0.18, 0.10, 0.04, t * 1.4)
+		_:
+			return Color.TRANSPARENT
+
 
 # =============================================================================
 # RAIN UPDATE — flat arrays, in-place line building
 # =============================================================================
 
 func _update_rain(delta: float) -> void:
-	var dx  := _rain_udx + rain_wind / rain_speed
+	var gust_dx := _gust_strength * 0.04
+	var dx  := _rain_udx + rain_wind / rain_speed + gust_dx
 	var dy  := _rain_udy
 	var b   := _get_draw_bounds()
 	var ground_y := _get_ground_y()
@@ -870,6 +972,11 @@ func _update_rain_audio(delta: float) -> void:
 	else:
 		_audio.volume_db = move_toward(_audio.volume_db, target_db, 6.0 * delta)
 
+	# Modulate pitch with gust strength for dynamic wind-in-rain effect
+	if _audio.playing:
+		var gust_pitch := 1.0 + _gust_strength * 0.04
+		_audio.pitch_scale = move_toward(_audio.pitch_scale, gust_pitch, 1.5 * delta)
+
 func _update_lightning(delta: float) -> void:
 	if _lightning_flash_timer > 0.0: _lightning_flash_timer -= delta
 	if _lightning_bolt_timer > 0.0:
@@ -896,11 +1003,12 @@ func _update_snow(delta: float) -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
 	var sway_t   := _time * snow_sway_frequency * TAU
+	var gust_dx  := _gust_strength * 8.0 * delta
 	var count    := _snow_count
 
 	for i in range(count):
 		_snow_y[i] += _snow_speed[i] * delta
-		_snow_x[i] += sin(sway_t + _snow_phase[i]) * _snow_drift[i] * delta
+		_snow_x[i] += sin(sway_t + _snow_phase[i]) * _snow_drift[i] * delta + gust_dx
 
 		if _snow_y[i] >= ground_y or _snow_x[i] > b.x + b.z + 80.0 or _snow_x[i] < b.x - 80.0:
 			# Respawn flake at top
@@ -952,13 +1060,14 @@ func _update_hail(delta: float) -> void:
 func _update_sandstorm(delta: float) -> void:
 	var b        := _get_draw_bounds()
 	var ground_y := _get_ground_y()
+	var gust_push := _gust_strength * 60.0 * delta
 
 	for i in range(LAYERS): _sand_lines[i].clear()
 
 	for i in range(_sand_particles.size()):
 		var s := _sand_particles[i]
 		# All sand moves strongly to the right; speed varies by layer
-		s["x"] += (_sand_udx * s["speed"] + sandstorm_wind) * delta
+		s["x"] += (_sand_udx * s["speed"] + sandstorm_wind + gust_push) * delta
 		s["y"] += _sand_udy * s["speed"] * delta + s["vy"] * delta
 
 		# Recycle when off right edge, above sky, or below ground
@@ -987,6 +1096,36 @@ func _spawn_hail_bounce(sx: float, gy: float, drop_alpha: float, radius: float) 
 # =============================================================================
 # NIGHT PROCESS HELPERS
 # =============================================================================
+
+# =============================================================================
+# IN-PLACE CULLING HELPERS — avoids allocating new arrays every frame
+# =============================================================================
+
+# Culls expired entries from _splashes in-place. Returns new count.
+func _cull_splashes(delta: float) -> int:
+	var write: int = 0
+	for i in range(_splashes.size()):
+		var s := _splashes[i]
+		s["t"] += delta
+		if s["t"] < splash_duration:
+			_splashes[write] = s
+			write += 1
+	return write
+
+# Culls expired entries from _hail_bounces in-place. Returns new count.
+func _cull_hail_bounces(delta: float) -> int:
+	var write: int = 0
+	for i in range(_hail_bounces.size()):
+		var b := _hail_bounces[i]
+		b["t"]  += delta
+		b["vy"] += hail_bounce_gravity * delta
+		b["x"]  += b["vx"] * delta
+		b["y"]  += b["vy"] * delta
+		if b["t"] < hail_bounce_duration:
+			_hail_bounces[write] = b
+			write += 1
+	return write
+
 
 func _update_night_lamp(_delta: float) -> void:
 	var desired_dir: Vector2
@@ -1020,30 +1159,41 @@ func _draw() -> void:
 			_draw_rain_fog()
 			_draw_rain_streaks()
 			_draw_splashes()
+			_draw_puddles()
+			_draw_scene_overlay()
 		WeatherType.NIGHT:
 			_draw_night_darkness()
+			_draw_scene_overlay()
 		WeatherType.SNOW:
 			_draw_snow_fog()
 			_draw_snowflakes()
 			_draw_snow_accumulation()
+			_draw_scene_overlay()
 		WeatherType.LIGHTNING:
 			_draw_lightning_flash()
 			_draw_rain_fog()
 			_draw_rain_streaks()
 			_draw_splashes()
 			_draw_lightning_bolt()
+			_draw_lightning_afterglow()
+			_draw_puddles()
+			_draw_scene_overlay()
 		WeatherType.FOG:
 			_draw_fog_ambient()
 			_draw_fog_layers()
 			_draw_fog_ground()
 			_draw_fog_vignette()
+			_draw_scene_overlay()
 		WeatherType.HAIL:
 			_draw_hail_fog()
 			_draw_hailstones()
 			_draw_hail_bounces()
 			_draw_splashes()
+			_draw_puddles()
+			_draw_scene_overlay()
 		WeatherType.SANDSTORM:
 			_draw_sandstorm()
+			_draw_scene_overlay()
 		WeatherType.NONE:
 			pass
 
@@ -1142,8 +1292,13 @@ func _draw_snowflakes() -> void:
 	var a = _blend * intensity
 	if a < 0.02: return
 	var color := Color(snow_color.r, snow_color.g, snow_color.b, 0.60 * a)
+	var tex := _snowflake_tex
+	# Batch all snowflakes using GPU-friendly draw_texture_rect instead of CPU draw_circle
 	for i in range(count):
-		draw_circle(Vector2(_snow_x[i], _snow_y[i]), _snow_radius[i], color)
+		var r := _snow_radius[i] * 2.0
+		var sz := Vector2(r, r)
+		var pos := Vector2(_snow_x[i] - r * 0.5, _snow_y[i] - r * 0.5)
+		draw_texture_rect(tex, Rect2(pos, sz), false, color)
 
 func _draw_snow_accumulation() -> void:
 	var b        := _get_draw_bounds()
@@ -1250,6 +1405,7 @@ func _draw_hail_fog() -> void:
 		Color(hail_fog_color.r, hail_fog_color.g, hail_fog_color.b, haze * 0.4))
 
 func _draw_hailstones() -> void:
+	var tex := _hailstone_tex
 	for layer in range(LAYERS):
 		var pts     := _hail_points[layer]
 		var rads    := _hail_radii[layer]
@@ -1260,8 +1416,12 @@ func _draw_hailstones() -> void:
 		if a < 0.02: continue
 		var color        := Color(hail_color.r, hail_color.g, hail_color.b, a)
 		var streak_color := Color(hail_color.r, hail_color.g, hail_color.b, a * 0.45)
+		# GPU-batched hailstone rendering via cached texture
 		for j in range(pts.size()):
-			draw_circle(pts[j], rads[j], color)
+			var r := rads[j] * 2.0
+			var sz := Vector2(r, r)
+			var pos := Vector2(pts[j].x - r * 0.5, pts[j].y - r * 0.5)
+			draw_texture_rect(tex, Rect2(pos, sz), false, color)
 		if streaks.size() >= 2:
 			draw_multiline(streaks, streak_color, rads[0] * 0.5)
 
@@ -1321,6 +1481,54 @@ func _draw_sandstorm() -> void:
 		Color(vc.r, vc.g, vc.b, 0.22 * blend), Color(vc.r, vc.g, vc.b, 0.0))
 	_draw_grad_quad(b.x + b.z - vw, b.y, vw, b.y + total_h + 300.0,
 		Color(vc.r, vc.g, vc.b, 0.0), Color(vc.r, vc.g, vc.b, 0.14 * blend))
+
+
+# =============================================================================
+# ATMOSPHERIC OVERLAYS — puddles, afterglow, scene tint
+# =============================================================================
+
+func _draw_puddles() -> void:
+	# Rainwater pooling at ground level — subtle reflective shimmer
+	if _puddle_alpha < 0.005 or _blend < 0.02:
+		return
+	var b        := _get_draw_bounds()
+	var ground_y := _get_ground_y()
+	var a := _puddle_alpha * _blend
+	if a < 0.005: return
+
+	# Ground-level pooling strip
+	var pool_h: float = lerp(4.0, 20.0, a / PUDDLE_MAX_ALPHA)
+	var ripple: float = sin(_puddle_ripple_time * 2.0) * 0.15 + sin(_puddle_ripple_time * 3.7) * 0.10
+
+	# Main puddle band — dark reflective blue-grey
+	var base_col := Color(0.12, 0.16, 0.25, a * 0.5)
+	_draw_grad_quad(b.x, ground_y - pool_h, b.z, ground_y,
+		Color(base_col.r, base_col.g, base_col.b, 0.0),
+		Color(base_col.r, base_col.g, base_col.b, a * 0.5))
+
+	# Highlight shimmer on top of puddles
+	var shimmer_a := a * 0.15 * (0.6 + 0.4 * ripple)
+	if shimmer_a > 0.01:
+		draw_rect(Rect2(b.x, ground_y - pool_h * 0.4, b.z, pool_h * 0.4),
+			Color(0.70, 0.80, 0.95, shimmer_a))
+
+func _draw_lightning_afterglow() -> void:
+	# Brief residual illumination after a lightning flash fades
+	if _lightning_afterglow <= 0.01 or _blend < 0.02:
+		return
+	var b   := _get_draw_bounds()
+	var a   := _lightning_afterglow * _blend * intensity * 0.06
+	if a < 0.005: return
+	draw_rect(Rect2(b.x, b.y, b.z, b.w),
+		Color(lightning_flash_color.r, lightning_flash_color.g, lightning_flash_color.b, a))
+
+func _draw_scene_overlay() -> void:
+	# Very subtle full-scene atmospheric tint that blends weather
+	# color into the environment for a unified mood.
+	if _scene_tint_color.a < 0.005:
+		return
+	var b := _get_draw_bounds()
+	draw_rect(Rect2(b.x - 500, b.y - 500, b.z + 1000, b.w + 1000), _scene_tint_color)
 
 
 # =============================================================================
@@ -1420,27 +1628,28 @@ func get_gravity_modifier() -> float:
 func get_wind_force() -> Vector2:
 	# Values are in pixels/sec² effectively — tuned so a CharacterBody2D
 	# with typical move_and_slide feels a noticeable but not overwhelming push.
+	var gust_factor := _gust_strength * 0.3  # ±30% gust modulation
 	match weather:
 		WeatherType.RAIN:
-			# Light sideways push — maybe 15 px/s at full intensity
-			return Vector2(120.0 * _blend * intensity, 0.0)
+			# Light sideways push — modulated by gusts for dynamic feel
+			return Vector2(120.0 * _blend * intensity * (1.0 + gust_factor), 0.0)
 		WeatherType.SNOW:
-			# Gentle swaying gust
+			# Gentle swaying gust with gust overlay
 			var sway := sin(_time * snow_sway_frequency * TAU) * 0.6 \
 					  + sin(_time * snow_sway_frequency * TAU * 2.3) * 0.4
-			return Vector2(sway * 80.0 * _blend * intensity, 0.0)
+			return Vector2(sway * 80.0 * _blend * intensity * (1.0 + gust_factor * 0.8), 0.0)
 		WeatherType.LIGHTNING:
-			# Strong, gusty — erratic direction changes
+			# Strong, gusty — erratic direction changes with gust layer
 			var gust := sin(_time * 1.3) * 0.5 \
 					  + sin(_time * 3.1) * 0.3 \
 					  + sin(_time * 7.4) * 0.2
-			return Vector2(gust * 280.0 * _blend * intensity, 0.0)
+			return Vector2(gust * 280.0 * _blend * intensity * (1.0 + gust_factor), 0.0)
 		WeatherType.HAIL:
-			# Steady strong push in hail_wind direction
-			return Vector2(hail_wind * 1.8 * _blend * intensity, 0.0)
+			# Steady strong push in hail_wind direction, gusted
+			return Vector2(hail_wind * 1.8 * _blend * intensity * (1.0 + gust_factor * 0.5), 0.0)
 		WeatherType.SANDSTORM:
 			# Very strong constant push — sandstorm is the windiest weather
-			return Vector2(sandstorm_wind * 2.2 * _blend * intensity, 0.0)
+			return Vector2(sandstorm_wind * 2.2 * _blend * intensity * (1.0 + gust_factor), 0.0)
 		_:
 			return Vector2.ZERO
 
