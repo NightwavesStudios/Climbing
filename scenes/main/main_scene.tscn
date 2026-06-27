@@ -1,8 +1,7 @@
-[gd_scene load_steps=10 format=3 uid="uid://dobbv2ep5jfco"]
+[gd_scene load_steps=9 format=3 uid="uid://dobbv2ep5jfco"]
 
 [ext_resource type="Script" uid="uid://ckbllmbuj8mpt" path="res://scripts/levels/main_scene.gd" id="1_l7pil"]
 [ext_resource type="PackedScene" uid="uid://c5s02ajy6gea3" path="res://scenes/player/character.tscn" id="2_271kv"]
-[ext_resource type="Script" uid="uid://cgqdhpr2iwubh" path="res://scripts/holds/wall_holes.gd" id="4_0jrka"]
 [ext_resource type="Script" uid="uid://dvxutv1iytasy" path="res://scripts/editor/level_loader.gd" id="5_w4lj1"]
 [ext_resource type="PackedScene" uid="uid://cpx7icuo3usgd" path="res://scenes/menus/pause_menu.tscn" id="6_l7pil"]
 [ext_resource type="Script" uid="uid://c206qolxvk6u1" path="res://scripts/systems/debug.gd" id="7_0jrka"]
@@ -21,10 +20,6 @@ rotation_smoothing_speed = 10.0
 
 [node name="Character" parent="." instance=ExtResource("2_271kv")]
 z_index = 2
-
-[node name="Wall" type="Node2D" parent="."]
-z_index = -100
-script = ExtResource("4_0jrka")
 
 [node name="LevelLoader" type="Node2D" parent="."]
 script = ExtResource("5_w4lj1")
@@ -72,7 +67,6 @@ script = ExtResource("8_a4cr6")
 stream = ExtResource("9_0jrka")
 
 [node name="SkipLevel" type="Control" parent="."]
-visible = false
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -80,20 +74,17 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="CanvasLayer" type="CanvasLayer" parent="SkipLevel"]
-visible = false
-
-[node name="SkipLevel" type="Button" parent="SkipLevel/CanvasLayer"]
-visible = false
+[node name="SkipLevel" type="Button" parent="SkipLevel"]
+layout_mode = 1
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -32.0
-offset_top = -48.0
-offset_right = 53.0
-offset_bottom = -17.0
+offset_left = 598.0
+offset_top = 666.0
+offset_right = 683.0
+offset_bottom = 697.0
 grow_horizontal = 2
 grow_vertical = 0
 size_flags_vertical = 4

@@ -2,7 +2,6 @@
 
 [ext_resource type="Script" uid="uid://bkpjoeawvlf41" path="res://scripts/menus/settings.gd" id="1_del6v"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/menus/buttons.gd" id="2_erjg3"]
-[ext_resource type="Script" uid="uid://bwqbvj0onxb7s" path="res://scripts/menus/random_background.gd" id="3_e7wif"]
 [ext_resource type="Texture2D" uid="uid://cyhnri1hhq6yj" path="res://assets/locked.png" id="3_g2810"]
 
 [node name="Settings" type="Control"]
@@ -86,6 +85,15 @@ text = "Key Bindings"
 [node name="KeybindsContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 
+[node name="ResetDataLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Reset"
+
+[node name="ResetData" type="Button" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Reset Data"
+script = ExtResource("2_erjg3")
+
 [node name="MarginContainer" type="MarginContainer" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 size_flags_vertical = 3
@@ -105,15 +113,16 @@ position = Vector2(863.50006, 399.5)
 scale = Vector2(0.03166672, 0.03166672)
 texture = ExtResource("3_g2810")
 
-[node name="RandomBackground" type="Control" parent="."]
-anchors_preset = 0
-offset_right = 40.0
-offset_bottom = 40.0
-script = ExtResource("3_e7wif")
+[node name="ResetDataDialog" type="ConfirmationDialog" parent="."]
+title = "Reset Data"
+size = Vector2i(400, 180)
+dialog_text = "This will erase all completed levels, collections, and tutorial progress. User-created levels are kept. This cannot be undone. Are you sure?"
 
 [connection signal="value_changed" from="MarginContainer/VBoxContainer/Volume" to="." method="_on_volume_value_changed"]
 [connection signal="item_selected" from="MarginContainer/VBoxContainer/WindowMode" to="." method="_on_window_mode_item_selected"]
 [connection signal="toggled" from="MarginContainer/VBoxContainer/VSync" to="." method="_on_vsync_toggled"]
 [connection signal="item_selected" from="MarginContainer/VBoxContainer/FPSCap" to="." method="_on_fps_cap_item_selected"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/ResetData" to="." method="_on_reset_data_pressed"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/Save" to="." method="_on_save_pressed"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/Back" to="." method="_on_back_pressed"]
+[connection signal="confirmed" from="ResetDataDialog" to="." method="_on_reset_data_dialog_confirmed"]

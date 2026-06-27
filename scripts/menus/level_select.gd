@@ -40,6 +40,9 @@ func _get_env_palette(env: String) -> Dictionary:
 	return ENV_COLORS.get(env.to_lower(), ENV_COLORS["gym"])
 
 func _ready() -> void:
+	# Show the shared persistent menu background
+	MenuBackgroundManager.show()
+	
 	btn_prev.pressed.connect(_on_prev_pressed)
 	btn_next.pressed.connect(_on_next_pressed)
 	_populate_levels()

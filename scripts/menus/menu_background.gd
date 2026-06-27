@@ -276,9 +276,50 @@ func _draw_sky(vp: Rect2, pal: Dictionary) -> void:
 	for i in bands:
 		var t0 := float(i)     / float(bands)
 		var t1 := float(i + 1) / float(bands)
-		var c0 := top.lerp(horiz, t0 * t0)
-		var c1 := top.lerp(horiz, t1 * t1)
+		var f0 := t0 * t0
+		var f1 := t1 * t1
+		var c0 := top.lerp(horiz, f0)
+		var c1 := top.lerp(horiz, f1)
 		_draw_vgrad(0.0, t0 * total_h, vp.size.x, t1 * total_h, c0, c1)
+
+	# ── Atmospheric haze band (warm scattering near horizon) ──────────────
+	var dayness := clampf((top.r + top.g + top.b) * 0.5, 0.0, 1.0)
+	if dayness > 0.15:
+		var sc: Color = pal.get("sun", Color(1.0, 0.95, 0.70))
+		if sc.r + sc.g + sc.b > 0.05:
+			var warm := Color(
+				horiz.r * 0.4 + sc.r * 0.6,
+				horiz.g * 0.5 + sc.g * 0.3,
+				horiz.b * 0.6,
+				0.08)
+			for i in 10:
+				var t0 := float(i) / 10.0
+				var t1 := float(i + 1) / 10.0
+				var a0 := 0.08 * (1.0 - t0 * t0 * 0.85)
+				var a1 := 0.08 * (1.0 - t1 * t1 * 0.85)
+				_draw_vgrad(0.0, ground_y - (1.0 - t0) * 180.0, vp.size.x,
+					ground_y - (1.0 - t1) * 180.0,
+					Color(warm.r, warm.g, warm.b, a1),
+					Color(warm.r, warm.g, warm.b, a0))
+		# Blue Rayleigh scatter veil
+		var scatter := Color(0.50, 0.68, 0.92, 0.035)
+		for i in 6:
+			var t0 := float(i) / 6.0
+			var t1 := float(i + 1) / 6.0
+			_draw_vgrad(0.0, ground_y - (1.0 - t0) * 320.0, vp.size.x,
+				ground_y - (1.0 - t1) * 320.0,
+				Color(scatter.r, scatter.g, scatter.b, scatter.a * (1.0 - t0 * 0.5)),
+				Color(scatter.r, scatter.g, scatter.b, scatter.a * (1.0 - t1 * 0.5)))
+	else:
+		# Night/moon haze — cooler, subtler
+		var cool := Color(horiz.r * 0.4, horiz.g * 0.4, horiz.b * 0.7, 0.04)
+		for i in 6:
+			var t0 := float(i) / 6.0
+			var t1 := float(i + 1) / 6.0
+			_draw_vgrad(0.0, ground_y - (1.0 - t0) * 150.0, vp.size.x,
+				ground_y - (1.0 - t1) * 150.0,
+				Color(cool.r, cool.g, cool.b, cool.a * (1.0 - t0 * 0.6)),
+				Color(cool.r, cool.g, cool.b, cool.a * (1.0 - t1 * 0.6)))
 
 	# Below horizon fill
 	draw_rect(Rect2(0.0, ground_y, vp.size.x, vp.size.y - ground_y + 10.0), horiz, true)
@@ -400,13 +441,15 @@ func _draw_mountains(vp: Rect2, pal: Dictionary) -> void:
 	var mtn : Array  = pal["mtn_layers"]
 	var ground_y     := vp.size.y * 0.82
 	var w            := vp.size.x
+	var horiz        : Color = pal["sky_horiz"]
+	var sky_t        : Color = pal["sky_top"]
 
-	# Layer configs: [base_y_frac, min_h, max_h, segs, parallax_frac, seed_xor]
+	# Layer configs: [base_y_frac, min_h, max_h, segs, parallax_frac, seed_xor, atmos_persp]
 	var layers := [
-		[0.78, 200.0, 520.0, 90,  0.04, 0x0A1B2C],
-		[0.80, 140.0, 360.0, 80,  0.08, 0x1A2B3C],
-		[0.81,  80.0, 210.0, 65,  0.14, 0x4D5E6F],
-		[0.82,  38.0, 100.0, 50,  0.20, 0x7F8A9B],
+		[0.78, 200.0, 520.0, 90,  0.04, 0x0A1B2C, 0.55],  # furthest → most sky blend
+		[0.80, 140.0, 360.0, 80,  0.08, 0x1A2B3C, 0.40],
+		[0.81,  80.0, 210.0, 65,  0.14, 0x4D5E6F, 0.25],
+		[0.82,  38.0, 100.0, 50,  0.20, 0x7F8A9B, 0.10],  # closest → least sky blend
 	]
 
 	for li in layers.size():
@@ -414,13 +457,65 @@ func _draw_mountains(vp: Rect2, pal: Dictionary) -> void:
 		var base_y := vp.size.y * float(lc[0])
 		var px_off := _parallax_offset.x * float(lc[4])
 		var col    : Color = mtn[li] if li < mtn.size() else Color(0.15, 0.15, 0.20)
-		_draw_hill_layer(-200.0 + px_off, w + 200.0 + px_off, base_y,
-						  float(lc[1]), float(lc[2]), int(lc[3]), col,
-						  _scenery_seed ^ int(lc[5]))
+		# ── Atmospheric perspective: blend the mountain colour with the sky ──
+		var atmos := float(lc[6])
+		col = col.lerp(sky_t.lerp(horiz, 0.5), atmos * 0.4)
+
+		var left   := -200.0 + px_off
+		var right  := w + 200.0 + px_off
+		var count  := int(lc[3])
+		var step   := (right - left) / float(count)
+		var min_h2 := float(lc[1]); var max_h2 := float(lc[2])
+
+		# Compute crest points to find peaks for snow caps
+		var crest_pts := PackedVector2Array()
+		for i in count + 1:
+			var h0 := _hf(_scenery_seed ^ int(lc[5]) + (i-1)*7) * (max_h2 - min_h2) + min_h2
+			var h1 := _hf(_scenery_seed ^ int(lc[5]) + i*7)     * (max_h2 - min_h2) + min_h2
+			var h2 := _hf(_scenery_seed ^ int(lc[5]) + (i+1)*7) * (max_h2 - min_h2) + min_h2
+			crest_pts.append(Vector2(left + i * step, base_y - (h0*0.2 + h1*0.6 + h2*0.2)))
+
+		# Draw the mountain layer
+		var pts  := PackedVector2Array()
+		var cols := PackedColorArray()
+		var min_y3 := INF
+		for cp in crest_pts:
+			if cp.y < min_y3: min_y3 = cp.y
+		var crest_range := maxf(base_y - min_y3, 1.0)
+
+		pts.append(Vector2(left, base_y + 600.0))
+		cols.append(col)
+		for i in crest_pts.size():
+			pts.append(crest_pts[i])
+			var height_t := (base_y - crest_pts[i].y) / crest_range
+			var fade := height_t * 0.35
+			cols.append(Color(col.r, col.g, col.b, col.a * (1.0 - fade)))
+		pts.append(Vector2(right, base_y + 600.0))
+		cols.append(col)
+		if _polygon_valid(pts):
+			draw_polygon(pts, cols)
+
+		# ── Snow caps on high peaks ──────────────────────────────────────
+		if li <= 1:  # only further layers get snow
+			var snow_col := Color(0.90, 0.93, 0.97, 0.45)
+			snow_col = snow_col.lerp(horiz.lightened(0.2), 0.15)
+			for i in range(1, crest_pts.size() - 1):
+				var p  := crest_pts[i]
+				var pp := crest_pts[i - 1]
+				var pn := crest_pts[i + 1]
+				if p.y >= pp.y or p.y >= pn.y: continue
+				var prominence: float = (min(pp.y, pn.y) - p.y) / 180.0
+				if prominence < 0.10: continue
+				var cap_w: float = 10.0 + prominence * 35.0
+				var cap_h: float = 5.0  + prominence * 16.0
+				var spread: float = clampf(prominence * 1.5, 0.3, 1.0)
+				_draw_soft_puff(p.x, p.y - cap_h * 0.2, cap_w * spread, cap_h,
+					Color(snow_col.r, snow_col.g, snow_col.b, snow_col.a * minf(prominence * 2.0, 0.6)), 0.5)
+				# Wind-drift accumulation
+				_draw_soft_puff(p.x + cap_w * 0.15, p.y - cap_h * 0.1, cap_w * 0.35, cap_h * 0.4,
+					Color(snow_col.r, snow_col.g, snow_col.b, snow_col.a * 0.3), 0.4)
 
 	# Broad atmospheric haze — softens mountain crests into the sky
-	var horiz : Color = pal["sky_horiz"]
-	var sky_t: Color = pal["sky_top"]
 	_draw_vgrad(0.0, ground_y - 280.0, w, ground_y - 40.0,
 		Color(sky_t.r * 0.5 + horiz.r * 0.5, sky_t.g * 0.5 + horiz.g * 0.5, sky_t.b * 0.5 + horiz.b * 0.5, 0.0),
 		Color(horiz.r, horiz.g, horiz.b, 0.18))
@@ -634,6 +729,30 @@ func _draw_ground(vp: Rect2, pal: Dictionary) -> void:
 		pts.append(Vector2(gx, ground_y - (h0 * 0.2 + h1 * 0.6 + h2 * 0.2)))
 	pts.append(Vector2(vp.size.x + 10.0, ground_y + 40.0))
 	if _polygon_valid(pts): draw_colored_polygon(pts, gt)
+
+	# ── Vegetation/terrain detail dots ─────────────────────────────────────
+	var dayness := clampf((pal["sky_top"].r + pal["sky_top"].g + pal["sky_top"].b) * 0.4, 0.0, 1.0)
+	if dayness > 0.3:
+		for bi in int(vp.size.x / 80.0):
+			var bs := (_scenery_seed ^ 0xC7D8) + bi * 17
+			var bx := _hf(bs) * vp.size.x
+			var by := ground_y + 2.0 + _hf(bs + 1) * 20.0
+			var bh := 3.0 + _hf(bs + 2) * 6.0
+			# Small grass tufts
+			for ti in 3:
+				var tx := bx + (_hf(bs + ti * 7 + 3) - 0.5) * 8.0
+				var gc := gt.lightened(0.10 + _hf(bs + ti * 7 + 4) * 0.20)
+				draw_line(Vector2(tx, by + 2.0),
+					Vector2(tx + (_hf(bs + ti * 7 + 5) - 0.5) * 6.0, by - bh),
+					Color(gc.r, gc.g, gc.b, 0.25 + _hf(bs + ti * 7 + 6) * 0.20), 0.7, true)
+		# Tiny flower dots
+		for fi in int(vp.size.x / 200.0):
+			var fs := (_scenery_seed ^ 0xE9F0) + fi * 23
+			var fx := _hf(fs) * vp.size.x
+			var fy := ground_y + 4.0 + _hf(fs + 1) * 15.0
+			var fd := 1.5 + _hf(fs + 2) * 2.5
+			var fc := Color(0.88 + _hf(fs + 3) * 0.10, 0.55 + _hf(fs + 4) * 0.20, 0.25 + _hf(fs + 5) * 0.25, 0.30)
+			draw_circle(Vector2(fx, fy), fd, fc)
 
 	# Horizon blend
 	var horiz : Color = pal["sky_horiz"]

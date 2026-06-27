@@ -20,6 +20,10 @@ signal wind_force_changed(force: Vector2)
 # Nodes in this group receive automatic wind velocity push each physics frame.
 const PLAYER_GROUP := "player"
 
+## Maximum redraw rate (Hz) — particle effects don't need 60 fps.
+const MAX_REDRAW_RATE: float = 20.0
+const MIN_REDRAW_INTERVAL: float = 1.0 / MAX_REDRAW_RATE
+
 var weather: int = WeatherType.NONE : set = set_weather
 var intensity: float = 1.0
 
@@ -28,7 +32,7 @@ var rain_color       := Color(0.72, 0.82, 0.95, 0.72)
 var rain_streak_len  := 80.0
 var rain_angle_deg   := 12.0
 var rain_speed       := 1100.0
-var rain_density     := 600
+var rain_density     := 180  # reduced from 600
 var rain_wind        := 0.0
 
 var splash_duration  := 0.30
@@ -58,7 +62,7 @@ var night_cloud_shadow := Color(0.02, 0.02, 0.05)
 var night_fog_color    := Color(0.04, 0.04, 0.08, 0.12)
 
 # ── Snow parameters ────────────────────────────────────────────────────────────
-var snow_density        := 800
+var snow_density        := 200  # reduced from 800
 var snow_speed          := 160.0
 var snow_drift_speed    := 40.0
 var snow_sway_frequency := 0.6
@@ -89,7 +93,7 @@ var lightning_glow_width       := 7.0
 var lightning_segments         := 10
 var lightning_jitter           := 55.0
 var lightning_branch_chance    := 0.30
-var lightning_rain_density     := 700
+var lightning_rain_density     := 200  # reduced from 700
 var lightning_rain_speed       := 1300.0
 var lightning_rain_angle_deg   := 18.0
 
@@ -117,7 +121,7 @@ var fog_cloud_shadow := Color(0.54, 0.56, 0.60)
 var fog_fog_color    := Color(0.76, 0.78, 0.82, 0.45)
 
 # ── Hail parameters ───────────────────────────────────────────────────────────
-var hail_density         := 500
+var hail_density         := 120  # reduced from 500
 var hail_speed           := 900.0
 var hail_angle_deg       := 8.0
 var hail_min_radius      := 2.0
@@ -139,7 +143,7 @@ var hail_fog_color    := Color(0.30, 0.32, 0.38, 0.30)
 # ── Sandstorm parameters ──────────────────────────────────────────────────────
 # Dense horizontal dust — looks like a wall of blowing sand, not rain.
 # Streaks are long and nearly flat; particles are tiny elongated specks.
-var sandstorm_density      := 900        # number of streak particles
+var sandstorm_density      := 250        # reduced from 900
 var sandstorm_speed        := 680.0      # horizontal pixels / sec (base)
 var sandstorm_wind         := 260.0      # extra horizontal push applied uniformly
 var sandstorm_min_len      := 12.0       # shortest streak
@@ -179,6 +183,11 @@ var _wall_ref:   Node2D = null
 var _blend: float = 0.0
 const BLEND_SPEED := 1.2
 const LAYERS      := 3
+
+# ── Frame cache (reduces redundant bound/ground-y queries) ────────────────────
+var _cached_bounds:   Vector4 = Vector4()
+var _cached_ground_y: float = 0.0
+var _redraw_accum:    float = 0.0
 
 var _audio:              AudioStreamPlayer = null
 var _audio_fading_in:    bool  = false
@@ -674,6 +683,17 @@ func _process(delta: float) -> void:
 	var target_blend := intensity if weather != WeatherType.NONE else 0.0
 	_blend = move_toward(_blend, target_blend, BLEND_SPEED * delta)
 
+	# Update frame cache ONCE per frame so all draw methods reuse the same values.
+	# Bypass cache lookup by calling the raw function directly.
+	_cached_bounds   = _calc_draw_bounds()
+	_cached_ground_y = _calc_ground_y()
+
+	# Throttle redraws — particles at 20fps looks identical to 60fps
+	_redraw_accum += delta
+	var should_redraw := _redraw_accum >= MIN_REDRAW_INTERVAL
+	if should_redraw:
+		_redraw_accum = 0.0
+
 	match weather:
 		WeatherType.RAIN:
 			_update_rain(delta)
@@ -694,39 +714,36 @@ func _process(delta: float) -> void:
 		WeatherType.SANDSTORM:
 			_update_sandstorm(delta)
 
-	# Advance splashes
-	var alive: Array[Dictionary] = []
-	alive.resize(_splashes.size())
-	var alive_count := 0
-	for s in _splashes:
+	# Advance splashes — remove expired entries in-place (no alloc)
+	var si := 0
+	while si < _splashes.size():
+		var s := _splashes[si]
 		s["t"] += delta
-		if s["t"] < splash_duration:
-			alive[alive_count] = s
-			alive_count += 1
-	alive.resize(alive_count)
-	_splashes = alive
+		if s["t"] >= splash_duration:
+			_splashes.remove_at(si)
+		else:
+			si += 1
 
-	# Advance hail bounces
-	var alive_bounces: Array[Dictionary] = []
-	alive_bounces.resize(_hail_bounces.size())
-	var bounce_count := 0
-	for b in _hail_bounces:
+	# Advance hail bounces — in-place removal
+	var bi := 0
+	while bi < _hail_bounces.size():
+		var b := _hail_bounces[bi]
 		b["t"]  += delta
 		b["vy"] += hail_bounce_gravity * delta
 		b["x"]  += b["vx"] * delta
 		b["y"]  += b["vy"] * delta
-		if b["t"] < hail_bounce_duration:
-			alive_bounces[bounce_count] = b
-			bounce_count += 1
-	alive_bounces.resize(bounce_count)
-	_hail_bounces = alive_bounces
+		if b["t"] >= hail_bounce_duration:
+			_hail_bounces.remove_at(bi)
+		else:
+			bi += 1
 
 	# Emit current wind so external systems can react
 	var wf := get_wind_force()
 	if wf != Vector2.ZERO or weather == WeatherType.NONE:
 		wind_force_changed.emit(wf)
 
-	queue_redraw()
+	if should_redraw:
+		queue_redraw()
 
 # Applies wind push directly to any CharacterBody2D / RigidBody2D in PLAYER_GROUP.
 # This runs at physics rate for smooth, frame-rate-independent force application.
@@ -757,10 +774,16 @@ func _physics_process(delta: float) -> void:
 		if node is RigidBody2D:
 			(node as RigidBody2D).apply_central_impulse(wf * delta)
 
+# Fast path: returns cached value when available (set once per frame in _process).
 func _get_ground_y() -> float:
+	if _cached_ground_y != 0.0:
+		return _cached_ground_y
+	return _calc_ground_y()
+
+func _calc_ground_y() -> float:
 	if _wall_ref and "ground_y" in _wall_ref:
 		return _wall_ref.ground_y
-	var b := _get_draw_bounds()
+	var b := _calc_draw_bounds()
 	return b.y + b.w
 
 # ── Rain update ───────────────────────────────────────────────────────────────
@@ -1058,8 +1081,16 @@ func _draw_snowflakes() -> void:
 		var a = lerp(0.30, 0.65, depth_t) * _blend * intensity
 		if a < 0.02: continue
 		var color := Color(snow_color.r, snow_color.g, snow_color.b, a)
+		# Batch all snowflakes into a single draw_multiline call (horizontal dashes)
+		var lines := PackedVector2Array()
+		var max_w := 1.0
 		for j in range(pts.size()):
-			draw_circle(pts[j], rads[j], color)
+			var r := rads[j] * 0.5
+			lines.append(pts[j] + Vector2(-r, 0.0))
+			lines.append(pts[j] + Vector2(r, 0.0))
+			if rads[j] > max_w: max_w = rads[j]
+		if lines.size() >= 2:
+			draw_multiline(lines, color, max_w * 0.7)
 
 func _draw_snow_accumulation() -> void:
 	var b        := _get_draw_bounds()
@@ -1181,8 +1212,15 @@ func _draw_hailstones() -> void:
 		if a < 0.02: continue
 		var color        := Color(hail_color.r, hail_color.g, hail_color.b, a)
 		var streak_color := Color(hail_color.r, hail_color.g, hail_color.b, a * 0.45)
+		var hlines := PackedVector2Array()
+		var hmax_w := 1.0
 		for j in range(pts.size()):
-			draw_circle(pts[j], rads[j], color)
+			var r := rads[j] * 0.5
+			hlines.append(pts[j] + Vector2(-r, 0.0))
+			hlines.append(pts[j] + Vector2(r, 0.0))
+			if rads[j] > hmax_w: hmax_w = rads[j]
+		if hlines.size() >= 2:
+			draw_multiline(hlines, color, hmax_w * 0.9)
 		if streaks.size() >= 2:
 			draw_multiline(streaks, streak_color, rads[0] * 0.5)
 
@@ -1250,6 +1288,9 @@ func _draw_sandstorm() -> void:
 
 func get_blend() -> float:
 	return _blend
+
+func get_weather() -> int:
+	return weather
 
 func get_rain_sky_override() -> Dictionary:
 	return {
@@ -1362,7 +1403,13 @@ func get_wind_force() -> Vector2:
 		_:
 			return Vector2.ZERO
 
+# Fast path: returns cached value when available (set once per frame in _process).
 func _get_draw_bounds() -> Vector4:
+	if _cached_bounds != Vector4():
+		return _cached_bounds
+	return _calc_draw_bounds()
+
+func _calc_draw_bounds() -> Vector4:
 	# Guard: not in tree yet — use safe fallback
 	if not is_inside_tree():
 		return Vector4(-4000.0, -4000.0, 8000.0, 8000.0)

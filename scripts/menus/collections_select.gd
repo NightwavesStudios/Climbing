@@ -9,6 +9,9 @@ const COLOR_COMPLETED   := Color(0.4, 1.0, 0.4, 1.0)
 const COLOR_LOCKED      := Color(0.3, 0.3, 0.3, 0.5)
 
 func _ready() -> void:
+	# Show the shared persistent menu background
+	MenuBackgroundManager.show()
+	
 	if not map_container:
 		push_error("collection_select: $HBoxContainer node not found!")
 		return

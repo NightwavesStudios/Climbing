@@ -447,7 +447,11 @@ func handle_input() -> void:
 		return
 
 	if Input.is_action_just_pressed("ui_cancel") or Input.is_key_pressed(KEY_R):
-		reset_climb()
+		var main = get_tree().current_scene
+		if main and main.has_method("on_player_reset"):
+			main.on_player_reset()
+		else:
+			reset_climb()
 		return
 
 	building_momentum = false
@@ -1600,7 +1604,11 @@ func check_fall_detection(delta: float) -> void:
 		if fall_timer >= FALL_DETECTION_TIME:
 			if current_discipline == 2 and speed_timer and speed_timer.has_method("pause_timer"):
 				speed_timer.pause_timer()
-			reset_climb()
+			var main = get_tree().current_scene
+			if main and main.has_method("on_player_reset"):
+				main.on_player_reset()
+			else:
+				reset_climb()
 	else:
 		fall_timer = 0.0
 

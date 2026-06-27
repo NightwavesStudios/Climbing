@@ -27,6 +27,7 @@ EnvironmentConfig="*res://scripts/levels/enviornment_config.gd"
 HoldRegistry="*res://scripts/holds/hold-registry.gd"
 MusicPlayer="*res://scripts/systems/music_player.gd"
 CustomCursor="*res://scripts/systems/custom_cursor.gd"
+MenuBackgroundManager="*res://scripts/menus/menu_background_manager.gd"
 
 [display]
 

@@ -90,7 +90,15 @@ func _process(delta: float) -> void:
 	for child in get_children():
 		if child.has_method("on_process"):
 			child.on_process(delta)
-	queue_redraw()
+	# Only redraw if shadow is enabled (otherwise the hold sprite handles itself).
+	# Throttle shadow redraws to ~10fps to avoid per-frame draw overhead.
+	if shadow_enabled:
+		_redraw_timer += delta
+		if _redraw_timer >= 0.1:
+			_redraw_timer = 0.0
+			queue_redraw()
+
+var _redraw_timer: float = 0.0
 
 func _setup_multi_areas():
 	grab_areas.clear()

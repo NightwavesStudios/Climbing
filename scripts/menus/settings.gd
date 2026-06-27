@@ -13,6 +13,9 @@ const DEFAULT_VOLUME := 0.5
 # --- keybind refs ---
 @onready var keybinds_container: VBoxContainer = $MarginContainer/VBoxContainer/KeybindsContainer
 
+# --- reset data refs ---
+@onready var reset_data_dialog: ConfirmationDialog = $ResetDataDialog
+
 # Which actions to expose for rebinding (must match your Input Map exactly)
 const REBINDABLE_ACTIONS := [
 	"select_left",
@@ -26,6 +29,9 @@ var _action_buttons: Dictionary = {} # action_name -> Button
 
 # ─────────────────────────────────────────────
 func _ready() -> void:
+	# Show the shared persistent menu background
+	MenuBackgroundManager.show()
+	
 	if volume_slider.value_changed.is_connected(_on_volume_value_changed):
 		volume_slider.value_changed.disconnect(_on_volume_value_changed)
 
@@ -219,3 +225,38 @@ func _on_fps_cap_item_selected(index: int) -> void:
 
 func _on_back_pressed() -> void:
 	Transition.to("res://scenes/menus/main_menu.tscn")
+
+# ─────────────────────────────────────────────
+#  RESET DATA
+# ─────────────────────────────────────────────
+
+const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
+
+func _on_reset_data_pressed() -> void:
+	"""Show confirmation dialog before resetting"""
+	reset_data_dialog.popup_centered()
+
+func _on_reset_data_dialog_confirmed() -> void:
+	"""Reset all progress data"""
+	# Reset game progress (completed levels, collections, metadata)
+	if has_node("/root/GameState"):
+		var gs: Node = get_node("/root/GameState")
+		if gs.has_method("reset_progress"):
+			gs.reset_progress()
+
+	# Reset popup/instruction seen-flags so tutorials replay
+	var prefs_cfg := ConfigFile.new()
+	prefs_cfg.set_value("instructions", "shown", false)
+	prefs_cfg.set_value("popups", "tutorial_popup", false)
+	prefs_cfg.set_value("popups", "granite_topping_out_popup", false)
+	prefs_cfg.save(INSTRUCTIONS_SAVE_PATH)
+
+	print("Settings: All progress data reset")
+
+	# Visual feedback — briefly change the button text
+	var reset_btn: Button = $MarginContainer/VBoxContainer/ResetData
+	if reset_btn:
+		reset_btn.text = "✓ Data Reset!"
+		await get_tree().create_timer(2.0).timeout
+		if is_instance_valid(reset_btn):
+			reset_btn.text = "Reset Data"

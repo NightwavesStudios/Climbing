@@ -45,7 +45,8 @@ const CLOUD_LAYERS = 3
 const SPLASH_DURATION      = 1.4
 const SPLASH_DROPLET_COUNT = 22
 
-const REDRAW_INTERVAL = 1.0 / 60.0   # 60 fps for smooth camera tracking
+const REDRAW_INTERVAL = 1.0 / 12.0   # 12 fps — background doesn't need 60 fps
+const REDRAW_INTERVAL_FAST = 1.0 / 30.0  # 30 fps when weather is active (smoother sync with weather_modifier)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STATE
@@ -100,11 +101,19 @@ signal player_entered_water(depth: float)
 signal player_exited_water
 
 # Weather
-var weather_modifier: Node2D = null
+var weather_modifier: WeatherModifier = null
 
 # Redraw throttle
 var _redraw_timer: float = 0.0
 
+# Per-frame weather blend — refreshed each _process call.
+var _weather_blend_current: float = 0.0
+
+# ── Granite noise cache — pre-rendered Image to avoid per-frame line drawing ─
+var _granite_cache:     ImageTexture = null
+var _granite_cache_dirty: bool       = true
+
+# ── Background frame-skip counter (only redraw static elements every N frames)
 # Editor overlay colours
 var point_color        = Color(0.7, 0.7, 0.7, 0.6)
 var point_hover_color  = Color(1, 0.7, 0, 1.0)
@@ -127,16 +136,26 @@ func _ready() -> void:
 	update_environment_settings()
 
 func _process(delta: float) -> void:
+	# Update weather blend every frame so draw methods always have current value
+	_weather_blend_current = _get_weather_blend()
+
+	# Use faster redraw when weather is active (rain, snow, etc. need smoother animation)
+	var weather_type: int = 0
+	if weather_modifier != null and is_instance_valid(weather_modifier):
+		weather_type = weather_modifier.get_weather()
+	var has_weather: bool = weather_type > 0
+	var interval: float = REDRAW_INTERVAL_FAST if has_weather else REDRAW_INTERVAL
+
 	_redraw_timer += delta
-	if _redraw_timer < REDRAW_INTERVAL:
+	if _redraw_timer < interval:
 		return
-	_redraw_timer -= REDRAW_INTERVAL  # subtract, don't reset — smooth timing
+	_redraw_timer -= interval  # subtract, don't reset — smooth timing
 
 	# Always advance animated state so clouds, water, etc. keep moving.
-	_cloud_time += REDRAW_INTERVAL
-	_water_time += REDRAW_INTERVAL
-	_update_clouds(REDRAW_INTERVAL)
-	_update_splashes(REDRAW_INTERVAL)
+	_cloud_time += interval
+	_water_time += interval
+	_update_clouds(interval)
+	_update_splashes(interval)
 
 	# Redraw every tick so background (sky, mountains, clouds, wall) stays
 	# in sync with the camera.  The old has_animation gate meant the wall
@@ -175,7 +194,7 @@ func get_weather()          -> int:    return weather_modifier.weather if weathe
 func get_weather_modifier() -> Node2D: return weather_modifier
 
 func _get_weather_blend() -> float:
-	if weather_modifier and weather_modifier.has_method("get_blend"):
+	if weather_modifier:
 		return weather_modifier.get_blend()
 	return 0.0
 
@@ -313,6 +332,7 @@ func update_environment_settings() -> void:
 	current_environment     = ec.get_current_environment_name().to_lower()
 	_apply_environment_theme()
 	if not top_edge_indices.is_empty(): _create_top_edge_holds()
+	_granite_cache_dirty = true
 	queue_redraw()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -320,6 +340,7 @@ func update_environment_settings() -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _apply_environment_theme() -> void:
+	_env.clear()  # ensure no stale keys from previous environment
 	match current_environment:
 		"granite", "night": _apply_granite_theme()
 		"sandstone":        _apply_sandstone_theme()
@@ -590,26 +611,32 @@ func _is_ground_edge(ei: int) -> bool:
 
 func _draw() -> void:
 	if not wall_valid: return
+	var rb := _weather_blend_current
+
 	_draw_sky()
-	if _env.get("has_stars",    false): _draw_stars()
-	if _env.get("has_sun",      false) and _get_weather_blend() < 0.85: _draw_sun()
-	if _env.get("has_moon",     false): _draw_moon()
-	if _env.get("has_mountains",false): _draw_mountains()
-	if _env.get("has_city",     false): _draw_city_silhouette()
-	_draw_clouds()
+	_draw_atmospheric_haze()
+	if _env.get("has_stars", false) and rb < 0.85: _draw_stars()
+	if _env.get("has_sun", false) and rb < 0.85: _draw_sun()
+	if _env.get("has_moon", false) and rb < 0.85: _draw_moon()
+	if _env.get("has_mountains", false): _draw_mountains()
+	if _env.get("has_city", false): _draw_city_silhouette()
 	_draw_fog()
 	if _env.get("has_gym_interior", false): _draw_gym_interior()
-	if _env.get("has_scaffold",     false): _draw_scaffold()
+	if _env.get("has_scaffold", false): _draw_scaffold()
+	_draw_clouds()
 	if use_polygon_mode and control_points.size() >= 3: _draw_polygon_wall()
 	else:                                               _draw_rectangle_wall()
 	_draw_wall_depth_shading()
 	_draw_wall_tonal_outline()
-	if current_environment == "ice" and _env.get("has_ice_sheen", false): _draw_ice_wall_sheen()
+	if rb < 0.80:  # skip material texture when weather nearly opaque
+		_draw_wall_material_texture()
+	if current_environment == "ice" and _env.get("has_ice_sheen", false) and rb < 0.85:
+		_draw_ice_wall_sheen()
 	if _env.get("has_water", false): _draw_underwater_wall_depth()
 	if show_bolt_holes:
 		if use_polygon_mode and control_points.size() >= 3: draw_bolt_holes_on_polygon()
 		else:                                               draw_bolt_holes(wall_min, wall_max)
-	if is_granite and not use_polygon_mode: draw_granite_texture()
+	if is_granite and not use_polygon_mode and rb < 0.80: draw_granite_texture()
 	if ground_enabled: _draw_ground()
 	if _env.get("has_water", false):
 		_draw_water_surface()
@@ -630,12 +657,91 @@ func _draw_sky() -> void:
 	var ctop  := _rain_lerp_color(_env.get("sky_top",    background_color),                "sky_top",    rb)
 	var choriz := _rain_lerp_color(_env.get("sky_horizon", background_color.lightened(0.15)),"sky_horizon",rb)
 	var total_h := ground_y - st
-	for i in 20:
-		var t0 := float(i)     / 20.0
-		var t1 := float(i + 1) / 20.0
+
+	# ── Upper atmosphere (darken zenith for natural depth) ──────────────────
+	# Rayleigh scattering makes the sky darker at the zenith and brighter
+	# near the horizon during the day; at night the gradient inverts slightly.
+	var dayness := clampf((ctop.r + ctop.g + ctop.b) * 0.6, 0.0, 1.0)
+	for i in 12:
+		var t0 := float(i)     / 12.0
+		var t1 := float(i + 1) / 12.0
+		var f0 := t0 * t0 * (1.0 - t0 * 0.15)
+		var f1 := t1 * t1 * (1.0 - t1 * 0.15)
 		_draw_grad_quad(bl, st + t0 * total_h, sw, st + t1 * total_h,
-			ctop.lerp(choriz, t0 * t0), ctop.lerp(choriz, t1 * t1))
+			ctop.lerp(choriz, f0), ctop.lerp(choriz, f1))
+
+	# ── Subtle zenith darkening band (daytime only) ─────────────────────────
+	if dayness > 0.15:
+		var zenith_strength := dayness * 0.06
+		for i in 3:
+			var t0 := float(i) / 3.0
+			var t1 := float(i + 1) / 3.0
+			var fade0 := (1.0 - t0) * zenith_strength
+			var fade1 := (1.0 - t1) * zenith_strength
+			_draw_grad_quad(bl, st + t0 * total_h * 0.18, sw, st + t1 * total_h * 0.18,
+				Color(ctop.r - fade0, ctop.g - fade0 * 0.6, ctop.b, ctop.a),
+				Color(ctop.r - fade1, ctop.g - fade1 * 0.6, ctop.b, ctop.a))
+
 	draw_rect(Rect2(Vector2(bl, ground_y), Vector2(sw, 99999.0)), choriz, true)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ATMOSPHERIC HAZE
+# ─────────────────────────────────────────────────────────────────────────────
+
+func _draw_atmospheric_haze() -> void:
+	## Soft atmospheric haze layer — mimics suspended particles scattering
+	## light near the horizon.  Gives depth and a "breathing" atmosphere to
+	## every environment, just like the painterly clouds.
+	var bl  := _bg_left()
+	var br  := _bg_right()
+	var sw  := br - bl
+	var rb  := _get_weather_blend()
+	var choriz := _rain_lerp_color(_env.get("sky_horizon", background_color.lightened(0.15)), "sky_horizon", rb)
+
+	# ── Warm haze band (sunlight scattering off particles) ──────────────────
+	# A soft golden/pink horizon glow that fades upward.
+	var haze_warmth := 0.08 * (1.0 - rb * 0.3)
+	if _env.get("has_sun", false):
+		var sc: Color = _env.get("sun_color", Color(1.0, 0.95, 0.70))
+		var warm := Color(
+			choriz.r * 0.5 + sc.r * 0.5,
+			choriz.g * 0.5 + sc.g * 0.3,
+			choriz.b * 0.5,
+			haze_warmth)
+		for i in 5:
+			var t0 := float(i) / 5.0
+			var t1 := float(i + 1) / 5.0
+			var a0 := haze_warmth * (1.0 - t0 * t0 * 0.85)
+			var a1 := haze_warmth * (1.0 - t1 * t1 * 0.85)
+			_draw_grad_quad(bl, ground_y - (1.0 - t0) * 220.0, sw, ground_y - (1.0 - t1) * 220.0,
+				Color(warm.r, warm.g, warm.b, a0), Color(warm.r, warm.g, warm.b, a1))
+	else:
+		# Moonlight/night — cooler, subtler haze
+		var cool := Color(
+			choriz.r * 0.6, choriz.g * 0.6, choriz.b * 0.8,
+			haze_warmth * 0.6)
+		for i in 4:
+			var t0 := float(i) / 4.0
+			var t1 := float(i + 1) / 4.0
+			_draw_grad_quad(bl, ground_y - (1.0 - t0) * 160.0, sw, ground_y - (1.0 - t1) * 160.0,
+				Color(cool.r, cool.g, cool.b, cool.a * (1.0 - t0 * t0 * 0.7)),
+				Color(cool.r, cool.g, cool.b, cool.a * (1.0 - t1 * t1 * 0.7)))
+
+	# ── Distant blue-light scattering layer ─────────────────────────────────
+	# A very faint blue-ish veil over the far distance (like Rayleigh scatter)
+	var scatter_strength := 0.04 * (1.0 - rb * 0.5)
+	if dayness_internal() > 0.3:
+		var scatter := Color(0.55, 0.70, 0.95, scatter_strength)
+		for i in 6:
+			var t0 := float(i) / 6.0
+			var t1 := float(i + 1) / 6.0
+			_draw_grad_quad(bl, ground_y - (1.0 - t0) * 320.0, sw, ground_y - (1.0 - t1) * 320.0,
+				Color(scatter.r, scatter.g, scatter.b, scatter.a * (1.0 - t0 * 0.5)),
+				Color(scatter.r, scatter.g, scatter.b, scatter.a * (1.0 - t1 * 0.5)))
+
+func dayness_internal() -> float:
+	var ctop: Color = _env.get("sky_top", Color(0.2, 0.4, 0.7))
+	return clampf((ctop.r + ctop.g + ctop.b) * 0.6, 0.0, 1.0)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CELESTIAL
@@ -679,7 +785,7 @@ func _draw_moon() -> void:
 					2.0 + _hf(cs+2)*4.0, Color(0.70,0.72,0.78,0.35))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MOUNTAINS
+# MOUNTAINS  —  painterly, with atmospheric perspective, snow caps & ridge detail
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _draw_mountains() -> void:
@@ -687,36 +793,129 @@ func _draw_mountains() -> void:
 	var rb  := _get_weather_blend()
 	var hs : Color = _rain_lerp_color(_env.get("sky_horizon", background_color), "sky_horizon", rb)
 	var ht : Color = _rain_lerp_color(_env.get("sky_top",     background_color), "sky_top",     rb)
+	var choriz := hs
 
-	_draw_hill_layer(bl, br, ground_y-60.0, 240.0, 600.0, 90, hs.lerp(ht,0.6).darkened(0.05), _scenery_seed^0x0A1B2C)
-	_draw_hill_layer(bl, br, ground_y-20.0, 160.0, 420.0, 80, hs.lerp(ht,0.4).darkened(0.09), _scenery_seed^0x1A2B3C)
+	# ── Atmospheric perspective: further layers (higher index) get MORE sky
+	# colour blended in, mimicking how air scatters light over distance.
+	var layer_configs := [
+		# [base_y_offset, min_h, max_h, segs, atmos_persp_strength, seed]
+		{ "by": -60.0, "min": 240.0, "max": 600.0, "segs": 50, "atmos": 0.55, "seed": 0x0A1B2C },
+		{ "by": -20.0, "min": 160.0, "max": 420.0, "segs": 45, "atmos": 0.40, "seed": 0x1A2B3C },
+	]
+
+	# Extra layers for menu_sunset
 	if current_environment == "menu_sunset":
-		_draw_hill_layer(bl, br, ground_y-120.0, 280.0, 680.0, 110, hs.lerp(ht,0.7).darkened(0.08), _scenery_seed^0x111222)
-		_draw_hill_layer(bl, br, ground_y-70.0,  200.0, 520.0, 95,  hs.lerp(ht,0.5).darkened(0.12), _scenery_seed^0x333444)
+		layer_configs.append_array([
+			{ "by": -120.0, "min": 280.0, "max": 680.0, "segs": 110, "atmos": 0.65, "seed": 0x111222 },
+			{ "by": -70.0,  "min": 200.0, "max": 520.0, "segs": 95,  "atmos": 0.50, "seed": 0x333444 },
+		])
 
+	var crest_data: Array[Dictionary] = []
+	for lc in layer_configs:
+		var base_col := hs.lerp(ht, lc["atmos"]).darkened(lerpf(0.05, 0.20, lc["atmos"] * 0.5))
+		var count   := int(lc["segs"])
+		var step    := (br - bl) / float(count)
+		var pts     := PackedVector2Array()
+		var crests  := PackedVector2Array()  # crest-point positions for snow caps
+
+		pts.append(Vector2(bl, ground_y + lc["by"] + 500.0))
+		for i in count + 1:
+			var h0: float = _hf(int(lc["seed"])+(i-1)*7) * (lc["max"] - lc["min"]) + lc["min"]
+			var h1: float = _hf(int(lc["seed"])+i*7)     * (lc["max"] - lc["min"]) + lc["min"]
+			var h2: float = _hf(int(lc["seed"])+(i+1)*7) * (lc["max"] - lc["min"]) + lc["min"]
+			var y: float  = ground_y + lc["by"] - (h0*0.2 + h1*0.6 + h2*0.2)
+			var x: float  = bl + i * step
+			pts.append(Vector2(x, y))
+			crests.append(Vector2(x, y))
+		pts.append(Vector2(br, ground_y + lc["by"] + 500.0))
+
+		_safe_draw_polygon(pts, base_col)
+
+		# ── Snow caps on high peaks (only for non-city, non-ice already has sheen)
+		if current_environment != "building" and current_environment != "desert":
+			_draw_mountain_snow_caps(crests, base_col, choriz, rb)
+
+		# ── Subtle ridge shadow for depth ──────────────────────────────────
+		_draw_mountain_ridge_shadows(crests, base_col, choriz, rb)
+
+		# Store for the foreground haze step below
+		crest_data.append({ "crests": crests, "color": base_col, "atmos": lc["atmos"] })
+
+	# ── Foreground atmospheric haze over mountain base ──────────────────────
 	var sw := br - bl
-	_draw_grad_quad(bl, ground_y-40.0, sw, ground_y-10.0,
-		Color(hs.r, hs.g, hs.b, 0.14*(1.0-rb*0.4)),
-		Color(hs.r, hs.g, hs.b, 0.40*(1.0-rb*0.4)))
+	_draw_grad_quad(bl, ground_y - 40.0, sw, ground_y - 10.0,
+		Color(choriz.r, choriz.g, choriz.b, 0.14 * (1.0 - rb * 0.4)),
+		Color(choriz.r, choriz.g, choriz.b, 0.40 * (1.0 - rb * 0.4)))
 
-	_draw_hill_layer(bl, br, ground_y-5.0, 90.0,  230.0, 55, hs.darkened(0.22), _scenery_seed^0x4D5E6F)
-	_draw_hill_layer(bl, br, ground_y,     40.0,  110.0, 45, hs.darkened(0.38), _scenery_seed^0x7F8A9B)
+	# ── Closest two hill layers (no snow, more silhouette) ──────────────────
+	var front_configs := [
+		{ "by": -5.0, "min": 90.0, "max": 230.0, "segs": 30, "seed": 0x4D5E6F, "dark": 0.22 },
+		{ "by":  0.0, "min": 40.0, "max": 110.0, "segs": 25, "seed": 0x7F8A9B, "dark": 0.38 },
+	]
+	for lc in front_configs:
+		var front_col := choriz.darkened(lc["dark"])
+		var count   := int(lc["segs"])
+		var step    := (br - bl) / float(count)
+		var pts     := PackedVector2Array()
+		pts.append(Vector2(bl, ground_y + lc["by"] + 500.0))
+		for i in count + 1:
+			var h0: float = _hf(int(lc["seed"])+(i-1)*7) * (lc["max"] - lc["min"]) + lc["min"]
+			var h1: float = _hf(int(lc["seed"])+i*7)     * (lc["max"] - lc["min"]) + lc["min"]
+			var h2: float = _hf(int(lc["seed"])+(i+1)*7) * (lc["max"] - lc["min"]) + lc["min"]
+			pts.append(Vector2(bl + i * step, ground_y + lc["by"] - (h0*0.2 + h1*0.6 + h2*0.2)))
+		pts.append(Vector2(br, ground_y + lc["by"] + 500.0))
+		_safe_draw_polygon(pts, front_col)
 
-func _draw_hill_layer(left: float, right: float, base_y: float,
-					  min_h: float, max_h: float, segs: int,
-					  color: Color, hill_seed: int) -> void:
-	if segs < 1 or right <= left: return
-	var step := (right - left) / float(segs)
-	var pts  := PackedVector2Array()
-	pts.append(Vector2(left, base_y + 500.0))
-	for i in segs + 1:
-		var h0 := _hf(hill_seed+(i-1)*7)*(max_h-min_h)+min_h
-		var h1 := _hf(hill_seed+i*7)*(max_h-min_h)+min_h
-		var h2 := _hf(hill_seed+(i+1)*7)*(max_h-min_h)+min_h
-		pts.append(Vector2(left + i * step, base_y - (h0*0.2+h1*0.6+h2*0.2)))
-	pts.append(Vector2(right, base_y + 500.0))
-	if _polygon_valid(pts):
-		draw_colored_polygon(pts, color)
+func _draw_mountain_snow_caps(crests: PackedVector2Array, base_col: Color,
+							   sky_horiz: Color, weather_blend: float) -> void:
+	## Paints small snow/ice highlights on the highest peaks of a mountain layer.
+	if weather_blend > 0.7: return  # too stormy to see snow
+	var snow_col := Color(0.92, 0.94, 0.98, 0.55 * (1.0 - weather_blend * 0.5))
+	snow_col = snow_col.lerp(sky_horiz.lightened(0.3), 0.15)  # tint with sky
+	snow_col = snow_col.lerp(base_col, 0.30)  # ground-tint for integration
+
+	for i in range(1, crests.size() - 1):
+		var p  := crests[i]
+		var pp := crests[i - 1]
+		var pn := crests[i + 1]
+
+		# Only snow on actual peaks (higher than both neighbours)
+		if p.y >= pp.y or p.y >= pn.y: continue
+
+		var prominence: float = (min(pp.y, pn.y) - p.y) / 200.0  # how much this peak juts out
+		if prominence < 0.08: continue  # too gentle
+
+		var cap_w: float = 12.0 + prominence * 40.0
+		var cap_h: float = 6.0  + prominence * 18.0
+		var spread := clampf(prominence * 1.5, 0.3, 1.0)
+
+		# Snow cap: a small semi-transparent triangle/oval on the peak
+		_draw_soft_puff(p.x, p.y - cap_h * 0.2, cap_w * spread, cap_h,
+			Color(snow_col.r, snow_col.g, snow_col.b, snow_col.a * minf(prominence * 2.0, 0.7)), 0.5)
+
+		# Right-side accumulation (wind-blown look)
+		_draw_soft_puff(p.x + cap_w * 0.15, p.y - cap_h * 0.1, cap_w * 0.4, cap_h * 0.5,
+			Color(snow_col.r, snow_col.g, snow_col.b, snow_col.a * 0.35), 0.4)
+
+func _draw_mountain_ridge_shadows(crests: PackedVector2Array, base_col: Color,
+								   _sky_horiz: Color, weather_blend: float) -> void:
+	## Subtle shadow lines on right-facing slopes — suggests 3D ridge structure
+	## with minimal draw overhead.  Left-facing slopes catch the (implied) light.
+	if weather_blend > 0.6: return
+	var shadow_col := base_col.darkened(0.12)
+	shadow_col.a = 0.20
+
+	for i in range(1, crests.size()):
+		var p0 := crests[i - 1]
+		var p1 := crests[i]
+		var dx := p1.x - p0.x
+		var dy := p1.y - p0.y
+
+		# Right-facing slope = shadow (light comes from upper-left)
+		if dy > 2.0 and dx > 0:
+			var steepness := clampf(dy / (absf(dx) + 1.0), 0.0, 3.0)
+			var alpha := minf(steepness * 0.07, 0.22)
+			draw_line(p0, p1, Color(shadow_col.r, shadow_col.g, shadow_col.b, alpha), 1.8, true)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CITY SILHOUETTE
@@ -845,19 +1044,17 @@ func _draw_painterly_cloud(cx: float, cy: float, sx: float, sy: float,
 
 	var offsets := [
 		Vector2(0.0,     -0.50), Vector2(-0.18,  -0.38), Vector2(0.18,  -0.38),
-		Vector2(-0.28,   -0.22), Vector2(0.28,   -0.22), Vector2(0.0,   -0.22),
-		Vector2(-0.40,   -0.06), Vector2(0.40,   -0.06), Vector2(0.0,   -0.04),
-		Vector2(-0.48,    0.12), Vector2(0.48,    0.12),
+		Vector2(-0.28,   -0.22), Vector2(0.28,   -0.22),
+		Vector2(-0.40,   -0.06), Vector2(0.40,   -0.06),
 		Vector2(-0.22,    0.22), Vector2(0.22,    0.22),
-		Vector2(-0.34,    0.34), Vector2(0.34,    0.34),
 	]
 	var sizes := [
-		0.42, 0.34, 0.34, 0.36, 0.36, 0.40,
-		0.32, 0.32, 0.38, 0.28, 0.28, 0.26, 0.26, 0.22, 0.22,
+		0.42, 0.34, 0.34, 0.36, 0.36,
+		0.32, 0.32, 0.26, 0.26,
 	]
 	var is_top := [
-		true,  true,  true,  true,  true,  true,
-		false, false, false, false, false, false, false, false, false,
+		true,  true,  true,  true,  true,
+		false, false, false, false,
 	]
 
 	for pi in offsets.size():
@@ -878,20 +1075,18 @@ func _draw_soft_puff(cx: float, cy: float, rx: float, ry: float,
 					 color: Color, density: float) -> void:
 	if rx < 1.5 or ry < 1.5 or color.a < 0.005: return
 	var a: float = color.a * density
-	_draw_oval(cx, cy, rx * 1.20, ry * 1.20, Color(color.r, color.g, color.b, a * 0.06))
-	_draw_oval(cx, cy, rx * 1.08, ry * 1.08, Color(color.r, color.g, color.b, a * 0.14))
-	_draw_oval(cx, cy, rx * 0.95, ry * 0.95, Color(color.r, color.g, color.b, a * 0.38))
-	_draw_oval(cx, cy, rx * 0.78, ry * 0.78, Color(color.r, color.g, color.b, a * 0.62))
-	_draw_oval(cx, cy, rx * 0.55, ry * 0.55, Color(color.r, color.g, color.b, a * 0.85))
-	_draw_oval(cx, cy, rx * 0.30, ry * 0.30, Color(color.r, color.g, color.b, a * 1.00))
+	_draw_oval(cx, cy, rx * 1.15, ry * 1.15, Color(color.r, color.g, color.b, a * 0.08))
+	_draw_oval(cx, cy, rx * 0.95, ry * 0.95, Color(color.r, color.g, color.b, a * 0.30))
+	_draw_oval(cx, cy, rx * 0.70, ry * 0.70, Color(color.r, color.g, color.b, a * 0.55))
+	_draw_oval(cx, cy, rx * 0.35, ry * 0.35, Color(color.r, color.g, color.b, a * 1.00))
 
 func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color) -> void:
 	if rx < 0.5 or ry < 0.5: return
 	var pts := PackedVector2Array()
-	for i in 20:
-		var a := (float(i)/20.0)*TAU
+	for i in 8:
+		var a := (float(i)/8.0)*TAU
 		pts.append(Vector2(cx+cos(a)*rx, cy+sin(a)*ry))
-	if _polygon_valid(pts): draw_colored_polygon(pts, color)
+	_safe_draw_polygon(pts, color)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FOG
@@ -904,8 +1099,8 @@ func _draw_fog() -> void:
 	var bl := _bg_left(); var br := _bg_right(); var st := _bg_top()
 	var sw := br - bl
 	var total_h := (ground_y + 99999.0) - st
-	for i in 10:
-		var t0 := float(i)/10.0; var t1 := float(i+1)/10.0
+	for i in 5:
+		var t0 := float(i)/5.0; var t1 := float(i+1)/5.0
 		_draw_grad_quad(bl, st+t0*total_h, sw, st+t1*total_h,
 			Color(fc.r,fc.g,fc.b, fc.a*(1.0-t0*0.65)),
 			Color(fc.r,fc.g,fc.b, fc.a*(1.0-t1*0.65)))
@@ -1008,14 +1203,14 @@ func _draw_gym_interior() -> void:
 			var mpts := PackedVector2Array(); mpts.append(Vector2(wx,mbase))
 			for rp in ridge: mpts.append(rp)
 			mpts.append(Vector2(wx2,mbase))
-			if mpts.size()>=3 and _polygon_valid(mpts): draw_colored_polygon(mpts, mcol)
+			_safe_draw_polygon(mpts, mcol)
 		var gnd_h := win_h*0.09; var gsegs := 40; var gstep := win_w/float(gsegs)
 		var gpts  := PackedVector2Array(); gpts.append(Vector2(wx, win_bot+4.0))
 		for gi2 in gsegs+1:
 			var gs := (_scenery_seed^0x9F01)+wi*37+gi2*5
 			gpts.append(Vector2(clampf(wx+gi2*gstep,wx,wx2), win_bot-gnd_h*(0.6+_hf(gs)*0.4)))
 		gpts.append(Vector2(wx2,win_bot+4.0))
-		if gpts.size()>=3 and _polygon_valid(gpts): draw_colored_polygon(gpts, grass_c)
+		_safe_draw_polygon(gpts, grass_c)
 		draw_rect(Rect2(Vector2(wx,win_bot-gnd_h*0.6), Vector2(win_w,gnd_h*0.6+6.0)), grass_c.darkened(0.16), true)
 		draw_rect(Rect2(Vector2(wx,win_top), Vector2(win_w,win_h)), Color(1.0,1.0,1.0,0.06), true)
 		draw_rect(Rect2(Vector2(wx,win_top), Vector2(win_w*0.08,win_h)), Color(1.0,1.0,1.0,0.05), true)
@@ -1033,17 +1228,17 @@ func _draw_gym_interior() -> void:
 
 func _draw_window_rain_streaks(wx: float, wx2: float, win_top: float, win_bot: float, blend: float) -> void:
 	var win_h := win_bot-win_top; var win_w := wx2-wx
-	for i in 8:
-		var t0 := float(i)/8.0; var t1 := float(i+1)/8.0
+	for i in 5:
+		var t0 := float(i)/5.0; var t1 := float(i+1)/5.0
 		_draw_grad_quad(wx, win_top+t0*win_h, win_w, win_top+t1*win_h,
 			Color(0.08,0.11,0.18, blend*0.24*t0*t0), Color(0.10,0.14,0.22, blend*0.24*t1*t1))
 	var mist_h := win_h*0.14*blend
-	for i in 6:
-		var t0 := float(i)/6.0; var t1 := float(i+1)/6.0
+	for i in 4:
+		var t0 := float(i)/4.0; var t1 := float(i+1)/4.0
 		_draw_grad_quad(wx, win_bot-t0*mist_h, win_w, win_bot-t1*mist_h,
 			Color(0.55,0.64,0.78, blend*0.10*(1.0-t0)),
 			Color(0.55,0.64,0.78, blend*0.10*(1.0-t1)))
-	for si in int(12.0*blend):
+	for si in int(6.0*blend):
 		var ss := (_scenery_seed^0xF00D)+si*41
 		var sx := wx+_hf(ss)*win_w; var slen := 16.0+_hf(ss+2)*26.0
 		var per := win_h/(40.0+_hf(ss+4)*30.0)
@@ -1098,15 +1293,111 @@ func _draw_rectangle_wall() -> void:
 
 func _draw_polygon_wall() -> void:
 	var pp := PackedVector2Array(control_points)
-	if not _polygon_valid(pp): return
-	draw_colored_polygon(pp, current_wall_color)
+	_safe_draw_polygon(pp, current_wall_color)
 	if wall_texture_enabled:
 		var p2   := PackedVector2Array(); var cols := PackedColorArray()
 		for i in pp.size():
 			p2.append(pp[i])
 			var t := clampf((pp[i].y - wall_min.y) / max(wall_max.y - wall_min.y, 1.0), 0.0, 1.0)
 			cols.append(Color(0,0,0, t*t*0.06))
-		if _polygon_valid(p2): draw_polygon(p2, cols)
+		_safe_draw_vertex_polygon(p2, cols)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WALL MATERIAL TEXTURE  —  environment-specific surface grain
+# ─────────────────────────────────────────────────────────────────────────────
+
+func _draw_wall_material_texture() -> void:
+	## Adds a subtle material-specific surface texture to the wall so it
+	## doesn't look like a flat colour fill.  Each environment gets its own
+	## visual grain: wood for gym, crack lines for granite, bedding for
+	## sandstone, frost for ice, concrete for building.
+	if not wall_valid: return
+	if use_polygon_mode: return  # polygon walls use the existing shader path
+	var rb := _get_weather_blend()
+
+	match current_environment:
+		"gym":
+			# ── Vertical wood-grain streaks ────────────────────────────────
+			var wood := current_wall_color.darkened(0.04)
+			for si in int((wall_max.x - wall_min.x) / 80.0) + 1:
+				var ss := (_scenery_seed ^ 0xA1B2) + si * 17
+				var sx := wall_min.x + _hf(ss) * (wall_max.x - wall_min.x)
+				var sw := 1.0 + _hf(ss + 1) * 2.5
+				var sv := 0.01 + _hf(ss + 2) * 0.03
+				draw_line(Vector2(sx, wall_min.y), Vector2(sx, wall_max.y),
+					Color(wood.r + sv, wood.g + sv, wood.b + sv, 0.06), sw, true)
+			# Subtle panel joint seam spaced every ~240 pixels
+			var jx: float = floor(wall_min.x / 240.0) * 240.0
+			while jx <= wall_max.x:
+				if jx >= wall_min.x:
+					draw_line(Vector2(jx, wall_min.y), Vector2(jx, wall_max.y),
+						Color(0, 0, 0, 0.04), 0.8, true)
+				jx += 240.0
+
+		"granite", "deep water solo":
+			# ── Fine crack/fissure lines ───────────────────────────────────
+			for ci in int((wall_max.x - wall_min.x) / 150.0) + 1:
+				var cs := (_scenery_seed ^ 0xB3C4) + ci * 23
+				var cx := wall_min.x + _hf(cs) * (wall_max.x - wall_min.x)
+				var cy := wall_min.y + _hf(cs + 1) * (wall_max.y - wall_min.y)
+				var clen := 20.0 + _hf(cs + 2) * 60.0
+				var crank := (_hf(cs + 3) - 0.5) * 0.8
+				var cend := Vector2(cx + sin(crank) * clen, cy + cos(crank) * clen)
+				var crack_col := Color(0.38, 0.36, 0.34, 0.07 + _hf(cs + 4) * 0.06)
+				draw_line(Vector2(cx, cy), cend, crack_col, 0.8 + _hf(cs + 5) * 1.2, true)
+				# Forked branch
+				if _hf(cs + 6) > 0.6:
+					var fork_end := Vector2(
+						cend.x + (_hf(cs + 7) - 0.5) * clen * 0.5,
+						cend.y + (_hf(cs + 8) - 0.5) * clen * 0.5)
+					draw_line(cend, fork_end, crack_col, 0.6, true)
+
+		"sandstone":
+			# ── Horizontal sedimentary bedding lines ───────────────────────
+			var bedding_col := current_wall_color.darkened(0.06)
+			var by: float = floor(wall_min.y / 60.0) * 60.0
+			while by <= wall_max.y:
+				if by >= wall_min.y:
+					var bv := (_hf(_scenery_seed ^ int(by * 0.1)) - 0.5) * 0.03
+					draw_line(Vector2(wall_min.x, by), Vector2(wall_max.x, by),
+						Color(bedding_col.r + bv, bedding_col.g + bv, bedding_col.b + bv, 0.05 + absf(bv) * 0.5),
+						1.0 + _hf(_scenery_seed ^ (int(by * 0.1) + 5)) * 2.0, true)
+				by += 45.0 + _hf(_scenery_seed ^ int(by * 0.01)) * 30.0
+			# Subtle undulating layer between beddings
+			var uy: float = floor(wall_min.y / 120.0) * 120.0
+			while uy <= wall_max.y:
+				if uy >= wall_min.y:
+					var ux := wall_min.x
+					while ux <= wall_max.x:
+						var uv := sin(ux * 0.015 + uy * 0.01) * 3.0
+						draw_line(Vector2(ux, uy + uv), Vector2(ux + 30.0, uy + sin((ux + 30.0) * 0.015 + uy * 0.01) * 3.0),
+							Color(0, 0, 0, 0.02), 0.6, true)
+						ux += 30.0
+				uy += 120.0
+
+		"ice":
+			# ── Frost hex crystal sparkles ─────────────────────────────────
+			var frost_col := Color(0.82, 0.94, 1.0, 0.08 * (1.0 - rb * 0.5))
+			for fi in int((wall_max.x - wall_min.x) / 200.0) + 1:
+				var fs := (_scenery_seed ^ 0xC5D6) + fi * 29
+				var fx := wall_min.x + _hf(fs) * (wall_max.x - wall_min.x)
+				var fy := wall_min.y + _hf(fs + 1) * (wall_max.y - wall_min.y)
+				var fr := 3.0 + _hf(fs + 2) * 8.0
+				# Small hexagonal crystal indication
+				var twinkle := sin(_cloud_time * (1.1 + _hf(fs + 3) * 2.3) + float(fi)) * 0.5 + 0.5
+				draw_line(Vector2(fx - fr, fy), Vector2(fx + fr, fy), Color(frost_col.r, frost_col.g, frost_col.b, frost_col.a * twinkle), 0.8, true)
+				draw_line(Vector2(fx - fr * 0.5, fy - fr * 0.87), Vector2(fx + fr * 0.5, fy + fr * 0.87), Color(frost_col.r, frost_col.g, frost_col.b, frost_col.a * twinkle * 0.6), 0.6, true)
+				draw_line(Vector2(fx - fr * 0.5, fy + fr * 0.87), Vector2(fx + fr * 0.5, fy - fr * 0.87), Color(frost_col.r, frost_col.g, frost_col.b, frost_col.a * twinkle * 0.6), 0.6, true)
+
+		"building":
+			# ── Concrete pour joint detail ─────────────────────────────────
+			var bjoint := current_wall_color.darkened(0.05)
+			for hi in int((wall_max.y - wall_min.y) / 300.0) + 1:
+				var hy2 := wall_min.y + float(hi) * 300.0 + _hf(_scenery_seed ^ (hi * 13)) * 30.0
+				if hy2 > wall_max.y: break
+				if hy2 >= wall_min.y:
+					draw_line(Vector2(wall_min.x, hy2), Vector2(wall_max.x, hy2),
+						Color(bjoint.r, bjoint.g, bjoint.b, 0.06), 1.2, true)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ICE SHEEN
@@ -1245,7 +1536,7 @@ func _draw_ground() -> void:
 
 func _draw_ground_grass() -> void:
 	var left  := _bg_left(); var right := _bg_right(); var width := right - left
-	var rb    := _get_weather_blend()
+	var rb    := _weather_blend_current
 	var ct: Color = (_env.get("ground_top",  Color(0.22,0.52,0.14)) as Color).lerp(Color(0.14,0.28,0.10),rb*0.55)
 	var cm: Color = (_env.get("ground_mid",  Color(0.32,0.22,0.12)) as Color).lerp(Color(0.20,0.16,0.10),rb*0.40)
 	var cd: Color = (_env.get("ground_deep", Color(0.20,0.14,0.08)) as Color).lerp(Color(0.14,0.12,0.08),rb*0.30)
@@ -1259,12 +1550,35 @@ func _draw_ground_grass() -> void:
 		var h0:=_hf(hs+(i-1)*11)*7.0; var h1:=_hf(hs+i*11)*7.0; var h2:=_hf(hs+(i+1)*11)*7.0
 		pts.append(Vector2(left+float(i)*(width/80.0), ground_y-(h0*0.2+h1*0.6+h2*0.2)))
 	pts.append(Vector2(right,ground_y+44.0))
-	if _polygon_valid(pts): draw_colored_polygon(pts, ct)
+	_safe_draw_polygon(pts, ct)
 	var sh : Color = _rain_lerp_color(_env.get("sky_horizon",background_color.lightened(0.15)),"sky_horizon",rb)
 	_draw_grad_quad(left,ground_y-1.0,width,ground_y+18.0,Color(sh.r,sh.g,sh.b,0.18*(1.0-rb*0.5)),Color(sh.r,sh.g,sh.b,0.0))
 	var hc := ct.darkened(wall_outline_darken); hc.a=minf(wall_outline_darken*2.6,1.0)
 	draw_line(Vector2(left,ground_y),Vector2(right,ground_y),hc,wall_outline_width,true)
 	if rb > 0.1: _draw_ground_puddles(left,right,rb)
+	# ── Grass blade detail ──────────────────────────────────────────────────
+	# Grass blade detail — halve density when weather is light, skip when heavy
+	if rb < 0.4:
+		var density_mult := 3.0 if rb < 0.15 else 5.0  # fewer blades when weather
+		for bi in int(width / (120.0 * density_mult)) + 1:
+			var bs := _scenery_seed ^ (0xB1E2 + bi * 13)
+			var bx := left + _hf(bs) * width
+			for ti in 3:
+				var tx := bx + (_hf(bs + ti * 7 + 1) - 0.5) * 12.0
+				var tlen := 4.0 + _hf(bs + ti * 7 + 2) * 10.0
+				var tangle := -1.2 + _hf(bs + ti * 7 + 3) * 1.0
+				var gc := ct.lightened(0.08 + _hf(bs + ti * 7 + 4) * 0.18)
+				draw_line(Vector2(tx, ground_y + 1.0),
+					Vector2(tx + sin(tangle) * tlen, ground_y - 1.0 - cos(tangle) * tlen * 0.6),
+					Color(gc.r, gc.g, gc.b, 0.30 + _hf(bs + ti * 7 + 5) * 0.25), 0.8)
+		if rb < 0.2:
+			for fi in int(width / 400.0) + 1:  # fewer flowers
+				var fs := _scenery_seed ^ (0xC3D4 + fi * 27)
+				var fx := left + _hf(fs) * width
+				var fy := ground_y + 2.0 + _hf(fs + 1) * 16.0
+				var fd := 2.0 + _hf(fs + 2) * 3.0
+				var flower := Color(0.92 + _hf(fs + 3) * 0.07, 0.65 + _hf(fs + 4) * 0.20, 0.30 + _hf(fs + 5) * 0.30, 0.35)
+				draw_circle(Vector2(fx, fy), fd, flower)
 
 func _draw_ground_puddles(left: float, right: float, blend: float) -> void:
 	for pi in int(6.0*blend):
@@ -1272,8 +1586,8 @@ func _draw_ground_puddles(left: float, right: float, blend: float) -> void:
 		var px := left+_hf(ps)*(right-left); var pw := 60.0+_hf(ps+1)*140.0*blend; var ph := 6.0+_hf(ps+2)*10.0
 		var shimmer := sin(_cloud_time*1.8+float(pi)*2.1)*0.05
 		var ov := PackedVector2Array()
-		for si in 16: ov.append(Vector2(px+cos(float(si)/16.0*TAU)*pw, ground_y+2.0+sin(float(si)/16.0*TAU)*ph))
-		if _polygon_valid(ov): draw_colored_polygon(ov, Color(0.38+shimmer,0.48+shimmer,0.62,0.20*blend))
+		for si in 12: ov.append(Vector2(px+cos(float(si)/12.0*TAU)*pw, ground_y+2.0+sin(float(si)/12.0*TAU)*ph))
+		_safe_draw_polygon(ov, Color(0.38+shimmer,0.48+shimmer,0.62,0.20*blend))
 		draw_line(Vector2(px-pw*0.3,ground_y+1.0),Vector2(px+pw*0.3,ground_y+1.0),Color(0.55,0.65,0.80,0.20*blend*0.35),1.2,true)
 
 func _draw_ground_gym() -> void:
@@ -1284,15 +1598,22 @@ func _draw_ground_gym() -> void:
 	_draw_grad_quad(left,ground_y,     width,ground_y+120.0,ct.lightened(0.03),ct.lerp(cd,0.5))
 	_draw_grad_quad(left,ground_y+120.0,width,ground_y+420.0,ct.lerp(cd,0.5),cd)
 	_draw_grad_quad(left,ground_y,width,ground_y+7.0,Color(1,1,1,0.045),Color(1,1,1,0.0))
+	# ── Floor joint pattern (concrete slab seams) ──────────────────────────
 	var tc := int(ceil(width/200.0))+1
 	for ti in tc: draw_line(Vector2(left+float(ti)*200.0,ground_y),Vector2(left+float(ti)*200.0,ground_y+85.0),Color(cd.r,cd.g,cd.b,0.11),0.7,true)
 	for hy in [18.0,42.0,80.0,145.0,245.0]: draw_line(Vector2(left,ground_y+hy),Vector2(left+width,ground_y+hy),Color(cd.r,cd.g,cd.b,0.07),0.6,true)
+	# ── Subtle floor wear/sheen near the wall base ─────────────────────────
+	for wi in int(width / 300.0) + 1:
+		var ws2 := _scenery_seed ^ (0x9A1B + wi * 21)
+		var wx := left + _hf(ws2) * width
+		var wear := Color(1, 1, 1, 0.02 + _hf(ws2 + 1) * 0.02)
+		draw_rect(Rect2(Vector2(wx, ground_y + 1.0), Vector2(12.0 + _hf(ws2 + 2) * 20.0, 4.0)), wear, true)
 	var fc := ct.darkened(wall_outline_darken); fc.a=minf(wall_outline_darken*2.4,1.0)
 	draw_line(Vector2(left,ground_y),Vector2(right,ground_y),fc,wall_outline_width,true)
 
 func _draw_ground_city() -> void:
 	var left  := _bg_left(); var right := _bg_right(); var width := right - left
-	var rb := _get_weather_blend(); var tod : int = _env.get("city_time",0)
+	var rb := _weather_blend_current; var tod : int = _env.get("city_time",0)
 	var ct: Color; var cd: Color
 	match tod:
 		1: ct=Color(0.20,0.17,0.13); cd=Color(0.10,0.08,0.06)
@@ -1305,17 +1626,22 @@ func _draw_ground_city() -> void:
 	_draw_grad_quad(left,ground_y,width,ground_y+22.0,Color(sh.r,sh.g,sh.b,0.25*(1.0-rb*0.4)),Color(sh.r,sh.g,sh.b,0.0))
 	var cc := ct.darkened(wall_outline_darken); cc.a=minf(wall_outline_darken*2.4,1.0)
 	draw_line(Vector2(left,ground_y),Vector2(right,ground_y),cc,wall_outline_width,true)
+	# ── Street markings (center lines, crosswalks) ─────────────────────────
 	var sa: float = lerp(0.15 if tod==0 else 0.24, (0.15 if tod==0 else 0.24)*1.6, rb*0.5)
 	var ssx: float = floor(left/150.0)*150.0
 	while ssx < right:
 		draw_rect(Rect2(ssx,ground_y+14.0,22.0,2.0),Color(0.55,0.52,0.22,sa),true)
 		if rb>0.2: draw_rect(Rect2(ssx,ground_y+9.0,18.0,3.0),Color(0.50,0.52,0.56,rb*0.12),true)
+		# Crosswalk stripe
+		if int(ssx / 150.0) % 6 == 0:
+			draw_rect(Rect2(ssx - 10.0, ground_y + 4.0, 6.0, 12.0), Color(0.55, 0.51, 0.28, sa * 0.5), true)
+			draw_rect(Rect2(ssx + 6.0, ground_y + 4.0, 6.0, 12.0), Color(0.55, 0.51, 0.28, sa * 0.5), true)
 		ssx+=150.0
 	if rb>0.1: _draw_ground_puddles(left,right,rb)
 
 func _draw_ground_sand() -> void:
 	var left  := _bg_left(); var right := _bg_right(); var width := right - left
-	var rb    := _get_weather_blend()
+	var rb    := _weather_blend_current
 	var ct := (_env.get("ground_top",  Color(0.82,0.62,0.32)) as Color).lerp(Color(0.58,0.44,0.20),rb*0.40)
 	var cm := (_env.get("ground_mid",  Color(0.62,0.40,0.16)) as Color).lerp(Color(0.44,0.28,0.10),rb*0.30)
 	var cd : Color = _env.get("ground_deep",Color(0.42,0.24,0.08))
@@ -1329,7 +1655,26 @@ func _draw_ground_sand() -> void:
 		var h0:=_hf(ds+(i-1)*13)*10.0; var h1:=_hf(ds+i*13)*10.0; var h2:=_hf(ds+(i+1)*13)*10.0
 		pts.append(Vector2(left+float(i)*(width/90.0),ground_y-(h0*0.15+h1*0.70+h2*0.15)))
 	pts.append(Vector2(right,ground_y+38.0))
-	if _polygon_valid(pts): draw_colored_polygon(pts,ct)
+	_safe_draw_polygon(pts,ct)
+	# ── Sand dune ripple detail ────────────────────────────────────────────
+	var sand_detail: bool = _env.get("has_sand_wind", true)
+	if sand_detail and rb < 0.35:
+		for ri in int(width / 200.0) + 1:
+			var rs := _scenery_seed ^ (0xD4A8 + ri * 23)
+			var rx := left + _hf(rs) * width
+			var rw := 60.0 + _hf(rs + 1) * 120.0
+			var rd := 1.5 + _hf(rs + 2) * 4.0
+			var ripple_col := ct.darkened(0.06 + _hf(rs + 3) * 0.10)
+			draw_line(Vector2(rx, ground_y + 6.0 + _hf(rs + 4) * 25.0),
+				Vector2(rx + rw, ground_y + 6.0 + _hf(rs + 5) * 25.0),
+				Color(ripple_col.r, ripple_col.g, ripple_col.b, 0.12 + _hf(rs + 6) * 0.15), rd)
+	# ── Small pebble/clast detail ───────────────────────────────────────────
+	for pi in int(width / 400.0) + 1:
+		var ps := _scenery_seed ^ (0xE5B6 + pi * 31)
+		var px := left + _hf(ps) * width
+		var py := ground_y + 4.0 + _hf(ps + 1) * 12.0
+		var pr := 1.0 + _hf(ps + 2) * 2.5
+		draw_circle(Vector2(px, py), pr, ct.darkened(0.12 + _hf(ps + 3) * 0.15))
 	var sh:Color=_rain_lerp_color(_env.get("sky_horizon",Color(0.88,0.70,0.40)),"sky_horizon",rb)
 	_draw_grad_quad(left,ground_y-1.0,width,ground_y+22.0,Color(sh.r,sh.g,sh.b,0.22*(1.0-rb*0.4)),Color(sh.r,sh.g,sh.b,0.0))
 	var hc:=ct.darkened(wall_outline_darken); hc.a=minf(wall_outline_darken*2.6,1.0)
@@ -1337,7 +1682,7 @@ func _draw_ground_sand() -> void:
 
 func _draw_ground_ice_snow() -> void:
 	var left  := _bg_left(); var right := _bg_right(); var width := right - left
-	var rb    := _get_weather_blend()
+	var rb    := _weather_blend_current
 	var ct:=(_env.get("ground_top", Color(0.90,0.94,0.98)) as Color).lerp(Color(0.80,0.86,0.94),rb*0.35)
 	var cm:Color=_env.get("ground_mid", Color(0.70,0.80,0.92))
 	var cd:Color=_env.get("ground_deep",Color(0.46,0.60,0.78))
@@ -1351,12 +1696,36 @@ func _draw_ground_ice_snow() -> void:
 		var h0:=_hf(ss2+(i-1)*9)*14.0; var h1:=_hf(ss2+i*9)*14.0; var h2:=_hf(ss2+(i+1)*9)*14.0
 		pts.append(Vector2(left+float(i)*(width/100.0),ground_y-(h0*0.2+h1*0.6+h2*0.2)))
 	pts.append(Vector2(right,ground_y+50.0))
-	if _polygon_valid(pts): draw_colored_polygon(pts,ct)
+	_safe_draw_polygon(pts,ct)
+	# ── Ice crack/fracture detail ──────────────────────────────────────────
 	for ci in 12:
 		var cs:=(_scenery_seed^0x2F3A)+ci*53
 		draw_line(Vector2(left+_hf(cs)*width,ground_y+3.0+_hf(cs+3)*20.0),
 				  Vector2(left+_hf(cs)*width+(_hf(cs+2)-0.5)*(40.0+_hf(cs+1)*120.0)*2.0, ground_y+3.0+_hf(cs+3)*20.0+(_hf(cs+4)-0.5)*14.0),
 				  Color(0.48,0.62,0.82,0.28+_hf(cs+5)*0.18),0.8,true)
+	# ── Frost crystal sparkle dots ─────────────────────────────────────────
+	if rb < 0.4:
+		for si in int(width / 300.0) + 1:
+			var ss3 := _scenery_seed ^ (0x4F5A + si * 17)
+			var sx := left + _hf(ss3) * width
+			var sy := ground_y + 2.0 + _hf(ss3 + 1) * 40.0
+			var sparkle := sin(_cloud_time * (1.2 + _hf(ss3 + 2) * 2.5) + float(si)) * 0.5 + 0.5
+			var sr := 1.0 + _hf(ss3 + 3) * 3.0
+			var sc3 := Color(0.92, 0.96, 1.0, sparkle * (0.15 + _hf(ss3 + 4) * 0.25))
+			draw_circle(Vector2(sx, sy), sr, sc3)
+			# Tiny cross sparkle
+			if sr > 2.5:
+				draw_line(Vector2(sx - sr * 1.5, sy), Vector2(sx + sr * 1.5, sy), Color(sc3.r, sc3.g, sc3.b, sc3.a * 0.3), 0.6)
+				draw_line(Vector2(sx, sy - sr * 1.5), Vector2(sx, sy + sr * 1.5), Color(sc3.r, sc3.g, sc3.b, sc3.a * 0.3), 0.6)
+	# ── Snow drift lines ───────────────────────────────────────────────────
+	for di in int(width / 250.0) + 1:
+		var ds3 := _scenery_seed ^ (0x8B9C + di * 29)
+		var dx := left + _hf(ds3) * width
+		var dw := 40.0 + _hf(ds3 + 1) * 100.0
+		var drift_ct := ct.lightened(0.08 + _hf(ds3 + 2) * 0.14)
+		draw_line(Vector2(dx, ground_y + 2.0 + _hf(ds3 + 3) * 10.0),
+			Vector2(dx + dw, ground_y + 2.0 + _hf(ds3 + 4) * 8.0),
+			Color(drift_ct.r, drift_ct.g, drift_ct.b, 0.18 + _hf(ds3 + 5) * 0.20), 1.5 + _hf(ds3 + 6) * 2.0)
 	var sc2:Color=_env.get("ice_sheen_color",Color(0.88,0.96,1.00))
 	_draw_grad_quad(left,ground_y-2.0,width,ground_y+8.0,Color(sc2.r,sc2.g,sc2.b,0.22),Color(sc2.r,sc2.g,sc2.b,0.0))
 	var sh:Color=_rain_lerp_color(_env.get("sky_horizon",Color(0.70,0.88,0.98)),"sky_horizon",rb)
@@ -1367,15 +1736,15 @@ func _draw_ground_ice_snow() -> void:
 func _draw_ground_water() -> void:
 	var left  := _bg_left(); var right := _bg_right(); var width := right - left
 	draw_rect(Rect2(Vector2(left,ground_y),Vector2(width,99999.0)),Color(0.01,0.06,0.16),true)
-	for di in 16:
-		var t:=float(di)/15.0
-		draw_rect(Rect2(Vector2(left,ground_y+di*90.0),Vector2(width,91.0)),
+	for di in 10:
+		var t:=float(di)/9.0
+		draw_rect(Rect2(Vector2(left,ground_y+di*144.0),Vector2(width,145.0)),
 				  Color(lerp(0.06,0.01,t),lerp(0.32,0.04,t),lerp(0.62,0.10,t)),true)
-	for ci in 8:
+	for ci in 5:
 		var cs:=(_scenery_seed^0x3C00)+ci*17
 		var cx:=left+_hf(cs)*width; var cw:=30.0+_hf(cs+2)*60.0; var cdep:=200.0+_hf(cs+3)*300.0
 		var pts:=PackedVector2Array([Vector2(cx-cw*0.5,ground_y),Vector2(cx+cw*0.5,ground_y),Vector2(cx+cw*0.8,ground_y+cdep),Vector2(cx-cw*0.8,ground_y+cdep)])
-		if _polygon_valid(pts): draw_colored_polygon(pts,Color(0.30,0.65,0.90,0.04+_hf(cs+1)*0.04))
+		_safe_draw_polygon(pts,Color(0.30,0.65,0.90,0.04+_hf(cs+1)*0.04))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WATER SURFACE + SPLASHES
@@ -1385,8 +1754,8 @@ func _draw_water_surface() -> void:
 	if not wall_valid: return
 	var bl:=_bg_left(); var br:=_bg_right(); var width:=br-bl
 	var t:=_water_time
-	for di in 8:
-		var t0:=float(di)/8.0; var t1:=float(di+1)/8.0
+	for di in 5:
+		var t0:=float(di)/5.0; var t1:=float(di+1)/5.0
 		_draw_grad_quad(bl,ground_y+t0*160.0,width,ground_y+t1*160.0,Color(0.02,0.22,0.50,lerp(0.55,0.0,t0)),Color(0.01,0.10,0.28,lerp(0.55,0.0,t1)))
 	for ci in 6:
 		var cs:=(_scenery_seed^0x4C00)+ci*29
@@ -1394,7 +1763,7 @@ func _draw_water_surface() -> void:
 		_draw_oval(bl+_hf(cs)*width+sin(t*(0.3+_hf(cs+5)*0.4)+float(ci))*20.0,
 				   ground_y+18.0+_hf(cs+2)*80.0,35.0+_hf(cs+1)*80.0,
 				   (35.0+_hf(cs+1)*80.0)*0.3,Color(0.4,0.75,1.0,maxf(0.0,0.04+0.04*sin(phase))))
-	var segs:=120; var step:=width/float(segs)
+	var segs:=35; var step:=width/float(segs)  # reduced for performance
 	for wi in 4:
 		var freq:=0.008+wi*0.003; var speed:=0.55+wi*0.30; var amp:=11.0-wi*2.2
 		var ph:=t*speed+wi*1.3
@@ -1404,7 +1773,7 @@ func _draw_water_surface() -> void:
 			var x:=bl+si*step
 			pts.append(Vector2(x,ground_y-2.0+wi*3.0-sin(x*freq+ph)*amp-sin(x*freq*1.618+ph*0.7)*amp*0.38-sin(x*freq*3.14+ph*1.3)*amp*0.14))
 		pts.append(Vector2(br,ground_y+300.0))
-		if _polygon_valid(pts): draw_colored_polygon(pts,wcol)
+		_safe_draw_polygon(pts,wcol)
 	for si in 80:
 		var sx:=bl+si*(width/80.0); var sy:=ground_y-sin(sx*0.011+t*0.9)*9.0-sin(sx*0.019+t*0.55)*3.5
 		var sa:=maxf(0.0,sin(sx*0.011+t*0.9))*0.50
@@ -1504,11 +1873,60 @@ func draw_bolt_holes(_start_pos: Vector2, _end_pos: Vector2) -> void: pass
 func draw_bolt_holes_on_polygon() -> void: pass
 
 func draw_granite_texture() -> void:
-	var ws:=wall_max-wall_min; var rs:=int(wall_min.x+wall_min.y)
-	for i in int(ws.x/200.0)+2:
-		var xp:=wall_min.x+(float(i)/(int(ws.x/200.0)+2))*ws.x+(hash(rs+i)%50-25)
-		if xp>=wall_min.x and xp<=wall_max.x:
-			draw_line(Vector2(xp,wall_min.y),Vector2(xp,wall_max.y),Color(0.45,0.43,0.4,0.22),1.5)
+	## Draws granite wall texture. Uses a cached ImageTexture so the noise
+	## pattern is rendered once and blitted each frame instead of drawing
+	## dozens of individual lines.
+	if not wall_valid: return
+	var ws := wall_max - wall_min
+	var tw := int(ceil(ws.x))
+	var th := int(ceil(ws.y))
+	if tw < 4 or th < 4: return
+
+	# Rebuild cache if size changed or flagged dirty
+	if _granite_cache == null or _granite_cache.get_width() != tw or \
+	   _granite_cache.get_height() != th or _granite_cache_dirty:
+		_build_granite_cache(tw, th)
+
+	if _granite_cache:
+		draw_texture_rect(_granite_cache, Rect2(wall_min, ws), false)
+
+func _build_granite_cache(tw: int, th: int) -> void:
+	var img := Image.create(tw, th, false, Image.FORMAT_RGBA8)
+	var rs := int(wall_min.x + wall_min.y)
+	var base := current_wall_color
+	var line_count := maxi(tw / 200 + 2, 3)
+
+	for i in line_count:
+		var frac := float(i) / float(line_count - 1)
+		var xp := wall_min.x + frac * (wall_max.x - wall_min.x) + (hash(rs + i) % 50 - 25)
+		var lx := int(round(xp - wall_min.x))
+		if lx < 0 or lx >= tw:
+			continue
+		# Draw a subtle vertical crack line across the full height
+		for py in th:
+			var bright := 0.45 + (hash(rs + i + py) % 50) / 200.0 * 0.3
+			# Get existing pixel or base color
+			var existing := img.get_pixel(lx, py) if img.get_pixel(lx, py).a > 0 else base
+			var line_col := Color(bright - 0.1, bright - 0.12, bright - 0.15, 0.22)
+			# Blend line with existing
+			var blended := existing.lerp(line_col, line_col.a)
+			img.set_pixel(lx, py, Color(blended.r, blended.g, blended.b, 1.0))
+
+	# Also add subtle noise across the whole texture
+	for px in tw:
+		for py in range(0, th, 3):
+			var noise_val := (hash(rs + px * 31 + py * 7) % 40) / 200.0 - 0.1
+			if abs(noise_val) > 0.04:
+				var existing := img.get_pixel(px, py) if img.get_pixel(px, py).a > 0 else base
+				var noise_col := Color(
+					clampf(existing.r + noise_val, 0.0, 1.0),
+					clampf(existing.g + noise_val, 0.0, 1.0),
+					clampf(existing.b + noise_val, 0.0, 1.0),
+					1.0)
+				img.set_pixel(px, py, noise_col)
+
+	_granite_cache = ImageTexture.create_from_image(img)
+	_granite_cache_dirty = false
 
 func _point_in_polygon(point: Vector2) -> bool:
 	var inside:=false; var j:=control_points.size()-1
@@ -1561,7 +1979,7 @@ func _draw_control_points() -> void:
 
 func calculate_bounds_from_holds(holds_container: Node2D) -> void:
 	if not holds_container or holds_container.get_child_count()==0:
-		wall_valid=false; queue_redraw(); return
+		wall_valid=false; _granite_cache_dirty=true; queue_redraw(); return
 	var mn_x:=INF; var mx_x:=-INF; var mn_y:=INF; var mx_y:=-INF
 	for hold in holds_container.get_children():
 		if not hold is Node2D: continue
@@ -1569,7 +1987,7 @@ func calculate_bounds_from_holds(holds_container: Node2D) -> void:
 		mn_y=min(mn_y,hold.global_position.y); mx_y=max(mx_y,hold.global_position.y)
 	wall_min=Vector2(mn_x-WALL_PADDING_SIDES, mn_y-WALL_PADDING_TOP)
 	wall_max=Vector2(mx_x+WALL_PADDING_SIDES, mx_y+WALL_PADDING_BOTTOM)
-	wall_valid=true; ground_y=wall_max.y
+	wall_valid=true; ground_y=wall_max.y; _granite_cache_dirty=true
 	if control_points.is_empty():
 		control_points=[wall_min,Vector2(wall_max.x,wall_min.y),wall_max,Vector2(wall_min.x,wall_max.y)]
 		ground_left_index=3; ground_right_index=2; use_polygon_mode=true
@@ -1585,7 +2003,7 @@ func _update_bounds_from_polygon() -> void:
 	var mn_x:=INF; var mx_x:=-INF; var mn_y:=INF; var mx_y:=-INF
 	for p in control_points:
 		mn_x=min(mn_x,p.x); mx_x=max(mx_x,p.x); mn_y=min(mn_y,p.y); mx_y=max(mx_y,p.y)
-	wall_min=Vector2(mn_x,mn_y); wall_max=Vector2(mx_x,mx_y); wall_valid=true
+	wall_min=Vector2(mn_x,mn_y); wall_max=Vector2(mx_x,mx_y); wall_valid=true; _granite_cache_dirty=true
 
 func add_point_between_nearest_edge(pos: Vector2) -> void:
 	if control_points.size()<2: control_points.append(pos); _update_bounds_from_polygon(); queue_redraw(); return
@@ -1714,7 +2132,7 @@ func get_wall_width()  -> float: return wall_max.x-wall_min.x
 
 func get_anchor_position_for_x(world_x: float) -> Vector2:
 	if use_polygon_mode and control_points.size()>=3:
-		var edges:Array[int]=top_edge_indices.duplicate() if not top_edge_indices.is_empty() else []
+		var edges = top_edge_indices.duplicate() if not top_edge_indices.is_empty() else []
 		if edges.is_empty():
 			for i in control_points.size():
 				if not _is_ground_edge(i): edges.append(i)
@@ -1747,7 +2165,7 @@ func set_polygon_data(data: Dictionary) -> void:
 	_update_bounds_from_polygon()
 	if not top_edge_indices.is_empty(): _create_top_edge_holds()
 	if weather_modifier: weather_modifier._wall_ref=self
-	_init_clouds(); queue_redraw()
+	_granite_cache_dirty=true; _init_clouds(); queue_redraw()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DRAW PRIMITIVES
@@ -1772,10 +2190,70 @@ func _point_to_segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:
 	return p.distance_to(a + ab * t)
 
 func _polygon_valid(pts: PackedVector2Array) -> bool:
-	if pts.size()<3: return false
-	for i in pts.size():
-		if abs((pts[(i+1)%pts.size()]-pts[i]).cross(pts[(i+2)%pts.size()]-pts[i]))>0.01: return true
-	return false
+	## Robust polygon validation — checks size, collinearity, duplicate points,
+	## and self-intersection so Godot's triangulator never receives bad data.
+	if pts.size() < 3: return false
+
+	# Remove consecutive duplicates (they confuse triangulation)
+	var cleaned := PackedVector2Array()
+	cleaned.append(pts[0])
+	for i in range(1, pts.size()):
+		if pts[i].distance_squared_to(pts[i-1]) > 0.01:
+			cleaned.append(pts[i])
+	if cleaned.size() < 3: return false
+
+	# Check all points are not collinear (need at least one non-zero cross)
+	var found_area := false
+	for i in cleaned.size():
+		if abs((cleaned[(i+1)%cleaned.size()]-cleaned[i]).cross(
+			   cleaned[(i+2)%cleaned.size()]-cleaned[i])) > 0.01:
+			found_area = true
+			break
+	if not found_area: return false
+
+	# Quick exclusion test: reject extreme aspect-ratio slivers (width/height > 50)
+	var min_x := INF; var max_x := -INF
+	var min_y := INF; var max_y := -INF
+	for p in cleaned:
+		if p.x < min_x: min_x = p.x
+		if p.x > max_x: max_x = p.x
+		if p.y < min_y: min_y = p.y
+		if p.y > max_y: max_y = p.y
+	var span_x := max_x - min_x; var span_y := max_y - min_y
+	if min(span_x, span_y) < 0.5: return false  # zero-width
+	if max(span_x, span_y) / max(min(span_x, span_y), 0.5) > 50.0: return false  # sliver
+
+	# Quick self-intersection test (O(n²) but n is small — typically < 100 pts)
+	for i in cleaned.size():
+		var a1 := cleaned[i]
+		var b1 := cleaned[(i + 1) % cleaned.size()]
+		for j in range(i + 2, cleaned.size()):
+			if j == 0 or (j + 1) % cleaned.size() == i: continue
+			var a2 := cleaned[j]
+			var b2 := cleaned[(j + 1) % cleaned.size()]
+			if _segments_intersect(a1, b1, a2, b2):
+				return false
+	return true
+
+func _safe_draw_polygon(pts: PackedVector2Array, color: Color) -> void:
+	## Safely draws a colored polygon — validates first so Godot's
+	## triangulator never receives degenerate data.
+	if not _polygon_valid(pts): return
+	draw_colored_polygon(pts, color)
+
+func _safe_draw_vertex_polygon(pts: PackedVector2Array, cols: PackedColorArray) -> void:
+	## Safely draws a vertex-colored polygon.
+	if not _polygon_valid(pts): return
+	draw_polygon(pts, cols)
+
+func _segments_intersect(a1: Vector2, b1: Vector2, a2: Vector2, b2: Vector2) -> bool:
+	## Returns true if two 2D line segments intersect (excluding shared endpoints).
+	var d1 := b1 - a1; var d2 := b2 - a2
+	var rxs := d1.cross(d2)
+	if abs(rxs) < 1e-8: return false  # parallel
+	var t := (a2 - a1).cross(d2) / rxs
+	var u := (a2 - a1).cross(d1) / rxs
+	return t >= 1e-6 and t <= 1.0 - 1e-6 and u >= 1e-6 and u <= 1.0 - 1e-6
 
 func _hf(v: int) -> float:
 	return float(hash(v)%10000)/10000.0

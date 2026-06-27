@@ -12,7 +12,7 @@ var _preview_complete: bool = false
 @onready var instructions_root: ColorRect = $Instructions/ColorRect
 @onready var popup_sprite: Sprite2D = $Instructions/Sprite2D
 @onready var skip_level_container: Control = $SkipLevel
-@onready var skip_level_btn: Button = $SkipLevel/CanvasLayer/SkipLevel
+@onready var skip_level_btn: Button = $SkipLevel/SkipLevel
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
