@@ -11,8 +11,7 @@ var _preview_complete: bool = false
 @onready var instructions: CanvasLayer = $Instructions
 @onready var instructions_root: ColorRect = $Instructions/ColorRect
 @onready var popup_sprite: Sprite2D = $Instructions/Sprite2D
-@onready var skip_level_container: Control = $SkipLevel
-@onready var skip_level_btn: Button = $SkipLevel/SkipLevel
+@onready var skip_level_layer: CanvasLayer = $SkipLevel
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
@@ -27,9 +26,10 @@ const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
 const INSTRUCTIONS_SECTION  := "instructions"
 const INSTRUCTIONS_KEY      := "shown"
 
-const SKIP_THRESHOLD : int    = 5
-const SKIP_SECTION   : String = "skip"
-var   _reset_count   : int    = 0
+const SKIP_THRESHOLD    : int    = 5
+const SKIP_SECTION      : String = "skip"
+const MAX_SKIPS_PER_ENV : int    = 2
+var   _reset_count      : int    = 0
 
 # =============================================================================
 #  ROUTE PREVIEW CAMERA
@@ -327,65 +327,43 @@ var _active_popup_key: String = ""
 # =============================================================================
 
 func _setup_skip_level() -> void:
-	if not skip_level_container or not skip_level_btn:
-		push_error("SkipLevel nodes not found — check scene tree paths ($SkipLevel and $SkipLevel/SkipLevel)")
+	if not skip_level_layer:
+		push_error("SkipLevel CanvasLayer not found")
+		return
+	skip_level_layer.visible = false
+	_reset_count = 0
+
+
+func _increment_fall_count() -> void:
+	if _is_level_skipped(_current_level_path):
+		print("  [Skip] Level already skipped — not counting fall")
 		return
 
-	skip_level_container.modulate.a       = 0.0
-	skip_level_container.visible          = false
-	skip_level_container.scale            = Vector2.ONE
-	skip_level_container.process_mode     = PROCESS_MODE_DISABLED
-
-	skip_level_btn.pressed.connect(_on_skip_level_pressed)
-
-
-func _increment_reset_count() -> void:
-	if _is_level_skipped(_current_level_path):
+	var env := _get_env_from_path(_current_level_path)
+	var env_skip_count := _get_env_skip_count(env)
+	if env_skip_count >= MAX_SKIPS_PER_ENV:
+		print("  [Skip] Environment '%s' already used %d/%d skips — skip disabled" % [env, env_skip_count, MAX_SKIPS_PER_ENV])
 		return
 
 	_reset_count += 1
-	print("  [Skip] Reset count: %d / %d" % [_reset_count, SKIP_THRESHOLD])
+	print("  [Skip] Fall count: %d / %d   (env=%s, level=%s)" % [_reset_count, SKIP_THRESHOLD, env, _current_level_path])
 
 	if _reset_count >= SKIP_THRESHOLD:
 		_show_skip_button()
 
 
 func _show_skip_button() -> void:
-	if not skip_level_container or skip_level_container.visible:
+	if not skip_level_layer:
+		push_error("  [Skip] Cannot show button — skip_level_layer is null!")
 		return
-
-	skip_level_container.visible       = true
-	skip_level_container.scale         = Vector2(0.5, 0.5)
-	skip_level_container.modulate.a    = 0.0
-	skip_level_container.process_mode  = PROCESS_MODE_INHERIT
-
-	var tw := create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(skip_level_container, "modulate:a", 1.0, 0.25) \
-		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
-	tw.tween_property(skip_level_container, "scale", Vector2(1.05, 1.05), 0.20) \
-		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
-	tw.chain().tween_property(skip_level_container, "scale", Vector2.ONE, 0.10) \
-		.set_ease(Tween.EASE_IN_OUT)
+	print("  [Skip] Showing skip button! count=%d threshold=%d" % [_reset_count, SKIP_THRESHOLD])
+	skip_level_layer.visible = true
 
 
-func _hide_skip_button(instant: bool = false) -> void:
-	if not skip_level_container or not skip_level_container.visible:
+func _hide_skip_button(_instant: bool = false) -> void:
+	if not skip_level_layer:
 		return
-
-	if instant:
-		skip_level_container.visible       = false
-		skip_level_container.modulate.a = 0.0
-		skip_level_container.process_mode = PROCESS_MODE_DISABLED
-		return
-
-	var tw := create_tween()
-	tw.tween_property(skip_level_container, "modulate:a", 0.0, 0.2) \
-		.set_ease(Tween.EASE_IN)
-	tw.tween_callback(func():
-		skip_level_container.visible = false
-		skip_level_container.process_mode = PROCESS_MODE_DISABLED
-	)
+	skip_level_layer.visible = false
 
 
 func _reset_skip_state() -> void:
@@ -397,6 +375,13 @@ func _mark_level_skipped(level_path: String) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(INSTRUCTIONS_SAVE_PATH)
 	cfg.set_value(SKIP_SECTION, level_path.md5_text(), true)
+
+	# Track per-environment skip limit
+	var env := _get_env_from_path(level_path)
+	var env_count := cfg.get_value("env_skips", env, 0)
+	cfg.set_value("env_skips", env, env_count + 1)
+	print("  [Skip] Environment '%s' skips: %d / %d" % [env, env_count + 1, MAX_SKIPS_PER_ENV])
+
 	cfg.save(INSTRUCTIONS_SAVE_PATH)
 
 	var gs := get_node_or_null("/root/GameState")
@@ -408,6 +393,18 @@ func _is_level_skipped(level_path: String) -> bool:
 	var cfg := ConfigFile.new()
 	cfg.load(INSTRUCTIONS_SAVE_PATH)
 	return cfg.get_value(SKIP_SECTION, level_path.md5_text(), false)
+
+
+func _get_env_from_path(level_path: String) -> String:
+	# e.g. "res://scenes/levels/granite_crag/granite_crag_01.json" -> "granite_crag"
+	var parts := level_path.split("/")
+	return parts[-2]
+
+
+func _get_env_skip_count(env: String) -> int:
+	var cfg := ConfigFile.new()
+	cfg.load(INSTRUCTIONS_SAVE_PATH)
+	return cfg.get_value("env_skips", env, 0)
 
 
 func _get_next_level_path(current_path: String) -> String:
@@ -424,7 +421,8 @@ func _get_next_level_path(current_path: String) -> String:
 
 
 func _on_skip_level_pressed() -> void:
-	print("  [Skip] Player skipped: ", _current_level_path)
+	print("  [Skip] SKIP BUTTON PRESSED — loading next level")
+	print("  [Skip] Current level: ", _current_level_path)
 	_mark_level_skipped(_current_level_path)
 	_hide_skip_button(true)
 
@@ -758,8 +756,16 @@ func on_level_complete():
 		Transition.to("res://scenes/menus/level_completed.tscn")
 
 func on_player_reset():
-	_increment_reset_count()
+	# Manual reset (Escape/R key) — does NOT count toward skip threshold
+	_do_player_reset()
 
+func on_player_fell():
+	# Fall detection — counts toward skip threshold
+	print("  [Main] on_player_fell() called — counting toward skip")
+	_increment_fall_count()
+	_do_player_reset()
+
+func _do_player_reset():
 	if player and not player._grab_initialized:
 		return
 

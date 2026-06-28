@@ -1679,8 +1679,8 @@ func check_fall_detection(delta: float) -> void:
 			if current_discipline == 2 and speed_timer and speed_timer.has_method("pause_timer"):
 				speed_timer.pause_timer()
 			var main = get_tree().current_scene
-			if main and main.has_method("on_player_reset"):
-				main.on_player_reset()
+			if main and main.has_method("on_player_fell"):
+				main.on_player_fell()
 			else:
 				reset_climb()
 	else:

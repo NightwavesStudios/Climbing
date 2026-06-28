@@ -10,6 +10,7 @@
 
 [node name="MainScene" type="Node2D"]
 script = ExtResource("1_l7pil")
+default_level_path = null
 
 [node name="Camera2D" type="Camera2D" parent="."]
 position_smoothing_enabled = true
@@ -62,29 +63,21 @@ theme_override_font_sizes/font_size = 32
 text = "Dismiss"
 script = ExtResource("8_a4cr6")
 
-[node name="SkipLevel" type="Control" parent="."]
-layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
+[node name="SkipLevel" type="CanvasLayer" parent="."]
 
 [node name="SkipLevel" type="Button" parent="SkipLevel"]
-layout_mode = 1
-anchors_preset = 7
+anchors_preset = 8
 anchor_left = 0.5
-anchor_top = 1.0
+anchor_top = 0.5
 anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = 598.0
-offset_top = 666.0
-offset_right = 683.0
-offset_bottom = 697.0
+anchor_bottom = 0.5
+offset_left = -60.0
+offset_top = 312.0
+offset_right = 60.0
+offset_bottom = 340.0
 grow_horizontal = 2
-grow_vertical = 0
-size_flags_vertical = 4
+theme_override_font_sizes/font_size = 24
 text = "Skip Level"
-script = ExtResource("8_a4cr6")
 
 [connection signal="pressed" from="Instructions/HideInstructions" to="." method="_on_hide_instructions_pressed"]
+[connection signal="pressed" from="SkipLevel/SkipLevel" to="." method="_on_skip_level_pressed"]

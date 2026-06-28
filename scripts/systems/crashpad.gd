@@ -76,8 +76,8 @@ func _do_landing(player: Node2D):
 	# ────────────────────────────────────────────────────────────────────────────
 
 	var main = get_tree().current_scene
-	if main and main.has_method("on_player_reset"):
-		main.on_player_reset()
+	if main and main.has_method("on_player_fell"):
+		main.on_player_fell()
 	elif player.has_method("reset_climb"):
 		player.reset_climb()
 
