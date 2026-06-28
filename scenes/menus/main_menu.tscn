@@ -45,7 +45,6 @@ script = ExtResource("5_imvie")
 
 [node name="LevelEditor" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
-disabled = true
 text = "Level Editor"
 script = ExtResource("5_imvie")
 
@@ -74,8 +73,52 @@ position = Vector2(639, 129)
 scale = Vector2(1.4637021, 1.4637021)
 texture = ExtResource("6_ng0o5")
 
+[node name="DemoNotice" type="CanvasLayer" parent="."]
+process_mode = 3
+visible = false
+
+[node name="Backdrop" type="ColorRect" parent="DemoNotice"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.15)
+
+[node name="Box" type="ColorRect" parent="DemoNotice"]
+offset_left = 320.0
+offset_top = 278.0
+offset_right = 960.0
+offset_bottom = 430.0
+color = Color(0.06, 0.06, 0.06, 0.92)
+
+[node name="VBox" type="VBoxContainer" parent="DemoNotice/Box"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 14.0
+offset_right = -16.0
+offset_bottom = -12.0
+
+[node name="Label" type="Label" parent="DemoNotice/Box/VBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_colors/font_color = Color(0.9, 0.9, 0.92, 1)
+theme_override_font_sizes/font_size = 14
+text = "This demo represents the current state of the game. I'll be actively updating it based on player feedback over the coming weeks, so expect balance changes, bug fixes, and quality-of-life improvements."
+autowrap_mode = 1
+
+[node name="Dismiss" type="Button" parent="DemoNotice/Box/VBox"]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 8
+theme_override_font_sizes/font_size = 14
+text = "Got it"
+
 [connection signal="pressed" from="CanvasLayer/Buttons/Story" to="." method="_on_play_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/Settings" to="." method="_on_settings_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/Quit" to="." method="_on_quit_pressed"]
 [connection signal="pressed" from="Discord" to="." method="_on_discord_pressed"]
+[connection signal="pressed" from="DemoNotice/Box/VBox/Dismiss" to="." method="_on_demo_notice_dismissed"]

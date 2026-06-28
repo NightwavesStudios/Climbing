@@ -37,7 +37,7 @@ func _generate_texture(inner_radius: float) -> ImageTexture:
 	var half_thick: float = OUTER_THICKNESS / 2.0
 	var aa: float = 0.65
 
-	var shadow_color: Color = Color(0.0, 0.0, 0.0, 0.25)
+	var _shadow_color: Color = Color(0.0, 0.0, 0.0, 0.25)
 	var fill_color: Color = Color(1.0, 1.0, 1.0, 0.92)
 
 	for y in range(CURSOR_SIZE):

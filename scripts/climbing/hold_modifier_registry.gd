@@ -44,7 +44,6 @@ func create_modifier(type_key: String) -> Node:
 		"falling":
 			return _hold_modifiers_script.FallingHoldModifier.new()
 		_:
-			push_warning("HoldModifierRegistry: unknown modifier type '%s'" % type_key)
 			return null
 
 ## Instantiate and deserialize a modifier from saved JSON data.

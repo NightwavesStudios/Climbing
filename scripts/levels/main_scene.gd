@@ -1,7 +1,7 @@
 extends Node2D
 ## Main game scene with dynamic wall integration and climbing disciplines
 
-@export var default_level_path: String = "res://scenes/levels/tutorial/ladder.json"
+@export var default_level_path: String = "res://data/levels/tutorial/tutorial_01.json"
 var camera_owned_by_main: bool = false
 var _preview_complete: bool = false
 @onready var level_loader: LevelLoader = $LevelLoader
@@ -39,13 +39,17 @@ enum CameraMode { FOLLOW_PLAYER, ROUTE_PREVIEW }
 
 var _cam_mode: CameraMode = CameraMode.FOLLOW_PLAYER
 var _preview_tween: Tween = null
+var _return_tween: Tween  = null
 var _preview_zoom_normal := Vector2(1.0, 1.0)
+
+## Whether Camera2D position_smoothing was enabled before preview — restored on finish.
+var _smoothing_was_enabled: bool = false
 
 const PREVIEW_ZOOM_MIN      := 0.22
 const PREVIEW_ZOOM_MAX      := 0.55
 
 ## Auto-preview timings — starts zoomed out, holds, then zooms back in
-const PREVIEW_HOLD_TIME     := 5    # seconds to linger at the overview
+const PREVIEW_HOLD_TIME     := 0.1    # seconds to linger at the overview
 const PREVIEW_RETURN_TIME   := 3    # seconds to pan+zoom back to player
 const PREVIEW_ZOOM_TIME     := 2.5    # seconds for the initial zoom-out
 
@@ -86,14 +90,21 @@ func start_route_preview() -> void:
 		camera_owned_by_main = false
 		return
 
+	# Disable position smoothing during preview tween so tween_property controls
+	# the actual rendered camera position, not just the smoothing target.
+	_smoothing_was_enabled = camera.position_smoothing_enabled
+	camera.position_smoothing_enabled = false
+	camera.reset_smoothing()
+
 	_cam_mode = CameraMode.ROUTE_PREVIEW
 
 	if _preview_tween and _preview_tween.is_valid():
 		_preview_tween.kill()
+	if _return_tween and _return_tween.is_valid():
+		_return_tween.kill()
 
 	var overview_pos  := _get_route_overview_position()
 	var overview_zoom := _get_route_zoom()
-	var player_pos    := player.global_position if player else camera.global_position
 
 	# Snap immediately to zoomed-out overview — no tween, happens before fade-in
 	camera.global_position = overview_pos
@@ -106,19 +117,42 @@ func start_route_preview() -> void:
 	# 1. Hold at the overview so the player can read the route
 	_preview_tween.tween_interval(PREVIEW_HOLD_TIME)
 
-	# 2. Zoom back in to the player
-	_preview_tween.set_parallel(true)
-	_preview_tween.tween_property(camera, "zoom", _preview_zoom_normal, PREVIEW_RETURN_TIME)
-	_preview_tween.tween_property(camera, "global_position", player_pos, PREVIEW_RETURN_TIME)
-	_preview_tween.set_parallel(false)
+	# 2. After the hold, start the return tween to where the player is NOW.
+	#    Uses a separate tween (_return_tween) so player_pos is captured at
+	#    the right moment (after 5s hold), not 5 seconds earlier.
+	_preview_tween.tween_callback(_start_return_tween)
 
-	# 3. Hand camera back
-	_preview_tween.tween_callback(_finish_preview)
+func _start_return_tween() -> void:
+	if not is_instance_valid(camera) or not is_instance_valid(player):
+		_finish_preview()
+		return
+
+	# Capture the player's current position right NOW (after the 5s hold)
+	var player_pos := player.global_position
+
+	_return_tween = create_tween() \
+		.set_ease(Tween.EASE_IN_OUT) \
+		.set_trans(Tween.TRANS_CUBIC)
+
+	_return_tween.set_parallel(true)
+	_return_tween.tween_property(camera, "zoom", _preview_zoom_normal, PREVIEW_RETURN_TIME)
+	_return_tween.tween_property(camera, "global_position", player_pos, PREVIEW_RETURN_TIME)
+	_return_tween.set_parallel(false)
+
+	_return_tween.tween_callback(_finish_preview)
 
 func _finish_preview() -> void:
 	_preview_complete = true
 	_cam_mode = CameraMode.FOLLOW_PLAYER
 	camera_owned_by_main = false
+
+	# Don't snap position/zoom — the tween already landed at the right values.
+	# Just restore position_smoothing and call reset_smoothing() to eliminate
+	# any smoothing lag, so the rendered position is exactly where the tween
+	# left it. The player's own update_camera() lerp takes over from here.
+	if is_instance_valid(camera):
+		camera.position_smoothing_enabled = _smoothing_was_enabled
+		camera.reset_smoothing()
 
 func toggle_route_view() -> void:
 	if not camera:
@@ -126,6 +160,8 @@ func toggle_route_view() -> void:
 
 	if _preview_tween and _preview_tween.is_valid():
 		_preview_tween.kill()
+	if _return_tween and _return_tween.is_valid():
+		_return_tween.kill()
 
 	_preview_tween = create_tween() \
 		.set_ease(Tween.EASE_IN_OUT) \
@@ -134,6 +170,10 @@ func toggle_route_view() -> void:
 	if _cam_mode == CameraMode.FOLLOW_PLAYER:
 		_cam_mode = CameraMode.ROUTE_PREVIEW
 		camera_owned_by_main = true
+		# Disable smoothing so the tween controls the actual rendered position
+		_smoothing_was_enabled = camera.position_smoothing_enabled
+		camera.position_smoothing_enabled = false
+		camera.reset_smoothing()
 		var overview_pos  := _get_route_overview_position()
 		var overview_zoom := _get_route_zoom()
 		_preview_tween.set_parallel(true)
@@ -141,13 +181,16 @@ func toggle_route_view() -> void:
 		_preview_tween.tween_property(camera, "zoom", overview_zoom, TAB_ZOOM_OUT_TIME)
 	else:
 		_cam_mode = CameraMode.FOLLOW_PLAYER
-		camera_owned_by_main = false
 		var player_pos := player.global_position if player else camera.global_position
 		_preview_tween.set_parallel(true)
 		_preview_tween.tween_property(camera, "zoom", _preview_zoom_normal, TAB_ZOOM_IN_TIME)
 		_preview_tween.tween_property(camera, "global_position", player_pos, TAB_ZOOM_IN_TIME)
 		_preview_tween.set_parallel(false)
-		_preview_tween.tween_callback(func(): camera_owned_by_main = false)
+		_preview_tween.tween_callback(func():
+			camera.position_smoothing_enabled = _smoothing_was_enabled
+			camera.reset_smoothing()
+			camera_owned_by_main = false
+		)
 
 
 func _set_player_input(enabled: bool) -> void:
@@ -232,7 +275,7 @@ func _mark_popup_seen(save_key: String) -> void:
 
 func _check_paths() -> void:
 	var paths = [
-		"res://scenes/levels/tutorial/ladder.json",
+		"res://data/levels/tutorial/tutorial_01.json",
 		"res://scenes/props/crashpad.tscn",
 		"res://scenes/holds/start.tscn",
 		"res://scenes/holds/top_out.tscn",
@@ -248,7 +291,7 @@ func _check_paths() -> void:
 		"res://scripts/environment/weather_modifier.gd",
 		"res://scripts/player/rope_system.gd",
 		"res://scripts/levels/speed_timer.gd",
-		"res://scenes/levels/granite_crag/granite_crag_01.json",
+		"res://data/levels/granite_crag/granite_crag_01.json",
 	]
 	for path in paths:
 		print("EXISTS ", path, ": ", FileAccess.file_exists(path) or ResourceLoader.exists(path))
@@ -302,7 +345,6 @@ func _ready():
 
 	await get_tree().process_frame
 	_show_popup_for_level(initial_level)
-
 	print("=== MAIN SCENE READY COMPLETE ===")
 
 # =============================================================================
@@ -396,7 +438,7 @@ func _is_level_skipped(level_path: String) -> bool:
 
 
 func _get_env_from_path(level_path: String) -> String:
-	# e.g. "res://scenes/levels/granite_crag/granite_crag_01.json" -> "granite_crag"
+	# e.g. "res://data/levels/granite_crag/granite_crag_01.json" -> "granite_crag"
 	var parts := level_path.split("/")
 	return parts[-2]
 
@@ -449,11 +491,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Tab → toggle route view (Option A).
 	# ui_focus_next is Tab by default; rename to "route_view" in Input Map if preferred.
 	if event.is_action_pressed("ui_focus_next"):
-		# Don't allow toggling while the auto-preview tween is still running
-		# in its zoom-out or hold phase (only the return phase allows it).
-		if _preview_tween == null or not _preview_tween.is_valid() \
-				or _cam_mode == CameraMode.ROUTE_PREVIEW \
-				or _cam_mode == CameraMode.FOLLOW_PLAYER:
+		# Don't allow Tab-toggle during the auto-preview hold phase.
+		# The return phase and normal FOLLOW_PLAYER allow it.
+		if _preview_tween == null or not _preview_tween.is_valid():
 			toggle_route_view()
 		return
 
@@ -731,6 +771,8 @@ func on_level_complete():
 	# Abort any active route preview so the overlay isn't blocked
 	if _preview_tween and _preview_tween.is_valid():
 		_preview_tween.kill()
+	if _return_tween and _return_tween.is_valid():
+		_return_tween.kill()
 	_cam_mode = CameraMode.FOLLOW_PLAYER
 
 	if pause_menu and pause_menu.visible:
@@ -784,10 +826,20 @@ func on_climb_start():
 
 	# If the player grabs before the auto-preview finishes, abort it cleanly
 	# Only abort preview if enough time has passed (ignore the spawn grab)
-	if _preview_tween and _preview_tween.is_valid() and _cam_mode == CameraMode.ROUTE_PREVIEW:
-		var elapsed = _preview_tween.get_total_elapsed_time()
-		if elapsed > PREVIEW_HOLD_TIME * 0.5:
-			_preview_tween.kill()
+	if _cam_mode == CameraMode.ROUTE_PREVIEW:
+		var elapsed := 0.0
+		var any_alive := false
+		if _preview_tween and _preview_tween.is_valid():
+			elapsed = _preview_tween.get_total_elapsed_time()
+			any_alive = true
+		elif _return_tween and _return_tween.is_valid():
+			elapsed = PREVIEW_HOLD_TIME + _return_tween.get_total_elapsed_time()
+			any_alive = true
+		if any_alive and elapsed > PREVIEW_HOLD_TIME * 0.5:
+			if _preview_tween and _preview_tween.is_valid():
+				_preview_tween.kill()
+			if _return_tween and _return_tween.is_valid():
+				_return_tween.kill()
 			_finish_preview()
 
 	if current_discipline == ClimbingDiscipline.Type.SPEED:
@@ -892,6 +944,8 @@ func cleanup_discipline_systems():
 	# nodes that are about to be freed
 	if _preview_tween and _preview_tween.is_valid():
 		_preview_tween.kill()
+	if _return_tween and _return_tween.is_valid():
+		_return_tween.kill()
 	_cam_mode = CameraMode.FOLLOW_PLAYER
 
 	if rope_system != null:

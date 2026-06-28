@@ -23,13 +23,6 @@
 			"y": -224.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
 			"type": "CRIMP",
 			"x": 96.0,
 			"y": -288.0
@@ -45,13 +38,6 @@
 			"y": -416.0
 		},
 		{
-			"modifiers": [
-				{
-					"fall_delay": 2.2,
-					"fall_gravity": 1800.0,
-					"type": "falling"
-				}
-			],
 			"type": "SLOPER",
 			"x": 0.0,
 			"y": -320.0
@@ -82,7 +68,7 @@
 			"y": -288.0
 		}
 	],
-	"name": "Crimp City",
+	"name": "Carbon Copy",
 	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,

@@ -279,7 +279,7 @@ const VISUAL_ANIMATION_SPEED = 0.25
 const LIMB_FREE_SCALE_TARGET = 1.15
 const LIMB_SCALE_LERP_SPEED  = 8.0
 const HOVER_JITTER_RADIUS    = 60.0
-const HOVER_JITTER_AMP       = 1.6
+const HOVER_JITTER_AMP       = 0.0
 const HOVER_JITTER_FREQ      = 22.0
 
 # =============================================================================
@@ -476,8 +476,8 @@ func handle_input() -> void:
 			use_mouse_aim      = true
 			mouse_aim_position = mouse_global
 			building_momentum  = true
-		else:
-			use_mouse_aim = false
+		elif not use_mouse_aim:
+			use_mouse_aim = true
 	else:
 		use_mouse_aim = false
 
@@ -893,6 +893,12 @@ func simulate_physics(delta: float) -> void:
 	com_position    += com_velocity * delta
 	global_position  = com_position + Vector2(0, -COM_OFFSET_Y)
 
+	# Re-anchor mouse-controlled limbs so parent-body drift doesn't pull them
+	if use_mouse_aim:
+		for s in _limbs:
+			if s in selected_limbs and s.hold == null and not s.is_grabbing:
+				s.node.global_position = s.ghost
+
 	_apply_limb_velocities(delta)
 	_check_leg_overstretch()
 	_check_limb_overload()
@@ -1016,6 +1022,7 @@ func _apply_foot_support(delta: float) -> void:
 	com_velocity    += support_force
 
 func _apply_mouse_control(delta: float) -> void:
+	var snap_threshold := 2.0
 	for s in _limbs:
 		if s not in selected_limbs or s.hold != null or s.is_grabbing: continue
 		var org   = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
@@ -1023,11 +1030,15 @@ func _apply_mouse_control(delta: float) -> void:
 		var to_m  = mouse_aim_position - org
 		var dist  = to_m.length()
 		var clamped_tgt = org + to_m.normalized() * max_r if dist > max_r else mouse_aim_position
-		var mods        = _get_hand_modifiers(s.grip) if s.is_hand() else {"speed_mult": 1.0}
-		var prox_slow   = lerp(1.0, 0.45, smoothstep(0.6, 1.0, clamp(dist / max_r, 0.0, 1.0)))
-		var move_speed  = clamp(60.0 * mods.speed_mult * prox_slow * (0.8 if s.is_foot() else 1.0) * delta, 0.0, 1.0)
 		if not s.ghost_init: s.ghost = s.node.global_position; s.ghost_init = true
-		s.ghost                = s.ghost.lerp(clamped_tgt, move_speed)
+		# Snap directly when already near target to prevent body-settle oscillation
+		if s.ghost.distance_squared_to(clamped_tgt) < snap_threshold * snap_threshold:
+			s.ghost = clamped_tgt
+		else:
+			var mods        = _get_hand_modifiers(s.grip) if s.is_hand() else {"speed_mult": 1.0}
+			var prox_slow   = lerp(1.0, 0.45, smoothstep(0.6, 1.0, clamp(dist / max_r, 0.0, 1.0)))
+			var move_speed  = clamp(60.0 * mods.speed_mult * prox_slow * (0.8 if s.is_foot() else 1.0) * delta, 0.0, 1.0)
+			s.ghost                = s.ghost.lerp(clamped_tgt, move_speed)
 		s.node.global_position = s.ghost
 		var upper = ARM_UPPER_LENGTH if s.is_hand() else LEG_UPPER_LENGTH
 		s.joint.global_position = s.joint.global_position.lerp(org + (s.ghost - org).normalized() * upper, 0.35)

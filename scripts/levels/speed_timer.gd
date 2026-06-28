@@ -41,6 +41,10 @@ func _process(delta):
 		update_display()
 
 func setup_ui():
+	# Guard: if not in scene tree, skip UI setup (e.g. during tests)
+	if not is_inside_tree():
+		return
+
 	var viewport_size = get_viewport().get_visible_rect().size
 
 	background_panel = PanelContainer.new()

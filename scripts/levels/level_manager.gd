@@ -8,7 +8,7 @@ extends Node
 signal levels_refreshed()
 
 # Level storage paths
-const BUILTIN_LEVELS_DIR = "res://levels/builtin/"
+const BUILTIN_LEVELS_DIR = "res://data/levels/"
 const USER_LEVELS_DIR = "user://levels/"
 
 # Level metadata
@@ -71,7 +71,7 @@ func scan_directory(dir_path: String, is_builtin: bool):
 	var file_name = dir.get_next()
 	
 	while file_name != "":
-		if not dir.current_is_dir() and file_name.ends_with(".climb"):
+		if not dir.current_is_dir() and (file_name.ends_with(".climb") or file_name.ends_with(".json")):
 			var full_path = dir_path + file_name
 			var level_name = file_name.get_basename()
 			var level_info = LevelInfo.new(level_name, full_path, is_builtin)

@@ -23,16 +23,16 @@ const COLLECTIONS = {
 		"description": "Learn the basics of climbing",
 		"unlock_requirement": {"type": "always"},
 		"levels": [
-			"res://scenes/levels/tutorial/tutorial_01.json",
-			"res://scenes/levels/tutorial/tutorial_02.json",
-			"res://scenes/levels/tutorial/tutorial_03.json",
-			"res://scenes/levels/tutorial/tutorial_04.json",
-			"res://scenes/levels/tutorial/tutorial_05.json",
-			"res://scenes/levels/tutorial/tutorial_06.json",
-			"res://scenes/levels/tutorial/tutorial_07.json",
-			"res://scenes/levels/tutorial/tutorial_08.json",
-			"res://scenes/levels/tutorial/tutorial_09.json",
-			"res://scenes/levels/tutorial/tutorial_10.json",
+			"res://data/levels/tutorial/tutorial_01.json",
+			"res://data/levels/tutorial/tutorial_02.json",
+			"res://data/levels/tutorial/tutorial_03.json",
+			"res://data/levels/tutorial/tutorial_04.json",
+			"res://data/levels/tutorial/tutorial_05.json",
+			"res://data/levels/tutorial/tutorial_06.json",
+			"res://data/levels/tutorial/tutorial_07.json",
+			"res://data/levels/tutorial/tutorial_08.json",
+			"res://data/levels/tutorial/tutorial_09.json",
+			"res://data/levels/tutorial/tutorial_10.json",
 		]
 	},
 	"granite-crag": {
@@ -43,16 +43,16 @@ const COLLECTIONS = {
 			"collection": "intro-gym"
 		},
 		"levels": [
-			"res://scenes/levels/granite_crag/granite_crag_01.json",
-			"res://scenes/levels/granite_crag/granite_crag_02.json",
-			"res://scenes/levels/granite_crag/granite_crag_03.json",
-			"res://scenes/levels/granite_crag/granite_crag_04.json",
-			"res://scenes/levels/granite_crag/granite_crag_05.json",
-			"res://scenes/levels/granite_crag/granite_crag_06.json",
-			"res://scenes/levels/granite_crag/granite_crag_07.json",
-			"res://scenes/levels/granite_crag/granite_crag_08.json",
-			"res://scenes/levels/granite_crag/granite_crag_09.json",
-			"res://scenes/levels/granite_crag/granite_crag_10.json",
+			"res://data/levels/granite_crag/granite_crag_01.json",
+			"res://data/levels/granite_crag/granite_crag_02.json",
+			"res://data/levels/granite_crag/granite_crag_03.json",
+			"res://data/levels/granite_crag/granite_crag_04.json",
+			"res://data/levels/granite_crag/granite_crag_05.json",
+			"res://data/levels/granite_crag/granite_crag_06.json",
+			"res://data/levels/granite_crag/granite_crag_07.json",
+			"res://data/levels/granite_crag/granite_crag_08.json",
+			"res://data/levels/granite_crag/granite_crag_09.json",
+			"res://data/levels/granite_crag/granite_crag_10.json",
 		]
 	},
 	"sandstone": {
@@ -63,8 +63,8 @@ const COLLECTIONS = {
 		"collection": "intro-gym"  # or whatever should gate it
 	},
 	"levels": [
-		"res://scenes/levels/sandstone/sandstone_01.json",
-		"res://scenes/levels/sandstone/sandstone_02.json",
+		"res://data/levels/sandstone/sandstone_01.json",
+		"res://data/levels/sandstone/sandstone_02.json",
 		# etc.
 	]
 },
@@ -76,8 +76,8 @@ const COLLECTIONS = {
 			"collection": "sandstone"
 		},
 		"levels": [
-			"res://scenes/levels/building/building_01.json",
-			"res://scenes/levels/building/building_02.json"
+			"res://data/levels/building/building_01.json",
+			"res://data/levels/building/building_02.json"
 		]
 	},
 	"deep-water-solo": {
@@ -88,8 +88,8 @@ const COLLECTIONS = {
 		"collection": "intro-gym"
 	},
 	"levels": [
-		"res://scenes/levels/dws/dws_01.json",
-		"res://scenes/levels/dws/dws_02.json",
+		"res://data/levels/dws/dws_01.json",
+		"res://data/levels/dws/dws_02.json",
 	]
 	},
 	"ice": {
@@ -100,8 +100,8 @@ const COLLECTIONS = {
 			"collection": "intro-gym"
 		},
 		"levels": [
-			"res://scenes/levels/ice/ice_01.json",
-			"res://scenes/levels/ice/ice_02.json",
+			"res://data/levels/ice/ice_01.json",
+			"res://data/levels/ice/ice_02.json",
 		]
 	},
 }
