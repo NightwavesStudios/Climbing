@@ -29,6 +29,7 @@ script = ExtResource("7_0jrka")
 [node name="PauseMenu" parent="." instance=ExtResource("6_l7pil")]
 
 [node name="Instructions" type="CanvasLayer" parent="."]
+visible = false
 
 [node name="ColorRect" type="ColorRect" parent="Instructions"]
 anchors_preset = 15

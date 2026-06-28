@@ -1,6 +1,9 @@
 ## main_menu.gd – attach to your MainMenu Control node.
 extends Control
 
+const PREFS_PATH        := "user://prefs.cfg"
+const DEMO_NOTICE_KEY   := "demo_notice_seen"
+
 @onready var buttons: VBoxContainer = $CanvasLayer/Buttons
 @onready var demo_notice: CanvasLayer = $DemoNotice
 
@@ -12,8 +15,8 @@ func _ready() -> void:
 	# Force the sunset menu theme
 	EnvironmentConfig.set_environment(EnvironmentConfig.EnvironmentType.MENU_SUNSET)
 
-	# Show demo notice popup on every launch
-	_show_demo_notice()
+	# Show demo notice popup only once
+	_show_demo_notice_if_needed()
 
 # ── Button callbacks ─────────────────────────────────────────────────────────
 func _on_play_pressed() -> void:
@@ -44,7 +47,13 @@ func _on_button_pressed() -> void:
 	else:
 		OS.shell_open(url)
 
-func _show_demo_notice() -> void:
+func _show_demo_notice_if_needed() -> void:
+	# Check if already dismissed — only show once.
+	var cfg := ConfigFile.new()
+	cfg.load(PREFS_PATH)
+	if cfg.get_value("popups", DEMO_NOTICE_KEY, false):
+		return
+
 	if not demo_notice or not is_instance_valid(demo_notice):
 		return
 
@@ -85,6 +94,12 @@ func _show_demo_notice() -> void:
 
 
 func _on_demo_notice_dismissed() -> void:
+	# Mark as seen so it never shows again.
+	var cfg := ConfigFile.new()
+	cfg.load(PREFS_PATH)
+	cfg.set_value("popups", DEMO_NOTICE_KEY, true)
+	cfg.save(PREFS_PATH)
+
 	if not demo_notice or not is_instance_valid(demo_notice):
 		return
 

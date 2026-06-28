@@ -19,7 +19,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "granite",
-	"grade": "V0",
+	"grade": "VB",
 	"holds": [
 		{
 			"type": "START",
@@ -119,6 +119,6 @@
 			1
 		]
 	},
-	"weather": 1,
+	"weather": 0,
 	"weather_intensity": 1.0
 }

@@ -32,28 +32,27 @@ theme_override_constants/margin_bottom = 24
 
 [node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 6
 
-[node name="VolumeLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+[node name="AudioHeader" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Volume"
-
-[node name="VolumeUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
-layout_mode = 2
+theme_override_constants/outline_size = 1
+theme_override_font_sizes/font_size = 20
+text = "Audio"
 
 [node name="Volume" type="HSlider" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 max_value = 1.0
 step = 0.01
 
-[node name="WindowModeLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+[node name="SectionSeparator1" type="HSeparator" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Window Mode"
 
-[node name="WindowModeUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+[node name="DisplayHeader" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_constants/outline_size = 1
+theme_override_font_sizes/font_size = 20
+text = "Display"
 
 [node name="WindowMode" type="OptionButton" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
@@ -66,56 +65,66 @@ popup/item_1/id = 1
 popup/item_2/text = "Borderless Fullscreen"
 popup/item_2/id = 2
 
-[node name="VSyncLabel" type="Label" parent="MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Toggle VSync"
-
-[node name="VSyncUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+[node name="VSyncRow" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 
-[node name="VSync" type="CheckBox" parent="MarginContainer/VBoxContainer"]
+[node name="VSyncLabel" type="Label" parent="MarginContainer/VBoxContainer/VSyncRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 14
+text = "Vertical Sync"
+vertical_alignment = 1
+
+[node name="VSync" type="CheckBox" parent="MarginContainer/VBoxContainer/VSyncRow"]
 layout_mode = 2
 
-[node name="FPSCapLabel" type="Label" parent="MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Set FPS Cap"
-
-[node name="FPSCapUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+[node name="FPSCapRow" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 
-[node name="FPSCap" type="OptionButton" parent="MarginContainer/VBoxContainer"]
+[node name="FPSCapLabel" type="Label" parent="MarginContainer/VBoxContainer/FPSCapRow"]
 layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 14
+text = "Frame Rate Cap"
+vertical_alignment = 1
+
+[node name="FPSCap" type="OptionButton" parent="MarginContainer/VBoxContainer/FPSCapRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+size_flags_horizontal = 0
 selected = 0
-item_count = 4
+item_count = 5
 popup/item_0/text = "None"
 popup/item_0/id = 0
-popup/item_1/text = "60fps"
+popup/item_1/text = "30 FPS"
 popup/item_1/id = 1
-popup/item_2/text = "120fps"
+popup/item_2/text = "60 FPS"
 popup/item_2/id = 2
-popup/item_3/text = "<null>"
+popup/item_3/text = "120 FPS"
 popup/item_3/id = 3
+popup/item_4/text = "144 FPS"
+popup/item_4/id = 4
 
-[node name="KeybindsLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+[node name="SectionSeparator2" type="HSeparator" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Key Bindings"
 
-[node name="KeybindsUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+[node name="ControlsHeader" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_constants/outline_size = 1
+theme_override_font_sizes/font_size = 20
+text = "Controls"
 
 [node name="KeybindsContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
 
-[node name="ResetDataLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+[node name="SectionSeparator3" type="HSeparator" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Reset"
 
-[node name="ResetDataUnderline" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+[node name="DataHeader" type="Label" parent="MarginContainer/VBoxContainer"]
 layout_mode = 2
+theme_override_constants/outline_size = 1
+theme_override_font_sizes/font_size = 20
+text = "Data"
 
 [node name="ResetData" type="Button" parent="MarginContainer/VBoxContainer"]
 custom_minimum_size = Vector2(120, 0)
@@ -138,10 +147,6 @@ layout_mode = 2
 text = "Back"
 script = ExtResource("2_erjg3")
 
-[node name="Sprite2D" type="Sprite2D" parent="MarginContainer/VBoxContainer"]
-position = Vector2(863.50006, 399.5)
-scale = Vector2(0.03166672, 0.03166672)
-
 [node name="ResetDataDialog" type="ConfirmationDialog" parent="."]
 title = "Reset Data"
 size = Vector2i(400, 180)
@@ -149,8 +154,8 @@ dialog_text = "This will erase all completed levels, collections, and tutorial p
 
 [connection signal="value_changed" from="MarginContainer/VBoxContainer/Volume" to="." method="_on_volume_value_changed"]
 [connection signal="item_selected" from="MarginContainer/VBoxContainer/WindowMode" to="." method="_on_window_mode_item_selected"]
-[connection signal="toggled" from="MarginContainer/VBoxContainer/VSync" to="." method="_on_vsync_toggled"]
-[connection signal="item_selected" from="MarginContainer/VBoxContainer/FPSCap" to="." method="_on_fps_cap_item_selected"]
+[connection signal="toggled" from="MarginContainer/VBoxContainer/VSyncRow/VSync" to="." method="_on_vsync_toggled"]
+[connection signal="item_selected" from="MarginContainer/VBoxContainer/FPSCapRow/FPSCap" to="." method="_on_fps_cap_item_selected"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/ResetData" to="." method="_on_reset_data_pressed"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/Save" to="." method="_on_save_pressed"]
 [connection signal="pressed" from="MarginContainer/VBoxContainer/Back" to="." method="_on_back_pressed"]

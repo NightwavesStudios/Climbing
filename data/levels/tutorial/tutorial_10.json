@@ -15,7 +15,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "V4",
+	"grade": "V5",
 	"holds": [
 		{
 			"type": "START",
@@ -93,7 +93,7 @@
 			"y": -133.310607910156
 		}
 	],
-	"name": "Unnamed Route",
+	"name": "The Great Escape",
 	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,

@@ -15,7 +15,7 @@
 	],
 	"discipline": "speed",
 	"environment": "granite",
-	"grade": "5.7",
+	"grade": "5.9",
 	"holds": [
 		{
 			"type": "START",
@@ -143,7 +143,7 @@
 			"y": -160.0
 		}
 	],
-	"name": "Unnamed Route",
+	"name": "Granite Dash",
 	"speed_time_limit": 20.0,
 	"wall_polygon": {
 		"enabled": true,

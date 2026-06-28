@@ -23,7 +23,7 @@
 	],
 	"discipline": "roped",
 	"environment": "gym",
-	"grade": "5.5",
+	"grade": "5.6",
 	"holds": [
 		{
 			"type": "START",

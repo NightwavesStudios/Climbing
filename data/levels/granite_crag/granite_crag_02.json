@@ -15,7 +15,7 @@
 	],
 	"discipline": "roped",
 	"environment": "granite",
-	"grade": "5.7",
+	"grade": "5.8",
 	"holds": [
 		{
 			"type": "START",
@@ -297,6 +297,6 @@
 			3
 		]
 	},
-	"weather": 0,
+	"weather": 1,
 	"weather_intensity": 1.0
 }

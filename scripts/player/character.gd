@@ -581,6 +581,16 @@ func _update_limb_grip(s: LimbState, delta: float) -> void:
 	else:
 		s.static_time = 0.0
 
+	# Hands on top-out holds: lock grip as RELAXED, skip all pressure/failure processing.
+	if s.is_hand() and s.hold != null \
+			and s.hold.has_method("is_top_out") and s.hold.is_top_out():
+		var hs := s as HandState
+		hs.grip = GripState.RELAXED
+		hs.fail_stage = FailureStage.NONE
+		hs.struggle_timer = 0.0
+		hs.pressure = 0.0
+		return
+
 	if s.hold != null:
 		var body_offset  = _calculate_body_offset(s)
 		var foot_support = _calculate_foot_support_ratio()
@@ -1268,7 +1278,17 @@ func attempt_grab(s: LimbState) -> void:
 	s.ghost      = resolved
 	s.ghost_init = true
 
-	if s.is_hand(): _apply_catch_penalty(s as HandState)
+	if s.is_hand():
+		# Top-out reset: clear all pressure/fatigue so the hand is fresh on the finish.
+		if (best.has_method("is_top_out") and best.is_top_out()):
+			var hs := s as HandState
+			hs.pressure = 0.0
+			hs.fail_stage = FailureStage.NONE
+			hs.struggle_timer = 0.0
+			hs.catch_boost = 1.0
+			hs.catch_timer = 0.0
+		else:
+			_apply_catch_penalty(s as HandState)
 	if not climb_started:
 		climb_started = true
 		var gs = get_tree().get_current_scene()

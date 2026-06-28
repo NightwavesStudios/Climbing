@@ -16,7 +16,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 ]
 
 # Maps OptionButton index → Engine.max_fps value (0 = unlimited)
-const FPS_CAP_VALUES: Array[int] = [0, 60, 120]
+const FPS_CAP_VALUES: Array[int] = [0, 30, 60, 120, 144]
 
 # Maps OptionButton index → DisplayServer window mode
 const WINDOW_MODES: Array[int] = [
@@ -30,8 +30,8 @@ const WINDOW_MODES: Array[int] = [
 # ─────────────────────────────────────────────
 @onready var volume_slider:       HSlider          = $MarginContainer/VBoxContainer/Volume
 @onready var window_mode_option:  OptionButton     = $MarginContainer/VBoxContainer/WindowMode
-@onready var vsync_toggle:        CheckBox         = $MarginContainer/VBoxContainer/VSync
-@onready var fps_cap_option:      OptionButton     = $MarginContainer/VBoxContainer/FPSCap
+@onready var vsync_toggle:        CheckBox         = $MarginContainer/VBoxContainer/VSyncRow/VSync
+@onready var fps_cap_option:      OptionButton     = $MarginContainer/VBoxContainer/FPSCapRow/FPSCap
 @onready var keybinds_container:  VBoxContainer    = $MarginContainer/VBoxContainer/KeybindsContainer
 @onready var reset_data_dialog:   ConfirmationDialog = $ResetDataDialog
 @onready var reset_btn:           Button           = $MarginContainer/VBoxContainer/ResetData
@@ -145,8 +145,12 @@ func load_settings() -> void:
 		print("No settings file — applying defaults.")
 		_apply_window_mode(1)
 		window_mode_option.select(1)
-		_apply_fps_cap(2)          # default: index 2 = 60 fps
-		fps_cap_option.select(2)
+		_apply_vsync(true)
+		vsync_toggle.set_pressed_no_signal(true)
+		# VSync is on by default → FPS cap forced to None and dropdown disabled
+		fps_cap_option.select(0)
+		_apply_fps_cap(0)
+		_sync_fps_cap_disabled(true)
 		volume_slider.set_value_no_signal(DEFAULT_VOLUME)
 		AudioServer.set_bus_volume_db(MASTER_BUS, linear_to_db(DEFAULT_VOLUME))
 		return
@@ -170,9 +174,12 @@ func load_settings() -> void:
 	_apply_vsync(vsync_on)
 
 	# --- Performance ---
-	var fps_idx: int = cfg.get_value("performance", "fps_cap_index", 2)
+	var fps_idx: int = cfg.get_value("performance", "fps_cap_index", 0)
 	fps_cap_option.select(fps_idx)
 	_apply_fps_cap(fps_idx)
+
+	# Sync the FPS cap disabled state with VSync state
+	_sync_fps_cap_disabled(vsync_on)
 
 	# --- Keybinds ---
 	for action in REBINDABLE_ACTIONS:
@@ -207,6 +214,19 @@ func _apply_fps_cap(index: int) -> void:
 	else:
 		push_warning("Invalid FPS cap index: %d" % index)
 
+# Disable/enable the FPS cap dropdown to match VSync state.
+func _sync_fps_cap_disabled(vsync_on: bool) -> void:
+	fps_cap_option.disabled = vsync_on
+	# When VSync is active, the concept of a "cap" doesn't apply,
+	# so show a subtitle-style hint on the label.
+	var label: Label = $MarginContainer/VBoxContainer/FPSCapRow/FPSCapLabel
+	if vsync_on:
+		label.text = "Frame Rate Cap  —  managed by VSync"
+		fps_cap_option.select(0)
+		_apply_fps_cap(0)
+	else:
+		label.text = "Frame Rate Cap"
+
 # ─────────────────────────────────────────────
 #  UI SIGNAL HANDLERS
 # ─────────────────────────────────────────────
@@ -222,6 +242,7 @@ func _on_window_mode_item_selected(index: int) -> void:
 
 func _on_vsync_toggled(toggled_on: bool) -> void:
 	_apply_vsync(toggled_on)
+	_sync_fps_cap_disabled(toggled_on)
 
 func _on_fps_cap_item_selected(index: int) -> void:
 	_apply_fps_cap(index)
@@ -243,6 +264,7 @@ func _on_reset_data_dialog_confirmed() -> void:
 
 	var prefs := ConfigFile.new()
 	prefs.set_value("instructions", "shown",                    false)
+	prefs.set_value("popups",       "demo_notice_seen",          false)
 	prefs.set_value("popups",       "tutorial_popup",            false)
 	prefs.set_value("popups",       "granite_topping_out_popup", false)
 	prefs.save(PREFS_PATH)

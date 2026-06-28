@@ -28,7 +28,7 @@ var rain_color       := Color(0.72, 0.82, 0.95, 0.72)
 var rain_streak_len  := 80.0
 var rain_angle_deg   := 12.0
 var rain_speed       := 1100.0
-var rain_density     := 600
+var rain_density     := 300
 var rain_wind        := 0.0
 
 var splash_duration  := 0.30
@@ -89,7 +89,7 @@ var lightning_glow_width       := 7.0
 var lightning_segments         := 10
 var lightning_jitter           := 55.0
 var lightning_branch_chance    := 0.30
-var lightning_rain_density     := 700
+var lightning_rain_density     := 350
 var lightning_rain_speed       := 1300.0
 var lightning_rain_angle_deg   := 18.0
 
@@ -750,20 +750,13 @@ func _append_sand_line(s: Dictionary) -> void:
 # =============================================================================
 
 # Fills the pre-allocated _rain_lines arrays from current flat particle data.
-# Single-pass: pre-count then fill using reused scratch array (no alloc per frame).
+# Single-pass: pre-size to max capacity, fill directly, then truncate unused.
+# This avoids a separate counting pass over all particles every frame.
 func _build_rain_lines() -> void:
-	# First pass: count drops per layer using reused scratch array
-	_rain_write_idx[0] = 0
-	_rain_write_idx[1] = 0
-	_rain_write_idx[2] = 0
-	for i in range(_rain_count):
-		var layer: int = _rain_layer[i]
-		_rain_write_idx[layer] += 1
-
-	# Resize each layer's line array to exactly the needed size
+	var max_verts := _rain_count * 2
 	for i in range(LAYERS):
-		_rain_lines[i].resize(_rain_write_idx[i] * 2)
-		_rain_write_idx[i] = 0  # reset for fill pass
+		_rain_lines[i].resize(max_verts)
+		_rain_write_idx[i] = 0
 
 	var dx := _rain_udx
 	var dy := _rain_udy
@@ -773,16 +766,21 @@ func _build_rain_lines() -> void:
 		var sx := _rain_x[i]
 		var sy := _rain_y[i]
 		var slen := _rain_len[i]
-		# Write start + end point at correct positions
 		var lines := _rain_lines[layer]
 		var pos := idx * 2
 		lines[pos]     = Vector2(sx, sy)
 		lines[pos + 1] = Vector2(sx - dx * slen, sy - dy * slen)
 		_rain_write_idx[layer] = idx + 1
 
+	# Truncate each layer to actual used vertex count
+	for i in range(LAYERS):
+		var used := _rain_write_idx[i] * 2
+		if _rain_lines[i].size() > used:
+			_rain_lines[i].resize(used)
+
 
 # =============================================================================
-# PROCESS — queue_redraw() every frame (no throttle)
+# PROCESS — runs every frame; rain is kept smooth at 60 fps
 # =============================================================================
 
 func _process(delta: float) -> void:
@@ -859,7 +857,7 @@ func _process(delta: float) -> void:
 	if wf != Vector2.ZERO or weather == WeatherType.NONE:
 		wind_force_changed.emit(wf)
 
-	# Redraw every frame — no throttle for smooth natural motion
+	# Redraw every frame for smooth 60 fps rain/weather visuals
 	queue_redraw()
 
 # Applies wind push directly to cached player nodes.
@@ -1080,7 +1078,7 @@ func _update_sandstorm(delta: float) -> void:
 		_append_sand_line(s)
 
 func _spawn_splash(sx: float, gy: float, drop_alpha: float, _layer: int) -> void:
-	if _drop_rng.randf() > 0.12: return
+	if _drop_rng.randf() > 0.08: return
 	_splashes.append({"x": sx, "gy": gy, "t": 0.0, "alpha": drop_alpha * clamp(intensity, 0.3, 0.7)})
 
 func _spawn_hail_bounce(sx: float, gy: float, drop_alpha: float, radius: float) -> void:

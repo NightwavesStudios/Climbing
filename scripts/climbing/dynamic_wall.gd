@@ -139,12 +139,11 @@ func _process(delta: float) -> void:
 	# Update weather blend every frame so draw methods always have current value
 	_weather_blend_current = _get_weather_blend()
 
-	# Use faster redraw when weather is active (rain, snow, etc. need smoother animation)
-	var weather_type: int = 0
-	if weather_modifier != null and is_instance_valid(weather_modifier):
-		weather_type = weather_modifier.get_weather()
-	var has_weather: bool = weather_type > 0
-	var interval: float = REDRAW_INTERVAL_FAST if has_weather else REDRAW_INTERVAL
+	# Background (sky, mountains, clouds, wall) stays at 12 fps regardless of weather.
+	# Weather effects (rain, snow) are drawn by the separate WeatherModifier node which
+	# handles its own redraw rate.  Pushing DynamicWall past 12 fps would be 2.5x more
+	# draw calls on a very expensive _draw() — the main cause of 60→30 fps drops.
+	var interval: float = REDRAW_INTERVAL
 
 	_redraw_timer += delta
 	if _redraw_timer < interval:
@@ -2073,23 +2072,36 @@ func _create_top_edge_holds() -> void:
 	for edge_idx in top_edge_indices:
 		if edge_idx>=control_points.size(): continue
 		var p1:=control_points[edge_idx]; var p2:=control_points[(edge_idx+1)%control_points.size()]
-		_create_top_hold_at((p1+p2)/2.0, p1.distance_to(p2))
+		_create_top_hold_at(p1, p2)
 
-func _create_top_hold_at(hold_position: Vector2, width: float) -> void:
+func _create_top_hold_at(p1: Vector2, p2: Vector2) -> void:
+	var width := p1.distance_to(p2)
+	var hold_position := (p1 + p2) / 2.0
 	var top_hold:=_TopEdgeHold.new()
 	top_hold.set_meta("is_top_edge_hold",true)
+	top_hold.edge_start = p1
+	top_hold.edge_end   = p2
 	top_hold.collision_layer=2; top_hold.collision_mask=0
 	top_hold.monitoring=false; top_hold.monitorable=true; top_hold.name="TopEdgeHold"
-	var shape:=RectangleShape2D.new(); shape.size=Vector2(width,50)
+	var shape:=RectangleShape2D.new(); shape.size=Vector2(width, 50)
 	var col:=CollisionShape2D.new(); col.shape=shape; top_hold.add_child(col)
 	var hp:=Marker2D.new(); hp.name="HoldPoint"; hp.position=Vector2.ZERO; top_hold.add_child(hp)
 	top_hold.global_position=hold_position; add_child(top_hold); top_hold.add_to_group("holds")
 
 class _TopEdgeHold extends Area2D:
+	var edge_start: Vector2 = Vector2.ZERO
+	var edge_end:   Vector2 = Vector2.ZERO
 	var claimed_left_hand:  Node2D = null
 	var claimed_right_hand: Node2D = null
 	var left_hand_x:  float = 0.0
 	var right_hand_x: float = 0.0
+	static func _edge_y_at_x(x: float, p1: Vector2, p2: Vector2) -> float:
+		## Interpolate the Y coordinate along the edge segment at the given X.
+		if absf(p2.x - p1.x) < 1.0:
+			return (p1.y + p2.y) * 0.5
+		var t := clampf((x - p1.x) / (p2.x - p1.x), 0.0, 1.0)
+		return p1.y + (p2.y - p1.y) * t
+
 	func is_start_hold() -> bool: return false
 	func is_top_out()    -> bool: return true
 	func is_crimp()      -> bool: return false
@@ -2106,10 +2118,13 @@ class _TopEdgeHold extends Area2D:
 		if limb.name=="LeftHand"   and claimed_left_hand==limb:   claimed_left_hand=null;  left_hand_x=0.0
 		elif limb.name=="RightHand" and claimed_right_hand==limb: claimed_right_hand=null; right_hand_x=0.0
 	func get_limb_anchor(limb: Node2D) -> Vector2:
-		var x:=left_hand_x if (limb.name=="LeftHand" and claimed_left_hand==limb) else right_hand_x if (limb.name=="RightHand" and claimed_right_hand==limb) else limb.global_position.x
-		return Vector2(x, global_position.y)
-	func get_state_pressure(delta: float, _bo: float, _st: float, _fs: float, _limb: Node2D) -> float: return 0.5*delta
-	func get_recovery_rate(delta: float, body_balance: float, _fs: float) -> float: return 3.0*delta*body_balance
+		var x := left_hand_x if (limb.name=="LeftHand" and claimed_left_hand==limb) else right_hand_x if (limb.name=="RightHand" and claimed_right_hand==limb) else limb.global_position.x
+		var ey := _edge_y_at_x(x, edge_start, edge_end)
+		return Vector2(x, ey)
+	func get_state_pressure(_delta: float, _bo: float, _st: float, _fs: float, _limb: Node2D) -> float:
+		return 0.0  # No stamina drain while holding the top edge
+	func get_recovery_rate(delta: float, _body_balance: float, _fs: float) -> float:
+		return 30.0 * delta  # Fast recovery back to zero
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PUBLIC API

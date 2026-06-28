@@ -15,7 +15,7 @@
 	],
 	"discipline": "speed",
 	"environment": "gym",
-	"grade": "5.6",
+	"grade": "5.7",
 	"holds": [
 		{
 			"type": "START",

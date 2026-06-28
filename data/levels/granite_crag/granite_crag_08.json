@@ -11,7 +11,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "granite",
-	"grade": "V4",
+	"grade": "V6",
 	"holds": [
 		{
 			"type": "START",
@@ -80,7 +80,7 @@
 			"y": -208.0
 		}
 	],
-	"name": "",
+	"name": "Crimping Spree",
 	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,

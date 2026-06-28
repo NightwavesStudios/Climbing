@@ -15,7 +15,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "V0",
+	"grade": "V1",
 	"holds": [
 		{
 			"type": "START",

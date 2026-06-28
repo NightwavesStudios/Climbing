@@ -21,6 +21,7 @@ var speed_timer: CanvasLayer = null
 var current_discipline: int = 0
 
 var level_complete_overlay: CanvasLayer = null
+var demo_finished_overlay: CanvasLayer = null
 
 const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
 const INSTRUCTIONS_SECTION  := "instructions"
@@ -203,27 +204,75 @@ func _set_player_input(enabled: bool) -> void:
 
 var POPUP_CONFIGS: Array = []
 
+## Maps level file names (e.g. "tutorial_01") to their popup config.
+## Only the EXACT match level shows the popup.
 func _build_popup_configs() -> void:
 	POPUP_CONFIGS = [
 		{
 			"image_path": "res://assets/images/popups/tutorial_popup.png",
-			"condition":  _popup_cond_first_launch,
-			"save_key":   "tutorial_popup",
+			"condition":  _popup_cond_controls,
+			"save_key":   "controls_popup",
+			"priority":   0,
+		},
+		{
+			"image_path": "res://assets/images/popups/stamina.png",
+			"condition":  _popup_cond_stamina,
+			"save_key":   "stamina_popup",
+			"priority":   0,
+		},
+		{
+			"image_path": "res://assets/images/popups/zoom.png",
+			"condition":  _popup_cond_zoom,
+			"save_key":   "zoom_popup",
+			"priority":   0,
+		},
+		{
+			"image_path": "res://assets/images/popups/falling-holds.png",
+			"condition":  _popup_cond_falling_holds,
+			"save_key":   "falling_holds_popup",
 			"priority":   0,
 		},
 		{
 			"image_path": "res://assets/images/popups/topping_out.png",
-			"condition":  _popup_cond_first_granite,
+			"condition":  _popup_cond_granite_topping_out,
 			"save_key":   "granite_topping_out_popup",
-			"priority":   10,
+			"priority":   0,
+		},
+		{
+			"image_path": "res://assets/images/popups/weather.png",
+			"condition":  _popup_cond_weather,
+			"save_key":   "weather_popup",
+			"priority":   0,
 		},
 	]
 
-static func _popup_cond_first_launch(_level_path: String) -> bool:
-	return true
+# ── Level-specific popup conditions ──────────────────────────────────────
+# Each returns true only when the loaded level matches the exact intended
+# level file so the popup only fires once at the right moment.
 
-static func _popup_cond_first_granite(level_path: String) -> bool:
-	return "granite_crag" in level_path
+## Gym, Level 1 — Controls (tutorial_popup.png)
+static func _popup_cond_controls(level_path: String) -> bool:
+	return level_path.ends_with("tutorial_01.json")
+
+## Gym, Level 3 — Stamina (stamina.png)
+static func _popup_cond_stamina(level_path: String) -> bool:
+	return level_path.ends_with("tutorial_03.json")
+
+## Gym, Level 4 — Zoom Out Guide (zoom.png)
+static func _popup_cond_zoom(level_path: String) -> bool:
+	return level_path.ends_with("tutorial_04.json")
+
+## Gym, Level 6 — Falling Holds (falling-holds.png)
+static func _popup_cond_falling_holds(level_path: String) -> bool:
+	return level_path.ends_with("tutorial_06.json")
+
+## Granite, Level 1 — Granite topping out (topping_out.png)
+static func _popup_cond_granite_topping_out(level_path: String) -> bool:
+	return level_path.ends_with("granite_crag_01.json")
+
+## Granite, Level 2 — Weather (weather.png)
+static func _popup_cond_weather(level_path: String) -> bool:
+	return level_path.ends_with("granite_crag_02.json")
 
 func _resolve_popup(level_path: String) -> Dictionary:
 	var cfg := ConfigFile.new()
@@ -329,6 +378,7 @@ func _ready():
 
 	_setup_skip_level()
 	_setup_level_complete_overlay()
+	_setup_demo_finished_overlay()
 	_setup_pause_menu()
 	_check_paths()
 
@@ -530,6 +580,7 @@ func _setup_level_complete_overlay() -> void:
 	level_complete_overlay.next_level_requested.connect(_on_next_level_requested)
 	level_complete_overlay.menu_requested.connect(_on_level_complete_menu_requested)
 	level_complete_overlay.restart_requested.connect(_on_level_complete_restart_requested)
+	level_complete_overlay.demo_finished.connect(_on_demo_finished)
 
 # =============================================================================
 #  LEVEL LOADING
@@ -925,6 +976,28 @@ func _on_level_complete_restart_requested() -> void:
 		pause_menu.pausing_enabled = true
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(true)
+
+# =============================================================================
+#  DEMO FINISHED OVERLAY
+# =============================================================================
+
+func _setup_demo_finished_overlay() -> void:
+	var scene := load("res://scenes/menus/demo_finished.tscn")
+	if not scene:
+		push_error("Could not load demo_finished.tscn")
+		return
+
+	demo_finished_overlay = scene.instantiate()
+	add_child(demo_finished_overlay)
+	demo_finished_overlay.menu_requested.connect(_on_level_complete_menu_requested)
+
+
+func _on_demo_finished() -> void:
+	"""Called when the level_completed overlay emits demo_finished (end of demo)."""
+	print("=== DEMO FINISHED ===")
+
+	if demo_finished_overlay:
+		demo_finished_overlay.show_overlay()
 
 # =============================================================================
 #  DISCIPLINE CLEANUP

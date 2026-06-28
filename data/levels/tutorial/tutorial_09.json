@@ -15,7 +15,7 @@
 	],
 	"discipline": "bouldering",
 	"environment": "gym",
-	"grade": "V3",
+	"grade": "V4",
 	"holds": [
 		{
 			"type": "START",
@@ -93,7 +93,7 @@
 			"y": -96.0
 		}
 	],
-	"name": "Unnamed Route",
+	"name": "Crimps and Slopers",
 	"speed_time_limit": 60.0,
 	"wall_polygon": {
 		"enabled": true,

@@ -1,0 +1,82 @@
+[gd_scene load_steps=3 format=3 uid="uid://c2x5yq20ejvlg"]
+
+[ext_resource type="Script" uid="uid://ccf58j81j45ip" path="res://scripts/ui/menus/demo_finished.gd" id="1_2e4gq"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_ac25j"]
+
+[node name="DemoFinished" type="CanvasLayer"]
+layer = 10
+script = ExtResource("1_2e4gq")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.65)
+
+[node name="Box" type="ColorRect" parent="."]
+offset_left = 340.0
+offset_top = 240.0
+offset_right = 940.0
+offset_bottom = 480.0
+color = Color(0.06, 0.06, 0.06, 0.95)
+
+[node name="VBox" type="VBoxContainer" parent="Box"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 20.0
+offset_right = -24.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Title" type="Label" parent="Box/VBox"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(0.95, 0.85, 0.4, 1)
+theme_override_font_sizes/font_size = 28
+text = "🎉  Demo Complete!"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Box/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.8, 0.85, 1)
+theme_override_font_sizes/font_size = 14
+text = "Thanks for playing the demo! Your feedback helps shape the full game."
+horizontal_alignment = 1
+
+[node name="WishlistButton" type="Button" parent="Box/VBox"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 16
+text = "Wishlist on Steam"
+script = ExtResource("2_ac25j")
+
+[node name="FeedbackButton" type="Button" parent="Box/VBox"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 16
+text = "Give Feedback"
+script = ExtResource("2_ac25j")
+
+[node name="DiscordButton" type="Button" parent="Box/VBox"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 16
+text = "Join our Discord"
+script = ExtResource("2_ac25j")
+
+[node name="MenuButton" type="Button" parent="Box/VBox"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 16
+text = "←  Back to Menu"
+script = ExtResource("2_ac25j")
+
+[connection signal="pressed" from="Box/VBox/WishlistButton" to="." method="_on_wishlist_pressed"]
+[connection signal="pressed" from="Box/VBox/FeedbackButton" to="." method="_on_feedback_pressed"]
+[connection signal="pressed" from="Box/VBox/DiscordButton" to="." method="_on_discord_pressed"]
+[connection signal="pressed" from="Box/VBox/MenuButton" to="." method="_on_menu_pressed"]

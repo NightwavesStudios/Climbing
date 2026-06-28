@@ -3,10 +3,15 @@ extends CanvasLayer
 signal next_level_requested(next_level_path: String)
 signal menu_requested
 signal restart_requested
+## Emitted when the player completes the last demo level (granite_crag_10).
+signal demo_finished
 
 @onready var next_button: Button = get_node_or_null("Control/NextButton")
 @onready var menu_button: Button = get_node_or_null("Control/MenuButton")
 @onready var restart_button: Button = get_node_or_null("Control/RestartButton")
+
+## Last collection accessible in the demo — levels beyond this are gated.
+const DEMO_END_COLLECTION := "granite-crag"
 
 var _completed_level_path: String = ""
 var _active_tweens: Array = []
@@ -21,8 +26,16 @@ func _get_next_destination(level_path: String) -> String:
 	if next_in_collection != "":
 		return next_in_collection
 
-	var collection_ids: Array = GameState.get_all_collection_ids()
+	# ── Demo boundary ──────────────────────────────────────────────────────────
+	# If we're at the last level of the demo-end collection, don't advance to
+	# the next collection. The demo_finished overlay will handle showing social
+	# buttons instead.
+	# ───────────────────────────────────────────────────────────────────────────
 	var current_col: String = GameState.get_current_collection()
+	if current_col == DEMO_END_COLLECTION:
+		return ""  # Demo complete — no further levels
+
+	var collection_ids: Array = GameState.get_all_collection_ids()
 	var current_col_index: int = collection_ids.find(current_col)
 
 	for i in range(current_col_index + 1, collection_ids.size()):
@@ -37,13 +50,25 @@ func _get_next_destination(level_path: String) -> String:
 func _is_last_in_collection(level_path: String) -> bool:
 	return GameState.get_next_level(level_path) == ""
 
+func _is_demo_end(level_path: String) -> bool:
+	"""True when the completed level is the last level of the demo-end collection."""
+	var current_col: String = GameState.get_current_collection()
+	return current_col == DEMO_END_COLLECTION and GameState.get_next_level(level_path) == ""
+
+
 func show_overlay(completed_level_path: String) -> void:
 	_completed_level_path = completed_level_path
 
 	var next_dest: String = _get_next_destination(_completed_level_path)
+	var is_demo_end := _is_demo_end(_completed_level_path)
 
 	if next_button:
-		if next_dest == "":
+		if is_demo_end:
+			# Demo complete — show a special button that transitions to demo_finished
+			next_button.visible = true
+			next_button.disabled = false
+			next_button.text = "🎉  Demo Complete"
+		elif next_dest == "":
 			next_button.visible = false
 			next_button.disabled = true
 		else:
@@ -110,6 +135,13 @@ func _set_buttons_disabled(disabled: bool) -> void:
 func _on_next_button_pressed() -> void:
 	var next_dest: String = _get_next_destination(_completed_level_path)
 	if next_dest == "":
+		# ── Demo end: show the demo_finished social overlay ──────────────────
+		if _is_demo_end(_completed_level_path):
+			_set_buttons_disabled(true)
+			await _fade_out_buttons()
+			demo_finished.emit()
+			return
+		# ──────────────────────────────────────────────────────────────────────
 		if next_button:
 			next_button.visible = false
 			next_button.disabled = true

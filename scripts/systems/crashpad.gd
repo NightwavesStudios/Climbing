@@ -68,6 +68,17 @@ func _do_landing(player: Node2D):
 
 	await get_tree().create_timer(landing_duration + 0.3).timeout
 
+	# ── Detect manual reset during the animation ───────────────────────────────
+	# If the player pressed R/Escape while the timer was running, reset_climb()
+	# already moved them back to spawn — far from the crashpad. Don't call
+	# on_player_fell() again, otherwise the player gets double-reset and the
+	# crashpad re-arms (triggered = false), letting it fire again when the
+	# player inevitably falls back through from spawn.
+	if global_position.distance_to(player.global_position) > 200.0:
+		_triggered = false
+		return
+	# ────────────────────────────────────────────────────────────────────────────
+
 	# ── Guard again after the timer — a level transition may have started ──────
 	if "grab_initialized" in player and not player._grab_initialized:
 		await get_tree().process_frame
