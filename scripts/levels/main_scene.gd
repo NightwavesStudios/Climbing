@@ -378,7 +378,7 @@ func _mark_level_skipped(level_path: String) -> void:
 
 	# Track per-environment skip limit
 	var env := _get_env_from_path(level_path)
-	var env_count := cfg.get_value("env_skips", env, 0)
+	var env_count = cfg.get_value("env_skips", env, 0)
 	cfg.set_value("env_skips", env, env_count + 1)
 	print("  [Skip] Environment '%s' skips: %d / %d" % [env, env_count + 1, MAX_SKIPS_PER_ENV])
 
