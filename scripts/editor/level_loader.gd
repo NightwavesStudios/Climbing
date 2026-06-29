@@ -389,13 +389,6 @@ func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 				print("  [_attach_modifiers] Wrapper root — targeting child Area2D: %s" % child.name)
 				break
 
-	const MODIFIERS_PATH := "res://scripts/climbing/hold_modifiers.gd"
-	var modifiers_script = load(MODIFIERS_PATH) if ResourceLoader.exists(MODIFIERS_PATH) else null
-
-	if modifiers_script == null:
-		push_error("LevelLoader: hold_modifiers.gd not found at: %s" % MODIFIERS_PATH)
-		return
-
 	for mod_data in modifiers_data:
 		if not mod_data is Dictionary:
 			print("  [_attach_modifiers] Skipping non-Dictionary entry: ", mod_data)
@@ -408,7 +401,7 @@ func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 
 		match type_key:
 			"falling":
-				modifier = modifiers_script.FallingHoldModifier.new()
+				modifier = FallingHoldModifier.new()
 			_:
 				var registry := get_node_or_null("/root/HoldModifierRegistry")
 				if registry:

@@ -1539,65 +1539,33 @@ func get_blend() -> float:
 func get_weather() -> int:
 	return weather
 
-func get_rain_sky_override() -> Dictionary:
-	return {
-		"sky_top":      rain_sky_top,      "sky_horizon":  rain_sky_horizon,
-		"cloud_color":  rain_cloud_color,  "cloud_shadow": rain_cloud_shadow,
-		"fog_color":    rain_fog_color,
-	}
-
-func get_night_sky_override() -> Dictionary:
-	return {
-		"sky_top":      night_sky_top,      "sky_horizon":  night_sky_horizon,
-		"cloud_color":  night_cloud_color,  "cloud_shadow": night_cloud_shadow,
-		"fog_color":    night_fog_color,
-	}
-
-func get_snow_sky_override() -> Dictionary:
-	return {
-		"sky_top":      snow_sky_top,      "sky_horizon":  snow_sky_horizon,
-		"cloud_color":  snow_cloud_color,  "cloud_shadow": snow_cloud_shadow,
-		"fog_color":    snow_fog_color,
-	}
-
-func get_lightning_sky_override() -> Dictionary:
-	return {
-		"sky_top":      lightning_sky_top,      "sky_horizon":  lightning_sky_horizon,
-		"cloud_color":  lightning_cloud_color,  "cloud_shadow": lightning_cloud_shadow,
-		"fog_color":    lightning_fog_color,
-	}
-
-func get_fog_sky_override() -> Dictionary:
-	return {
-		"sky_top":      fog_sky_top,      "sky_horizon":  fog_sky_horizon,
-		"cloud_color":  fog_cloud_color,  "cloud_shadow": fog_cloud_shadow,
-		"fog_color":    fog_fog_color,
-	}
-
-func get_hail_sky_override() -> Dictionary:
-	return {
-		"sky_top":      hail_sky_top,      "sky_horizon":  hail_sky_horizon,
-		"cloud_color":  hail_cloud_color,  "cloud_shadow": hail_cloud_shadow,
-		"fog_color":    hail_fog_color,
-	}
-
-func get_sandstorm_sky_override() -> Dictionary:
-	return {
-		"sky_top":      sandstorm_sky_top,      "sky_horizon":  sandstorm_sky_horizon,
-		"cloud_color":  sandstorm_cloud_color,  "cloud_shadow": sandstorm_cloud_shadow,
-		"fog_color":    sandstorm_fog_sky,
-	}
-
 func get_active_sky_override() -> Dictionary:
+	## Returns the sky colour overrides for the current weather type.
+	## Each weather type stores its sky colours in a member dict keyed by weather type.
 	match weather:
-		WeatherType.RAIN:      return get_rain_sky_override()
-		WeatherType.NIGHT:     return get_night_sky_override()
-		WeatherType.SNOW:      return get_snow_sky_override()
-		WeatherType.LIGHTNING: return get_lightning_sky_override()
-		WeatherType.FOG:       return get_fog_sky_override()
-		WeatherType.HAIL:      return get_hail_sky_override()
-		WeatherType.SANDSTORM: return get_sandstorm_sky_override()
-		_:                     return {}
+		WeatherType.RAIN:
+			return _build_sky_dict(rain_sky_top, rain_sky_horizon, rain_cloud_color, rain_cloud_shadow, rain_fog_color)
+		WeatherType.NIGHT:
+			return _build_sky_dict(night_sky_top, night_sky_horizon, night_cloud_color, night_cloud_shadow, night_fog_color)
+		WeatherType.SNOW:
+			return _build_sky_dict(snow_sky_top, snow_sky_horizon, snow_cloud_color, snow_cloud_shadow, snow_fog_color)
+		WeatherType.LIGHTNING:
+			return _build_sky_dict(lightning_sky_top, lightning_sky_horizon, lightning_cloud_color, lightning_cloud_shadow, lightning_fog_color)
+		WeatherType.FOG:
+			return _build_sky_dict(fog_sky_top, fog_sky_horizon, fog_cloud_color, fog_cloud_shadow, fog_fog_color)
+		WeatherType.HAIL:
+			return _build_sky_dict(hail_sky_top, hail_sky_horizon, hail_cloud_color, hail_cloud_shadow, hail_fog_color)
+		WeatherType.SANDSTORM:
+			return _build_sky_dict(sandstorm_sky_top, sandstorm_sky_horizon, sandstorm_cloud_color, sandstorm_cloud_shadow, sandstorm_fog_sky)
+		_:
+			return {}
+
+static func _build_sky_dict(sky_top: Color, sky_horizon: Color, cloud_color: Color, cloud_shadow: Color, fog_color: Color) -> Dictionary:
+	return {
+		"sky_top": sky_top, "sky_horizon": sky_horizon,
+		"cloud_color": cloud_color, "cloud_shadow": cloud_shadow,
+		"fog_color": fog_color,
+	}
 
 func get_hold_friction_modifier() -> float:
 	match weather:

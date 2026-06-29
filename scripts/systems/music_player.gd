@@ -11,7 +11,7 @@ const TRACKS: Array[String] = [
 ]
 
 ## Duration of the crossfade transition (seconds).
-const CROSSFADE_DURATION := 3.0
+const CROSSFADE_DURATION := 0
 ## Brief natural pause between tracks before the crossfade starts (seconds).
 const BREATH_GAP := 1.5
 ## How many past tracks to remember (avoids immediate repeats).

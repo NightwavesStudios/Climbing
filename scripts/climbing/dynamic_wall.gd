@@ -342,190 +342,7 @@ func update_environment_settings() -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _apply_environment_theme() -> void:
-	_env.clear()  # ensure no stale keys from previous environment
-	match current_environment:
-		"granite", "night": _apply_granite_theme()
-		"sandstone":        _apply_sandstone_theme()
-		"ice":              _apply_ice_theme()
-		"menu_sunset":      _apply_menu_sunset_theme()
-		"gym":              _apply_gym_theme()
-		"deep water solo":  _apply_deep_water_theme()
-		"building":         _apply_building_theme()
-		_:                  _apply_default_theme()
-
-func _tod(seed_xor: int) -> int:
-	return (abs((_scenery_seed ^ seed_xor) * 1664525 + 1013904223) >> 7) % 3
-
-func _apply_granite_theme() -> void:
-	match _tod(0x9E3779B9):
-		1: _env = {
-				"sky_top": Color(0.12,0.10,0.32), "sky_horizon": Color(1.0,0.62,0.22),
-				"cloud_color": Color(1.0,0.65,0.40,1.0), "cloud_shadow": Color(0.65,0.25,0.12),
-				"has_sun": true, "sun_color": Color(1.0,0.65,0.15), "has_mountains": true,
-				"ground_type": "grass_dusk",
-				"ground_top": Color(0.14,0.22,0.10), "ground_mid": Color(0.24,0.16,0.08), "ground_deep": Color(0.16,0.10,0.06),
-				"ground_detail": "rocks", "fog_color": Color(0.90,0.45,0.15,0.10),
-				"mtn_colors": [Color(0.62,0.38,0.52),Color(0.44,0.24,0.36),Color(0.28,0.14,0.22),Color(0.18,0.08,0.14)],
-			}
-		2: _env = {
-				"sky_top": Color(0.02,0.02,0.08), "sky_horizon": Color(0.06,0.08,0.18),
-				"cloud_color": Color(0.22,0.25,0.38,0.7), "cloud_shadow": Color(0.10,0.12,0.20),
-				"has_sun": false, "has_moon": true, "has_stars": true, "has_mountains": true,
-				"ground_type": "grass_night",
-				"ground_top": Color(0.08,0.14,0.07), "ground_mid": Color(0.12,0.10,0.08), "ground_deep": Color(0.07,0.06,0.05),
-				"ground_detail": "rocks", "fog_color": Color(0.05,0.06,0.15,0.12),
-			}
-		_: _env = {
-				"sky_top": Color(0.20,0.45,0.78), "sky_horizon": Color(0.72,0.85,0.95),
-				"cloud_color": Color(1.0,1.0,1.0,1.0), "cloud_shadow": Color(0.75,0.82,0.90),
-				"has_sun": true, "sun_color": Color(1.0,0.96,0.78), "has_mountains": true,
-				"ground_type": "grass",
-				"ground_top": Color(0.22,0.52,0.14), "ground_mid": Color(0.38,0.28,0.16), "ground_deep": Color(0.28,0.20,0.10),
-				"ground_detail": "rocks", "fog_color": Color(0.65,0.80,0.95,0.0),
-			}
-
-func _apply_sandstone_theme() -> void:
-	match _tod(0x4E2A9F3B):
-		1: _env = {
-				"sky_top": Color(0.14,0.09,0.22), "sky_horizon": Color(0.96,0.46,0.12),
-				"cloud_color": Color(1.0,0.60,0.28,0.9), "cloud_shadow": Color(0.68,0.28,0.10),
-				"has_sun": false, "has_mountains": true, "ground_type": "sand_dusk",
-				"ground_top": Color(0.72,0.44,0.18), "ground_mid": Color(0.54,0.30,0.10), "ground_deep": Color(0.36,0.18,0.06),
-				"fog_color": Color(0.88,0.42,0.12,0.10), "has_sand_wind": true,
-			}
-		2: _env = {
-				"sky_top": Color(0.03,0.03,0.10), "sky_horizon": Color(0.10,0.10,0.22),
-				"cloud_color": Color(0.18,0.20,0.32,0.55), "cloud_shadow": Color(0.08,0.08,0.18),
-				"has_sun": false, "has_moon": true, "has_stars": true, "has_mountains": true,
-				"ground_type": "sand_night",
-				"ground_top": Color(0.44,0.28,0.10), "ground_mid": Color(0.28,0.16,0.06), "ground_deep": Color(0.16,0.09,0.03),
-				"fog_color": Color(0.06,0.06,0.16,0.10), "has_sand_wind": false,
-			}
-		_: _env = {
-				"sky_top": Color(0.48,0.32,0.14), "sky_horizon": Color(0.88,0.70,0.40),
-				"cloud_color": Color(1.0,0.92,0.78,0.70), "cloud_shadow": Color(0.80,0.64,0.40),
-				"has_sun": true, "sun_color": Color(1.0,0.88,0.54), "has_mountains": true,
-				"ground_type": "sand",
-				"ground_top": Color(0.82,0.62,0.32), "ground_mid": Color(0.62,0.40,0.16), "ground_deep": Color(0.42,0.24,0.08),
-				"fog_color": Color(0.90,0.72,0.40,0.07), "has_sand_wind": true,
-			}
-
-func _apply_ice_theme() -> void:
-	match (abs((_scenery_seed ^ 0xC7D3E1F2) * 22695477 + 1) >> 9) % 3:
-		1: _env = {
-				"sky_top": Color(0.18,0.10,0.30), "sky_horizon": Color(0.94,0.44,0.52),
-				"cloud_color": Color(1.0,0.62,0.70,0.85), "cloud_shadow": Color(0.60,0.22,0.38),
-				"has_sun": false, "has_mountains": true, "ground_type": "ice_snow",
-				"ground_top": Color(0.78,0.84,0.90), "ground_mid": Color(0.60,0.70,0.80), "ground_deep": Color(0.38,0.48,0.62),
-				"ground_detail": "snow", "fog_color": Color(0.80,0.60,0.70,0.08),
-				"has_ice_sheen": true, "ice_sheen_color": Color(0.94,0.72,0.82),
-			}
-		2: _env = {
-				"sky_top": Color(0.02,0.03,0.10), "sky_horizon": Color(0.06,0.10,0.24),
-				"cloud_color": Color(0.12,0.16,0.30,0.65), "cloud_shadow": Color(0.04,0.06,0.14),
-				"has_sun": false, "has_moon": true, "has_stars": true, "has_mountains": true,
-				"ground_type": "ice_snow",
-				"ground_top": Color(0.56,0.66,0.80), "ground_mid": Color(0.34,0.44,0.60), "ground_deep": Color(0.16,0.22,0.38),
-				"ground_detail": "snow", "fog_color": Color(0.04,0.06,0.18,0.14),
-				"has_ice_sheen": true, "ice_sheen_color": Color(0.40,0.58,0.90),
-			}
-		_: _env = {
-				"sky_top": Color(0.12,0.36,0.72), "sky_horizon": Color(0.70,0.88,0.98),
-				"cloud_color": Color(1.0,1.0,1.0,0.92), "cloud_shadow": Color(0.76,0.84,0.94),
-				"has_sun": true, "sun_color": Color(1.0,0.98,0.90), "has_mountains": true,
-				"ground_type": "ice_snow",
-				"ground_top": Color(0.90,0.94,0.98), "ground_mid": Color(0.70,0.80,0.92), "ground_deep": Color(0.46,0.60,0.78),
-				"ground_detail": "snow", "fog_color": Color(0.72,0.88,0.98,0.05),
-				"has_ice_sheen": true, "ice_sheen_color": Color(0.82,0.94,1.00),
-			}
-
-func _apply_menu_sunset_theme() -> void:
-	_env = {
-		"sky_top": Color(0.88,0.55,0.75), "sky_horizon": Color(0.98,0.72,0.48),
-		"cloud_color": Color(1.0,0.85,0.92,0.8), "cloud_shadow": Color(0.6,0.38,0.65,0.5),
-		"has_sun": true, "sun_color": Color(1.0,0.82,0.55), "has_mountains": true,
-		"fog_color": Color(0.95,0.68,0.82,0.18),
-		"ground_type": "grass_dusk",
-		"ground_top": Color(0.45,0.38,0.42), "ground_mid": Color(0.38,0.32,0.35), "ground_deep": Color(0.28,0.24,0.30),
-		"ground_detail": "rocks",
-	}
-
-func _apply_gym_theme() -> void:
-	var tod: int = (abs((_scenery_seed ^ 0x6B43FA1D) * 22695477 + 1) >> 9) % 3
-	var base := {
-		"sky_top": Color(0.96,0.96,0.97), "sky_horizon": Color(0.92,0.92,0.93),
-		"cloud_color": Color(1.0,1.0,1.0,0.0), "has_sun": false, "has_mountains": false,
-		"has_gym_interior": true, "gym_time_of_day": tod,
-		"ground_type": "gym_floor",
-		"ground_top": Color(0.22,0.22,0.24), "ground_mid": Color(0.16,0.16,0.18), "ground_deep": Color(0.11,0.11,0.12),
-	}
-	match tod:
-		1: base.merge({
-				"gym_sky_top": Color(0.12,0.10,0.32), "gym_sky_mid": Color(0.72,0.28,0.12), "gym_sky_haze": Color(0.98,0.52,0.18),
-				"gym_sun_color": Color(1.0,0.55,0.10),
-				"gym_mtn_colors": [Color(0.58,0.35,0.28),Color(0.42,0.22,0.18),Color(0.28,0.14,0.12),Color(0.16,0.08,0.08)],
-				"gym_grass_color": Color(0.14,0.22,0.10),
-			})
-		2: base.merge({
-				"gym_sky_top": Color(0.02,0.02,0.08), "gym_sky_mid": Color(0.04,0.06,0.14), "gym_sky_haze": Color(0.06,0.08,0.20),
-				"gym_sun_color": Color.TRANSPARENT,
-				"gym_mtn_colors": [Color(0.14,0.16,0.22),Color(0.10,0.12,0.18),Color(0.06,0.08,0.13),Color(0.03,0.04,0.08)],
-				"gym_grass_color": Color(0.08,0.14,0.07), "has_gym_stars": true, "has_gym_moon": true,
-			})
-		_: base.merge({
-				"gym_sky_top": Color(0.10,0.28,0.65), "gym_sky_mid": Color(0.30,0.58,0.88), "gym_sky_haze": Color(0.82,0.90,0.97),
-				"gym_sun_color": Color(1.0,0.96,0.78),
-				"gym_mtn_colors": [Color(0.72,0.82,0.91),Color(0.54,0.67,0.80),Color(0.38,0.52,0.66),Color(0.24,0.38,0.53)],
-				"gym_grass_color": Color(0.18,0.26,0.19),
-			})
-	_env = base
-
-func _apply_deep_water_theme() -> void:
-	_env = {
-		"sky_top": Color(0.18,0.42,0.72), "sky_horizon": Color(0.60,0.82,0.94),
-		"cloud_color": Color(1.0,1.0,1.0,0.85), "cloud_shadow": Color(0.72,0.84,0.92),
-		"has_sun": true, "sun_color": Color(1.0,0.95,0.75), "has_mountains": false,
-		"has_water": true, "ground_type": "water",
-		"ground_top": Color(0.04,0.22,0.44), "ground_mid": Color(0.02,0.14,0.30), "ground_deep": Color(0.01,0.08,0.18),
-		"fog_color": Color(0.50,0.75,0.90,0.06), "has_sea_cliffs": true,
-	}
-
-func _apply_building_theme() -> void:
-	match _tod(0x3F7A2B1C):
-		1: _env = {
-				"sky_top": Color(0.06,0.05,0.14), "sky_horizon": Color(0.72,0.28,0.10),
-				"cloud_color": Color(1.0,0.55,0.25,0.70), "cloud_shadow": Color(0.55,0.20,0.10),
-				"has_sun": false, "has_moon": false, "has_mountains": false, "has_city": true, "city_time": 1,
-				"ground_type": "city_street",
-				"ground_top": Color(0.22,0.18,0.14), "ground_mid": Color(0.16,0.13,0.10), "ground_deep": Color(0.11,0.09,0.07),
-				"fog_color": Color(0.60,0.25,0.08,0.08),
-			}
-		2: _env = {
-				"sky_top": Color(0.02,0.02,0.07), "sky_horizon": Color(0.05,0.06,0.14),
-				"cloud_color": Color(0.20,0.22,0.35,0.60), "cloud_shadow": Color(0.08,0.10,0.20),
-				"has_sun": false, "has_moon": true, "has_stars": true, "has_mountains": false, "has_city": true, "city_time": 2,
-				"ground_type": "city_street",
-				"ground_top": Color(0.14,0.14,0.16), "ground_mid": Color(0.10,0.10,0.12), "ground_deep": Color(0.06,0.06,0.08),
-				"fog_color": Color(0.04,0.05,0.12,0.10),
-			}
-		_: _env = {
-				"sky_top": Color(0.16,0.38,0.70), "sky_horizon": Color(0.62,0.78,0.94),
-				"cloud_color": Color(1.0,1.0,1.0,0.90), "cloud_shadow": Color(0.76,0.84,0.92),
-				"has_sun": true, "sun_color": Color(1.0,0.96,0.78), "has_mountains": false, "has_city": true, "city_time": 0,
-				"ground_type": "city_street",
-				"ground_top": Color(0.28,0.28,0.30), "ground_mid": Color(0.20,0.20,0.22), "ground_deep": Color(0.13,0.13,0.14),
-				"fog_color": Color(0.60,0.76,0.94,0.04),
-			}
-
-func _apply_default_theme() -> void:
-	_env = {
-		"sky_top": background_color.darkened(0.25), "sky_horizon": background_color.lightened(0.15),
-		"cloud_color": Color(1.0,1.0,1.0,1.0), "cloud_shadow": Color(0.78,0.84,0.92),
-		"has_sun": true, "sun_color": Color(1.0,0.95,0.70), "has_mountains": true,
-		"ground_type": "grass",
-		"ground_top": Color(0.22,0.52,0.14), "ground_mid": Color(0.38,0.28,0.16), "ground_deep": Color(0.28,0.20,0.10),
-		"ground_detail": "rocks", "fog_color": Color(0.0,0.0,0.0,0.0),
-	}
+	_env = WallEnvironmentTheme.apply_for_environment(current_environment, _scenery_seed, _env)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # INPUT (editor only)
@@ -2091,54 +1908,27 @@ func _create_top_edge_holds() -> void:
 func _create_top_hold_at(p1: Vector2, p2: Vector2) -> void:
 	var width := p1.distance_to(p2)
 	var hold_position := (p1 + p2) / 2.0
-	var top_hold:=_TopEdgeHold.new()
-	top_hold.set_meta("is_top_edge_hold",true)
+	var top_hold := TopEdgeHold.new()
+	top_hold.set_meta("is_top_edge_hold", true)
 	top_hold.edge_start = p1
 	top_hold.edge_end   = p2
-	top_hold.collision_layer=2; top_hold.collision_mask=0
-	top_hold.monitoring=false; top_hold.monitorable=true; top_hold.name="TopEdgeHold"
-	var shape:=RectangleShape2D.new(); shape.size=Vector2(width, 50)
-	var col:=CollisionShape2D.new(); col.shape=shape; top_hold.add_child(col)
-	var hp:=Marker2D.new(); hp.name="HoldPoint"; hp.position=Vector2.ZERO; top_hold.add_child(hp)
-	top_hold.global_position=hold_position; add_child(top_hold); top_hold.add_to_group("holds")
-
-class _TopEdgeHold extends Area2D:
-	var edge_start: Vector2 = Vector2.ZERO
-	var edge_end:   Vector2 = Vector2.ZERO
-	var claimed_left_hand:  Node2D = null
-	var claimed_right_hand: Node2D = null
-	var left_hand_x:  float = 0.0
-	var right_hand_x: float = 0.0
-	static func _edge_y_at_x(x: float, p1: Vector2, p2: Vector2) -> float:
-		## Interpolate the Y coordinate along the edge segment at the given X.
-		if absf(p2.x - p1.x) < 1.0:
-			return (p1.y + p2.y) * 0.5
-		var t := clampf((x - p1.x) / (p2.x - p1.x), 0.0, 1.0)
-		return p1.y + (p2.y - p1.y) * t
-
-	func is_start_hold() -> bool: return false
-	func is_top_out()    -> bool: return true
-	func is_crimp()      -> bool: return false
-	func is_sloper()     -> bool: return false
-	func is_pocket()     -> bool: return false
-	func is_foothold()   -> bool: return false
-	func can_grab(_limb: Node2D, is_foot: bool) -> bool: return not is_foot
-	func try_claim(limb: Node2D, is_foot: bool, snap_pos: Vector2) -> bool:
-		if not can_grab(limb,is_foot): return false
-		if limb.name=="LeftHand":  claimed_left_hand=limb;  left_hand_x=snap_pos.x
-		elif limb.name=="RightHand": claimed_right_hand=limb; right_hand_x=snap_pos.x
-		return true
-	func release(limb: Node2D) -> void:
-		if limb.name=="LeftHand"   and claimed_left_hand==limb:   claimed_left_hand=null;  left_hand_x=0.0
-		elif limb.name=="RightHand" and claimed_right_hand==limb: claimed_right_hand=null; right_hand_x=0.0
-	func get_limb_anchor(limb: Node2D) -> Vector2:
-		var x := left_hand_x if (limb.name=="LeftHand" and claimed_left_hand==limb) else right_hand_x if (limb.name=="RightHand" and claimed_right_hand==limb) else limb.global_position.x
-		var ey := _edge_y_at_x(x, edge_start, edge_end)
-		return Vector2(x, ey)
-	func get_state_pressure(_delta: float, _bo: float, _st: float, _fs: float, _limb: Node2D) -> float:
-		return 0.0  # No stamina drain while holding the top edge
-	func get_recovery_rate(delta: float, _body_balance: float, _fs: float) -> float:
-		return 30.0 * delta  # Fast recovery back to zero
+	top_hold.collision_layer = 2
+	top_hold.collision_mask = 0
+	top_hold.monitoring = false
+	top_hold.monitorable = true
+	top_hold.name = "TopEdgeHold"
+	var shape := RectangleShape2D.new()
+	shape.size = Vector2(width, 50)
+	var col := CollisionShape2D.new()
+	col.shape = shape
+	top_hold.add_child(col)
+	var hp := Marker2D.new()
+	hp.name = "HoldPoint"
+	hp.position = Vector2.ZERO
+	top_hold.add_child(hp)
+	top_hold.global_position = hold_position
+	add_child(top_hold)
+	top_hold.add_to_group("holds")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PUBLIC API

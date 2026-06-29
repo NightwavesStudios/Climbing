@@ -903,7 +903,8 @@ func _sync_modifier_component(hold: Node2D, data: Dictionary):
 func _attach_falling_modifier(hold: Node2D, data: Dictionary):
 	# Remove stale component first
 	var old = hold.get_node_or_null(_FALLING_MOD_NODE_NAME)
-	if old: old.queue_free()
+	if old:
+		old.queue_free()
 
 	# If the hold's own script already handles falling via registry, skip.
 	if hold.has_method("apply_modifier") and hold.has_method("has_modifier"):
@@ -911,61 +912,17 @@ func _attach_falling_modifier(hold: Node2D, data: Dictionary):
 			hold.apply_modifier(data)
 		return
 
-	var src := """
-extends Node
-
-var fall_delay   : float = 2.2
-var fall_gravity : float = 1800.0
-
-var _timer    : float = 0.0
-var _falling  : bool  = false
-var _vel_y    : float = 0.0
-var _origin   : Vector2
-var _grabbed  : bool  = false
-
-func _ready():
-	_origin = get_parent().global_position
-	var p = get_parent()
-	if p.has_signal("grabbed"):
-		p.grabbed.connect(_on_grabbed)
-	elif p.has_signal("hold_grabbed"):
-		p.hold_grabbed.connect(_on_grabbed)
-	_timer = fall_delay
-
-func _on_grabbed():
-	_grabbed = true
-
-func reset():
-	_falling = false
-	_vel_y   = 0.0
-	_timer   = fall_delay
-	_grabbed = false
-	get_parent().global_position = _origin
-
-func _physics_process(delta: float):
-	var p = get_parent()
-	if not is_instance_valid(p): return
-	if _falling:
-		_vel_y += fall_gravity * delta
-		p.global_position.y += _vel_y * delta
-		if p.global_position.y > 3000.0:
-			reset()
+	var script = load("res://scripts/editor/editor_falling_modifier.gd")
+	if script == null:
+		push_error("level_editor: Could not load editor_falling_modifier.gd")
 		return
-	if _grabbed:
-		_timer -= delta
-		if _timer <= 0.0:
-			_falling = true
-"""
-
-	var script = GDScript.new()
-	script.source_code = src
 
 	var comp = Node.new()
 	comp.name = _FALLING_MOD_NODE_NAME
 	comp.set_script(script)
 	hold.add_child(comp)
-	if "fall_delay"   in comp: comp.fall_delay   = float(data.get("fall_delay",   2.2))
-	if "fall_gravity" in comp: comp.fall_gravity = float(data.get("fall_gravity", 1800.0))
+	comp.fall_delay   = float(data.get("fall_delay",   2.2))
+	comp.fall_gravity = float(data.get("fall_gravity", 1800.0))
 
 
 # ═══════════════════════════════════════════════════════════════════════════

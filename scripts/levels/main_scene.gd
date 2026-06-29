@@ -22,9 +22,7 @@ var current_discipline: int = 0
 var level_complete_overlay: CanvasLayer = null
 var demo_finished_overlay: CanvasLayer = null
 
-const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
-const INSTRUCTIONS_SECTION  := "instructions"
-const INSTRUCTIONS_KEY      := "shown"
+var _popup_manager: PopupManager = null
 
 # =============================================================================
 #  ROUTE PREVIEW CAMERA
@@ -196,123 +194,11 @@ func _set_player_input(enabled: bool) -> void:
 #  POPUP SYSTEM
 # =============================================================================
 
-var POPUP_CONFIGS: Array = []
-
 ## Maps level file names (e.g. "tutorial_01") to their popup config.
 ## Only the EXACT match level shows the popup.
 func _build_popup_configs() -> void:
-	POPUP_CONFIGS = [
-		{
-			"image_path": "res://assets/images/popups/tutorial_popup.png",
-			"condition":  _popup_cond_controls,
-			"save_key":   "controls_popup",
-			"priority":   0,
-		},
-		{
-			"image_path": "res://assets/images/popups/stamina.png",
-			"condition":  _popup_cond_stamina,
-			"save_key":   "stamina_popup",
-			"priority":   0,
-		},
-		{
-			"image_path": "res://assets/images/popups/zoom.png",
-			"condition":  _popup_cond_zoom,
-			"save_key":   "zoom_popup",
-			"priority":   0,
-		},
-		{
-			"image_path": "res://assets/images/popups/falling-holds.png",
-			"condition":  _popup_cond_falling_holds,
-			"save_key":   "falling_holds_popup",
-			"priority":   0,
-		},
-		{
-			"image_path": "res://assets/images/popups/topping_out.png",
-			"condition":  _popup_cond_granite_topping_out,
-			"save_key":   "granite_topping_out_popup",
-			"priority":   0,
-		},
-		{
-			"image_path": "res://assets/images/popups/weather.png",
-			"condition":  _popup_cond_weather,
-			"save_key":   "weather_popup",
-			"priority":   0,
-		},
-	]
-
-# ── Level-specific popup conditions ──────────────────────────────────────
-# Each returns true only when the loaded level matches the exact intended
-# level file so the popup only fires once at the right moment.
-
-## Gym, Level 1 — Controls (tutorial_popup.png)
-static func _popup_cond_controls(level_path: String) -> bool:
-	return level_path.ends_with("tutorial_01.json")
-
-## Gym, Level 3 — Stamina (stamina.png)
-static func _popup_cond_stamina(level_path: String) -> bool:
-	return level_path.ends_with("tutorial_03.json")
-
-## Gym, Level 4 — Zoom Out Guide (zoom.png)
-static func _popup_cond_zoom(level_path: String) -> bool:
-	return level_path.ends_with("tutorial_04.json")
-
-## Gym, Level 6 — Falling Holds (falling-holds.png)
-static func _popup_cond_falling_holds(level_path: String) -> bool:
-	return level_path.ends_with("tutorial_06.json")
-
-## Granite, Level 1 — Granite topping out (topping_out.png)
-static func _popup_cond_granite_topping_out(level_path: String) -> bool:
-	return level_path.ends_with("granite_crag_01.json")
-
-## Granite, Level 2 — Weather (weather.png)
-static func _popup_cond_weather(level_path: String) -> bool:
-	return level_path.ends_with("granite_crag_02.json")
-
-func _resolve_popup(level_path: String) -> Dictionary:
-	var cfg := ConfigFile.new()
-	cfg.load(INSTRUCTIONS_SAVE_PATH)
-
-	var best: Dictionary = {}
-	for entry in POPUP_CONFIGS:
-		var key: String = entry["save_key"]
-		if cfg.get_value("popups", key, false):
-			continue
-		if entry["condition"].call(level_path):
-			if best.is_empty() or entry["priority"] > best["priority"]:
-				best = entry
-	return best
-
-func show_popup_image(image_path: String) -> void:
-	if not instructions or not instructions_root:
-		push_error("show_popup_image: Instructions nodes are null!")
-		return
-
-	if popup_sprite == null:
-		push_error("show_popup_image: popup_sprite ($Instructions/Sprite2D) is null")
-	else:
-		var tex = load(image_path) as Texture2D
-		if tex:
-			popup_sprite.texture = tex
-			print("  [Popup] Sprite2D texture set to: ", image_path)
-		else:
-			push_error("show_popup_image: Failed to load texture: " + image_path)
-
-	instructions.process_mode = PROCESS_MODE_INHERIT
-	instructions_root.modulate.a = 0.0
-	instructions_root.scale = Vector2(0.92, 0.92)
-	instructions.show()
-	instructions_root.show()
-
-	var tween = create_tween().set_parallel(true)
-	tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
-	tween.tween_property(instructions_root, "modulate:a", 1.0, 0.45)
-	tween.tween_property(instructions_root, "scale", Vector2.ONE, 0.4)
-
-func _mark_popup_seen(save_key: String) -> void:
-	var cfg := ConfigFile.new()
-	cfg.load(INSTRUCTIONS_SAVE_PATH)
-	cfg.set_value("popups", save_key, true)
-	cfg.save(INSTRUCTIONS_SAVE_PATH)
+	# PopupManager is initialized in _ready() after nodes are available.
+	pass
 
 # =============================================================================
 #  PATH CHECK (dev helper)
@@ -353,7 +239,7 @@ func _ready():
 	if has_node("/root/MenuBackgroundManager"):
 		MenuBackgroundManager.hide()
 
-	_build_popup_configs()
+	_popup_manager = PopupManager.new(instructions, instructions_root, popup_sprite)
 	add_to_group("main_scene")
 
 	if instructions_root:
@@ -361,7 +247,7 @@ func _ready():
 
 	# The popup instructions are hidden by default — don't waste
 	# CPU running their internal Button._process every frame.
-	instructions.process_mode = PROCESS_MODE_DISABLED
+	instructions.process_mode = Node.PROCESS_MODE_DISABLED
 
 	_setup_level_complete_overlay()
 	_setup_demo_finished_overlay()
@@ -369,10 +255,10 @@ func _ready():
 	_check_paths()
 
 	# Connect to the unified Transition autoload
-	var tr := get_node_or_null("/root/Transition")
-	if tr:
-		tr.transition_started.connect(_on_transition_started)
-		tr.transition_finished.connect(_on_transition_finished)
+	var transition_manager := get_node_or_null("/root/Transition")
+	if transition_manager:
+		transition_manager.transition_started.connect(_on_transition_started)
+		transition_manager.transition_finished.connect(_on_transition_finished)
 
 	var initial_level = _get_initial_level()
 	print("Initial level to load: ", initial_level)
@@ -388,17 +274,8 @@ func _ready():
 # =============================================================================
 
 func _show_popup_for_level(level_path: String) -> void:
-	var entry = _resolve_popup(level_path)
-	if entry.is_empty():
-		print("  [Popup] No popup for this level/state")
-		return
-
-	print("  [Popup] Showing: ", entry["image_path"], " (key: ", entry["save_key"], ")")
-	show_popup_image(entry["image_path"])
-
-	_active_popup_key = entry["save_key"]
-
-var _active_popup_key: String = ""
+	if _popup_manager:
+		_popup_manager.show_popup_for_level(level_path)
 
 func _get_env_from_path(level_path: String) -> String:
 	# e.g. "res://data/levels/granite_crag/granite_crag_01.json" -> "granite_crag"
@@ -970,26 +847,5 @@ func _on_transition_finished():
 # =============================================================================
 
 func _on_hide_instructions_pressed() -> void:
-	if _active_popup_key != "":
-		_mark_popup_seen(_active_popup_key)
-		_active_popup_key = ""
-
-	var cfg := ConfigFile.new()
-	cfg.load(INSTRUCTIONS_SAVE_PATH)
-	cfg.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, true)
-	cfg.save(INSTRUCTIONS_SAVE_PATH)
-
-	if not instructions_root:
-		instructions.hide()
-		instructions.process_mode = PROCESS_MODE_DISABLED
-		return
-
-	var tween = create_tween().set_parallel(true)
-	tween.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_CUBIC)
-	tween.tween_property(instructions_root, "modulate:a", 0.0, 0.3)
-	tween.tween_property(instructions_root, "scale", Vector2(0.94, 0.94), 0.25)
-	tween.tween_callback(func():
-		instructions_root.scale = Vector2.ONE
-		instructions.hide()
-		instructions.process_mode = PROCESS_MODE_DISABLED
-	)
+	if _popup_manager:
+		_popup_manager.try_dismiss()

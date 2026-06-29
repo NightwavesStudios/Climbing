@@ -32,6 +32,9 @@ var _cursor_sprite: TextureRect
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
+	# Keep processing input even when the game is paused so the cursor stays alive.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+
 	# Hide the OS cursor entirely — no more flicker from macOS cursor rectangles.
 	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 
