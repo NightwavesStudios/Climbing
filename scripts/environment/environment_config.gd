@@ -74,7 +74,8 @@ func _ready() -> void:
 func set_environment(env_type: EnvironmentType) -> void:
 	current_environment = env_type
 	print("Environment set to: " + get_current_environment_name())
-	get_tree().call_group("holds",             "_update_sprite_for_environment")
+	# Notify groups — use call_group which safely skips non-existent groups
+	get_tree().call_group("holds", "_update_sprite_for_environment")
 	get_tree().call_group("environment_walls", "update_environment_settings")
 
 func get_current_environment() -> EnvironmentType:

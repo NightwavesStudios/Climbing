@@ -486,7 +486,7 @@ func _build_route_diagram(
 	var svp := SubViewport.new()
 	svp.size = Vector2i(VP_W, VP_H)
 	svp.transparent_bg = false
-	svp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	svp.render_target_update_mode = SubViewport.UPDATE_ONCE  # static preview — no need for 60fps re-render
 	svc.add_child(svp)
 
 	var zoom_x := float(VP_W) / world_size.x

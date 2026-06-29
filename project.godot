@@ -22,7 +22,6 @@ EditorState="*res://scripts/editor/editor_state.gd"
 GameState="*res://scripts/systems/game_state.gd"
 LevelManager="*res://scripts/levels/level_manager.gd"
 Transition="*res://scripts/ui/transition.gd"
-LevelTransition="*res://scripts/levels/level_transition.gd"
 EnvironmentConfig="*res://scripts/environment/environment_config.gd"
 HoldRegistry="*res://scripts/climbing/hold_registry.gd"
 MusicPlayer="*res://scripts/systems/music_player.gd"
@@ -75,4 +74,5 @@ ui_fps_toggle={
 [rendering]
 
 textures/vram_compression/import_etc2_astc=true
+viewport/hdr_2d="true"
 anti_aliasing/quality/msaa_2d=3

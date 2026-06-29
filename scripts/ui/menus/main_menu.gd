@@ -12,6 +12,9 @@ func _ready() -> void:
 	# Show the shared persistent menu background
 	MenuBackgroundManager.show()
 	
+	# No FPS cap on the menu — it causes visual stutter/glitching
+	Engine.max_fps = 0
+	
 	# Force the sunset menu theme
 	EnvironmentConfig.set_environment(EnvironmentConfig.EnvironmentType.MENU_SUNSET)
 

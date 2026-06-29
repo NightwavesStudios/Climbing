@@ -30,6 +30,7 @@ extends Node2D
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 
+const SUN_GLOW      := preload("res://assets/generated/sun_glow.png")
 const CLOUD_COUNT   = 5
 const CLOUD_LAYERS  = 3
 
@@ -42,6 +43,11 @@ var _cloud_time:   float = 0.0
 
 var _clouds:       Array[Dictionary] = []
 var _scenery_seed: int = 0
+
+# Redraw every frame so clouds, sun, and stars animate smoothly.
+# Menu idle overhead is negligible with modern GPUs.
+var _frame_counter: int = 0
+const REDRAW_INTERVAL := 1
 
 # Parallax
 var _parallax_offset: Vector2 = Vector2.ZERO
@@ -66,12 +72,12 @@ func _process(delta: float) -> void:
 	# Update cloud positions every frame (cheap)
 	_update_clouds(delta)
 
-	# Redraw every frame so the parallax offset (updated below) and the
-	# drawn mountain/cloud positions stay in perfect sync.  The draws are
-	# lightweight polygon primitives — no rate limit needed.
-	queue_redraw()
+	# Redraw every frame — smooth cloud/sun/star animation.
+	_frame_counter = (_frame_counter + 1) % REDRAW_INTERVAL
+	if _frame_counter == 0:
+		queue_redraw()
 
-	# Mouse parallax
+	# Mouse parallax — update every frame for smooth response
 	var vp   := get_viewport_rect().size
 	var mp   := get_viewport().get_mouse_position()
 	var norm := (mp / vp - Vector2(0.5, 0.5)) * 2.0
@@ -271,7 +277,7 @@ func _draw_sky(vp: Rect2, pal: Dictionary) -> void:
 	var horiz : Color = pal["sky_horiz"]
 
 	var ground_y := vp.size.y * 0.82
-	var bands    := 22
+	var bands    := 12
 	var total_h  := ground_y
 	for i in bands:
 		var t0 := float(i)     / float(bands)
@@ -292,9 +298,9 @@ func _draw_sky(vp: Rect2, pal: Dictionary) -> void:
 				horiz.g * 0.5 + sc.g * 0.3,
 				horiz.b * 0.6,
 				0.08)
-			for i in 10:
-				var t0 := float(i) / 10.0
-				var t1 := float(i + 1) / 10.0
+			for i in 6:
+				var t0 := float(i) / 6.0
+				var t1 := float(i + 1) / 6.0
 				var a0 := 0.08 * (1.0 - t0 * t0 * 0.85)
 				var a1 := 0.08 * (1.0 - t1 * t1 * 0.85)
 				_draw_vgrad(0.0, ground_y - (1.0 - t0) * 180.0, vp.size.x,
@@ -303,9 +309,9 @@ func _draw_sky(vp: Rect2, pal: Dictionary) -> void:
 					Color(warm.r, warm.g, warm.b, a0))
 		# Blue Rayleigh scatter veil
 		var scatter := Color(0.50, 0.68, 0.92, 0.035)
-		for i in 6:
-			var t0 := float(i) / 6.0
-			var t1 := float(i + 1) / 6.0
+		for i in 4:
+			var t0 := float(i) / 4.0
+			var t1 := float(i + 1) / 4.0
 			_draw_vgrad(0.0, ground_y - (1.0 - t0) * 320.0, vp.size.x,
 				ground_y - (1.0 - t1) * 320.0,
 				Color(scatter.r, scatter.g, scatter.b, scatter.a * (1.0 - t0 * 0.5)),
@@ -313,9 +319,9 @@ func _draw_sky(vp: Rect2, pal: Dictionary) -> void:
 	else:
 		# Night/moon haze — cooler, subtler
 		var cool := Color(horiz.r * 0.4, horiz.g * 0.4, horiz.b * 0.7, 0.04)
-		for i in 6:
-			var t0 := float(i) / 6.0
-			var t1 := float(i + 1) / 6.0
+		for i in 4:
+			var t0 := float(i) / 4.0
+			var t1 := float(i + 1) / 4.0
 			_draw_vgrad(0.0, ground_y - (1.0 - t0) * 150.0, vp.size.x,
 				ground_y - (1.0 - t1) * 150.0,
 				Color(cool.r, cool.g, cool.b, cool.a * (1.0 - t0 * 0.6)),
@@ -338,7 +344,7 @@ func _draw_stars(vp: Rect2, pal: Dictionary) -> void:
 	if night_t < 0.02: return
 
 	var sky_top : Color = pal["sky_top"]
-	for i in 90:
+	for i in 50:
 		var ss  := (_scenery_seed ^ 0xBEEF) + i * 17
 		var sx  := _hf(ss)     * vp.size.x
 		var sy  := _hf(ss + 1) * vp.size.y * 0.70
@@ -375,37 +381,23 @@ func _draw_sun(vp: Rect2, pal: Dictionary) -> void:
 	var sy := horizon_y - arc_amplitude * sin(progress * PI)
 
 	# Clip — vanish once fully outside the viewport (no re-entry).
-	var sun_radius := 200.0
+	var sun_radius := 800.0  # accounts for the wide glow texture
 	if sx + sun_radius < 0.0 or sx - sun_radius > vp.size.x: return
 	if sy + sun_radius < 0.0: return
 
-	# Outer glow — soft atmospheric falloff
-	for gi in range(12):
-		var t := float(gi) / 12.0
-		var r := 50.0 + t * 120.0
-		var a := (0.042 - t * 0.038) * maxf(sc.a, 1.0)
-		draw_circle(Vector2(sx, sy), r, Color(sc.r, sc.g, sc.b, maxf(a, 0.0)))
+	# ── Sun glow — soft texture-based halo around the disc ───────────────────
+	var center := Vector2(sx, sy)
+	var gs := 256.0  # glow texture size (px)
 
-	# Single smooth sun disc — radial gradient from bright core to soft edge
-	for gi in range(16):
-		var t := float(gi) / 16.0
-		var r := 48.0 * (1.0 - t * 0.94)  # 48 → ~3
-		var a := (1.0 - t * t) * maxf(sc.a, 1.0)
-		draw_circle(Vector2(sx, sy), r, Color(sc.r, sc.g, sc.b, a))
+	# 1. Massive atmospheric halo — huge, barely visible, pure white
+	draw_texture_rect(SUN_GLOW, Rect2(center - Vector2.ONE * gs * 2.5, Vector2.ONE * gs * 5.0), false, Color(1.0, 1.0, 1.0, 0.030 * sc.a))
+	# 2. Outer warm glow — tinted with sun colour
+	draw_texture_rect(SUN_GLOW, Rect2(center - Vector2.ONE * gs * 1.25, Vector2.ONE * gs * 2.5), false, Color(sc.r, sc.g, sc.b, 0.07 * sc.a))
+	# 3. Inner bright glow — tighter, brighter
+	draw_texture_rect(SUN_GLOW, Rect2(center - Vector2.ONE * gs * 0.5, Vector2.ONE * gs * 1.0), false, Color(min(sc.r * 1.3, 1.0), min(sc.g * 1.3, 1.0), min(sc.b * 1.3, 1.0), 0.20 * sc.a))
 
-	# Horizon glow bar (only when sun is near horizon)
-	var closeness := 1.0 - clampf(abs(sy - horizon_y) / (vp.size.y * 0.25), 0.0, 1.0)
-	if closeness > 0.05:
-		var gsteps := 12
-		for gi in gsteps:
-			var t0 := float(gi)     / float(gsteps)
-			var t1 := float(gi + 1) / float(gsteps)
-			var a0 := closeness * 0.28 * (1.0 - t0 * t0)
-			var a1 := closeness * 0.28 * (1.0 - t1 * t1)
-			_draw_vgrad(0.0, horizon_y - (1.0 - t0) * 80.0, vp.size.x,
-						horizon_y - (1.0 - t1) * 80.0,
-						Color(sc.r, sc.g * 0.7, sc.b * 0.2, a1),
-						Color(sc.r, sc.g * 0.7, sc.b * 0.2, a0))
+	# ── Sun disc — crisp yellow core ────────────────────────────────────────
+	draw_circle(Vector2(sx, sy), 48.0, Color(sc.r, sc.g, sc.b, sc.a))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MOON
@@ -423,7 +415,7 @@ func _draw_moon(vp: Rect2, pal: Dictionary) -> void:
 	var mx := vp.size.x * 0.72
 	var my := vp.size.y * 0.18
 	var mr := 34.0
-	for gi in range(5):
+	for gi in range(3):
 		draw_circle(Vector2(mx, my), mr + float(gi) * 18.0, Color(0.72, 0.78, 0.92, 0.035 * night_t))
 	draw_circle(Vector2(mx, my), mr, Color(0.88, 0.90, 0.96, night_t))
 	draw_circle(Vector2(mx + mr * 0.34, my - mr * 0.10), mr * 0.82, sky_top)
@@ -446,10 +438,10 @@ func _draw_mountains(vp: Rect2, pal: Dictionary) -> void:
 
 	# Layer configs: [base_y_frac, min_h, max_h, segs, parallax_frac, seed_xor, atmos_persp]
 	var layers := [
-		[0.78, 200.0, 520.0, 90,  0.04, 0x0A1B2C, 0.55],  # furthest → most sky blend
-		[0.80, 140.0, 360.0, 80,  0.08, 0x1A2B3C, 0.40],
-		[0.81,  80.0, 210.0, 65,  0.14, 0x4D5E6F, 0.25],
-		[0.82,  38.0, 100.0, 50,  0.20, 0x7F8A9B, 0.10],  # closest → least sky blend
+		[0.78, 200.0, 520.0, 30,  0.04, 0x0A1B2C, 0.55],
+		[0.80, 140.0, 360.0, 28,  0.08, 0x1A2B3C, 0.40],
+		[0.81,  80.0, 210.0, 24,  0.14, 0x4D5E6F, 0.25],
+		[0.82,  38.0, 100.0, 18,  0.20, 0x7F8A9B, 0.10],
 	]
 
 	for li in layers.size():
@@ -605,7 +597,7 @@ func _draw_clouds(pal: Dictionary) -> void:
 func _draw_painterly_cloud(cx: float, cy: float, sx: float, sy: float,
 						   top_col: Color, bot_col: Color, shadow: Color,
 						   cseed: int, _layer: int) -> void:
-	## Soft painterly cumulus cloud built from many layered soft puffs.
+	## Soft painterly cumulus cloud built from layered soft puffs.
 	# ── Shadow base ────────────────────────────────────────────────────────
 	_draw_soft_puff(cx - sx * 0.04, cy + sy * 0.32, sx * 0.90, sy * 0.50, shadow, 0.55)
 
@@ -613,33 +605,18 @@ func _draw_painterly_cloud(cx: float, cy: float, sx: float, sy: float,
 	_draw_soft_puff(cx, cy, sx * 0.92, sy * 0.78, top_col, 0.65)
 	_draw_soft_puff(cx, cy + sy * 0.08, sx * 0.86, sy * 0.52, bot_col, 0.50)
 
-	# ── Sub-puff layout: natural cumulus cluster ──────────────────────────
+	# ── Sub-puff layout: natural cumulus cluster (reduced for perf) ──────
 	var offsets := [
-		# Top crown (3 puffs)
-		Vector2(0.0,     -0.50), Vector2(-0.18,  -0.38), Vector2(0.18,  -0.38),
-		# Upper-mid body (3 puffs)
-		Vector2(-0.28,   -0.22), Vector2(0.28,   -0.22), Vector2(0.0,   -0.22),
-		# Mid body (3 puffs)
-		Vector2(-0.40,   -0.06), Vector2(0.40,   -0.06), Vector2(0.0,   -0.04),
-		# Lower flanks (3 puffs)
-		Vector2(-0.48,    0.12), Vector2(0.48,    0.12),
-		Vector2(-0.22,    0.22), Vector2(0.22,    0.22),
-		# Bottom wisps (2 puffs)
-		Vector2(-0.34,    0.34), Vector2(0.34,    0.34),
+		Vector2(0.0,     -0.50),
+		Vector2(-0.18,  -0.38), Vector2(0.18,  -0.38),
+		Vector2(-0.28,   -0.22), Vector2(0.28,   -0.22),
+		Vector2(-0.40,   -0.06), Vector2(0.40,   -0.06),
 	]
 	var sizes := [
-		0.42, 0.34, 0.34,
-		0.36, 0.36, 0.40,
-		0.32, 0.32, 0.38,
-		0.28, 0.28, 0.26, 0.26,
-		0.22, 0.22,
+		0.42, 0.34, 0.34, 0.36, 0.36, 0.32, 0.32,
 	]
 	var is_top := [
-		true,  true,  true,
-		true,  true,  true,
-		false, false, false,
-		false, false, false, false,
-		false, false,
+		true,  true,  true,  true,  true,  false, false,
 	]
 
 	for pi in offsets.size():
@@ -663,21 +640,16 @@ func _draw_soft_puff(cx: float, cy: float, rx: float, ry: float,
 	if rx < 1.5 or ry < 1.5 or color.a < 0.005: return
 	var a: float = color.a * density
 
-	# Outer glow (soft feather edge)
-	_draw_oval(cx, cy, rx * 1.20, ry * 1.20, Color(color.r, color.g, color.b, a * 0.06))
-	_draw_oval(cx, cy, rx * 1.08, ry * 1.08, Color(color.r, color.g, color.b, a * 0.14))
-
-	# Mid body
-	_draw_oval(cx, cy, rx * 0.95, ry * 0.95, Color(color.r, color.g, color.b, a * 0.38))
-	_draw_oval(cx, cy, rx * 0.78, ry * 0.78, Color(color.r, color.g, color.b, a * 0.62))
-
-	# Core (brightest)
-	_draw_oval(cx, cy, rx * 0.55, ry * 0.55, Color(color.r, color.g, color.b, a * 0.85))
-	_draw_oval(cx, cy, rx * 0.30, ry * 0.30, Color(color.r, color.g, color.b, a * 1.00))
+	# Soft cloud puffs — outer halo fades to denser core (3 layers vs 6 for perf)
+	_draw_oval(cx, cy, rx * 1.05, ry * 1.05, Color(color.r, color.g, color.b, a * 0.08))
+	_draw_oval(cx, cy, rx * 0.75, ry * 0.75, Color(color.r, color.g, color.b, a * 0.22))
+	_draw_oval(cx, cy, rx * 0.40, ry * 0.40, Color(color.r, color.g, color.b, a * 0.55))
 
 func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color) -> void:
 	if rx < 0.5 or ry < 0.5: return
-	var steps := 22
+	# 8-vertex octagon — visually indistinguishable from 22-vertex polygon
+	# for soft blurry cloud puffs, but much cheaper to validate & triangulate.
+	var steps := 8
 	var pts   := PackedVector2Array()
 	for i in steps:
 		var a := (float(i) / float(steps)) * TAU
@@ -690,7 +662,7 @@ func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color) -> voi
 
 func _draw_fog_base(vp: Rect2, pal: Dictionary) -> void:
 	var horiz : Color = pal["sky_horiz"]
-	var steps := 8
+	var steps := 4
 	var fog_h := vp.size.y * 0.12
 	var base  := vp.size.y * 0.74
 	for i in steps:
@@ -717,7 +689,7 @@ func _draw_ground(vp: Rect2, pal: Dictionary) -> void:
 	_draw_vgrad(0.0, ground_y + 48.0, vp.size.x, ground_y + 120.0, gt.darkened(0.10), gd)
 
 	# Subtle rolling surface — low profile, matte finish
-	var segs := 80
+	var segs := 40
 	var step := vp.size.x / float(segs)
 	var pts  := PackedVector2Array()
 	pts.append(Vector2(-10.0, ground_y + 40.0))
@@ -733,20 +705,20 @@ func _draw_ground(vp: Rect2, pal: Dictionary) -> void:
 	# ── Vegetation/terrain detail dots ─────────────────────────────────────
 	var dayness := clampf((pal["sky_top"].r + pal["sky_top"].g + pal["sky_top"].b) * 0.4, 0.0, 1.0)
 	if dayness > 0.3:
-		for bi in int(vp.size.x / 80.0):
+		for bi in int(vp.size.x / 140.0):
 			var bs := (_scenery_seed ^ 0xC7D8) + bi * 17
 			var bx := _hf(bs) * vp.size.x
 			var by := ground_y + 2.0 + _hf(bs + 1) * 20.0
 			var bh := 3.0 + _hf(bs + 2) * 6.0
 			# Small grass tufts
-			for ti in 3:
+			for ti in 2:
 				var tx := bx + (_hf(bs + ti * 7 + 3) - 0.5) * 8.0
 				var gc := gt.lightened(0.10 + _hf(bs + ti * 7 + 4) * 0.20)
 				draw_line(Vector2(tx, by + 2.0),
 					Vector2(tx + (_hf(bs + ti * 7 + 5) - 0.5) * 6.0, by - bh),
 					Color(gc.r, gc.g, gc.b, 0.25 + _hf(bs + ti * 7 + 6) * 0.20), 0.7, true)
 		# Tiny flower dots
-		for fi in int(vp.size.x / 200.0):
+		for fi in int(vp.size.x / 350.0):
 			var fs := (_scenery_seed ^ 0xE9F0) + fi * 23
 			var fx := _hf(fs) * vp.size.x
 			var fy := ground_y + 4.0 + _hf(fs + 1) * 15.0

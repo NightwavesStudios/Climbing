@@ -106,8 +106,7 @@ func _load_level_scene(scene_path: String, level_path: String) -> void:
 		await _finish_transition(false)
 		return
 
-	await get_tree().process_frame
-	await get_tree().process_frame
+	# Single frame to let the scene tree settle after scene swap
 	await get_tree().process_frame
 
 	var validation = loader.validate_level()
@@ -134,7 +133,6 @@ func _load_level_scene(scene_path: String, level_path: String) -> void:
 	await _finish_transition(true)
 
 func _finish_transition(_success: bool) -> void:
-	await get_tree().create_timer(0.1).timeout
 	_fade_instance.fade_in()
 	await _fade_instance.fade_in_finished
 	_is_transitioning = false

@@ -39,7 +39,7 @@ const POINT_RADIUS    = 10.0
 const POINT_GRAB_RADIUS = 20.0
 const EDGE_CLICK_DISTANCE = 15.0
 
-const CLOUD_COUNT  = 14
+const CLOUD_COUNT  = 10
 const CLOUD_LAYERS = 3
 
 const SPLASH_DURATION      = 1.4
@@ -330,6 +330,9 @@ func update_environment_settings() -> void:
 	is_granite              = data.get("show_granite_texture", false)
 	current_environment     = ec.get_current_environment_name().to_lower()
 	_apply_environment_theme()
+	# ── Wall color gets a subtle sky-tint so it feels lit by the same sky ──
+	var sky_hint: Color = _env.get("sky_horizon", Color(0.7, 0.85, 0.95))
+	current_wall_color = current_wall_color.lerp(sky_hint, 0.06)
 	if not top_edge_indices.is_empty(): _create_top_edge_holds()
 	_granite_cache_dirty = true
 	queue_redraw()
@@ -356,12 +359,13 @@ func _tod(seed_xor: int) -> int:
 func _apply_granite_theme() -> void:
 	match _tod(0x9E3779B9):
 		1: _env = {
-				"sky_top": Color(0.12,0.10,0.32), "sky_horizon": Color(0.98,0.52,0.18),
+				"sky_top": Color(0.12,0.10,0.32), "sky_horizon": Color(1.0,0.62,0.22),
 				"cloud_color": Color(1.0,0.65,0.40,1.0), "cloud_shadow": Color(0.65,0.25,0.12),
 				"has_sun": true, "sun_color": Color(1.0,0.65,0.15), "has_mountains": true,
 				"ground_type": "grass_dusk",
 				"ground_top": Color(0.14,0.22,0.10), "ground_mid": Color(0.24,0.16,0.08), "ground_deep": Color(0.16,0.10,0.06),
 				"ground_detail": "rocks", "fog_color": Color(0.90,0.45,0.15,0.10),
+				"mtn_colors": [Color(0.62,0.38,0.52),Color(0.44,0.24,0.36),Color(0.28,0.14,0.22),Color(0.18,0.08,0.14)],
 			}
 		2: _env = {
 				"sky_top": Color(0.02,0.02,0.08), "sky_horizon": Color(0.06,0.08,0.18),
@@ -469,7 +473,7 @@ func _apply_gym_theme() -> void:
 				"gym_grass_color": Color(0.08,0.14,0.07), "has_gym_stars": true, "has_gym_moon": true,
 			})
 		_: base.merge({
-				"gym_sky_top": Color(0.20,0.45,0.78), "gym_sky_mid": Color(0.44,0.70,0.93), "gym_sky_haze": Color(0.70,0.86,0.97),
+				"gym_sky_top": Color(0.10,0.28,0.65), "gym_sky_mid": Color(0.30,0.58,0.88), "gym_sky_haze": Color(0.82,0.90,0.97),
 				"gym_sun_color": Color(1.0,0.96,0.78),
 				"gym_mtn_colors": [Color(0.72,0.82,0.91),Color(0.54,0.67,0.80),Color(0.38,0.52,0.66),Color(0.24,0.38,0.53)],
 				"gym_grass_color": Color(0.18,0.26,0.19),
@@ -661,9 +665,9 @@ func _draw_sky() -> void:
 	# Rayleigh scattering makes the sky darker at the zenith and brighter
 	# near the horizon during the day; at night the gradient inverts slightly.
 	var dayness := clampf((ctop.r + ctop.g + ctop.b) * 0.6, 0.0, 1.0)
-	for i in 12:
-		var t0 := float(i)     / 12.0
-		var t1 := float(i + 1) / 12.0
+	for i in 8:
+		var t0 := float(i)     / 8.0
+		var t1 := float(i + 1) / 8.0
 		var f0 := t0 * t0 * (1.0 - t0 * 0.15)
 		var f1 := t1 * t1 * (1.0 - t1 * 0.15)
 		_draw_grad_quad(bl, st + t0 * total_h, sw, st + t1 * total_h,
@@ -707,9 +711,9 @@ func _draw_atmospheric_haze() -> void:
 			choriz.g * 0.5 + sc.g * 0.3,
 			choriz.b * 0.5,
 			haze_warmth)
-		for i in 5:
-			var t0 := float(i) / 5.0
-			var t1 := float(i + 1) / 5.0
+		for i in 3:
+			var t0 := float(i) / 3.0
+			var t1 := float(i + 1) / 3.0
 			var a0 := haze_warmth * (1.0 - t0 * t0 * 0.85)
 			var a1 := haze_warmth * (1.0 - t1 * t1 * 0.85)
 			_draw_grad_quad(bl, ground_y - (1.0 - t0) * 220.0, sw, ground_y - (1.0 - t1) * 220.0,
@@ -719,9 +723,9 @@ func _draw_atmospheric_haze() -> void:
 		var cool := Color(
 			choriz.r * 0.6, choriz.g * 0.6, choriz.b * 0.8,
 			haze_warmth * 0.6)
-		for i in 4:
-			var t0 := float(i) / 4.0
-			var t1 := float(i + 1) / 4.0
+		for i in 3:
+			var t0 := float(i) / 3.0
+			var t1 := float(i + 1) / 3.0
 			_draw_grad_quad(bl, ground_y - (1.0 - t0) * 160.0, sw, ground_y - (1.0 - t1) * 160.0,
 				Color(cool.r, cool.g, cool.b, cool.a * (1.0 - t0 * t0 * 0.7)),
 				Color(cool.r, cool.g, cool.b, cool.a * (1.0 - t1 * t1 * 0.7)))
@@ -731,9 +735,9 @@ func _draw_atmospheric_haze() -> void:
 	var scatter_strength := 0.04 * (1.0 - rb * 0.5)
 	if dayness_internal() > 0.3:
 		var scatter := Color(0.55, 0.70, 0.95, scatter_strength)
-		for i in 6:
-			var t0 := float(i) / 6.0
-			var t1 := float(i + 1) / 6.0
+		for i in 4:
+			var t0 := float(i) / 4.0
+			var t1 := float(i + 1) / 4.0
 			_draw_grad_quad(bl, ground_y - (1.0 - t0) * 320.0, sw, ground_y - (1.0 - t1) * 320.0,
 				Color(scatter.r, scatter.g, scatter.b, scatter.a * (1.0 - t0 * 0.5)),
 				Color(scatter.r, scatter.g, scatter.b, scatter.a * (1.0 - t1 * 0.5)))
@@ -750,7 +754,7 @@ func _draw_stars() -> void:
 	var bl := _bg_left(); var br := _bg_right(); var st := _bg_top()
 	var sw := br - bl
 	var rb := _get_weather_blend()
-	for i in 80:
+	for i in 50:
 		var ss     := (_scenery_seed ^ 0xBEEF) + i * 17
 		var bright := (0.5 + _hf(ss + 2) * 0.5) * (1.0 - rb)
 		var tw     := 0.7 + 0.3 * sin(_cloud_time * (1.5 + _hf(ss + 4) * 3.0) + float(i))
@@ -796,10 +800,13 @@ func _draw_mountains() -> void:
 
 	# ── Atmospheric perspective: further layers (higher index) get MORE sky
 	# colour blended in, mimicking how air scatters light over distance.
+	var mtn_colors_arr: Array = _env.get("mtn_colors", [])
+
 	var layer_configs := [
 		# [base_y_offset, min_h, max_h, segs, atmos_persp_strength, seed]
-		{ "by": -60.0, "min": 240.0, "max": 600.0, "segs": 50, "atmos": 0.55, "seed": 0x0A1B2C },
-		{ "by": -20.0, "min": 160.0, "max": 420.0, "segs": 45, "atmos": 0.40, "seed": 0x1A2B3C },
+		{ "by": -60.0, "min": 240.0, "max": 600.0, "segs": 30, "atmos": 0.55, "seed": 0x0A1B2C },
+		{ "by": -40.0, "min": 200.0, "max": 500.0, "segs": 28, "atmos": 0.47, "seed": 0x2C3D4E },
+		{ "by": -20.0, "min": 160.0, "max": 420.0, "segs": 25, "atmos": 0.40, "seed": 0x1A2B3C },
 	]
 
 	# Extra layers for menu_sunset
@@ -810,8 +817,12 @@ func _draw_mountains() -> void:
 		])
 
 	var crest_data: Array[Dictionary] = []
+	var li := 0
 	for lc in layer_configs:
 		var base_col := hs.lerp(ht, lc["atmos"]).darkened(lerpf(0.05, 0.20, lc["atmos"] * 0.5))
+		if not mtn_colors_arr.is_empty() and li < mtn_colors_arr.size():
+			base_col = mtn_colors_arr[li] as Color
+		li += 1
 		var count   := int(lc["segs"])
 		var step    := (br - bl) / float(count)
 		var pts     := PackedVector2Array()
@@ -848,11 +859,14 @@ func _draw_mountains() -> void:
 
 	# ── Closest two hill layers (no snow, more silhouette) ──────────────────
 	var front_configs := [
-		{ "by": -5.0, "min": 90.0, "max": 230.0, "segs": 30, "seed": 0x4D5E6F, "dark": 0.22 },
-		{ "by":  0.0, "min": 40.0, "max": 110.0, "segs": 25, "seed": 0x7F8A9B, "dark": 0.38 },
+		{ "by": -5.0, "min": 90.0, "max": 230.0, "segs": 18, "seed": 0x4D5E6F, "dark": 0.22 },
+		{ "by":  0.0, "min": 40.0, "max": 110.0, "segs": 15, "seed": 0x7F8A9B, "dark": 0.38 },
 	]
 	for lc in front_configs:
 		var front_col := choriz.darkened(lc["dark"])
+		if not mtn_colors_arr.is_empty() and li < mtn_colors_arr.size():
+			front_col = mtn_colors_arr[li] as Color
+		li += 1
 		var count   := int(lc["segs"])
 		var step    := (br - bl) / float(count)
 		var pts     := PackedVector2Array()
@@ -1009,7 +1023,7 @@ func _draw_clouds() -> void:
 	for layer in CLOUD_LAYERS:
 		for c in _clouds:
 			if c["layer"] != layer: continue
-			var ba := minf(c["alpha"] * cc.a * (1.0 + rb * 0.4), 0.92)
+			var ba := minf(c["alpha"] * cc.a * (1.0 + rb * 0.4), 0.55)
 
 			var warmth := 1.0 + float(layer) * 0.05 + rb * 0.08
 			var top_col := Color(
@@ -1026,8 +1040,8 @@ func _draw_overcast_layer(blend: float, cc: Color) -> void:
 	var sw   := br - bl
 	var h    := blend * BACKGROUND_EXPANSION * 0.55
 	var base := st
-	for i in 10:
-		var t0 := float(i)/10.0; var t1 := float(i+1)/10.0
+	for i in 6:
+		var t0 := float(i)/6.0; var t1 := float(i+1)/6.0
 		_draw_grad_quad(bl, base+t0*h, sw, base+t1*h,
 			Color(cc.r,cc.g,cc.b, lerp(blend*0.65,0.0,t0*t0)),
 			Color(cc.r,cc.g,cc.b, lerp(blend*0.65,0.0,t1*t1)))
@@ -1042,18 +1056,15 @@ func _draw_painterly_cloud(cx: float, cy: float, sx: float, sy: float,
 	_draw_soft_puff(cx, cy + sy * 0.08 * rym, sx * 0.86, sy * 0.52 * rym, bot_col, 0.50)
 
 	var offsets := [
-		Vector2(0.0,     -0.50), Vector2(-0.18,  -0.38), Vector2(0.18,  -0.38),
+		Vector2(0.0,     -0.50),
+		Vector2(-0.18,  -0.38), Vector2(0.18,  -0.38),
 		Vector2(-0.28,   -0.22), Vector2(0.28,   -0.22),
-		Vector2(-0.40,   -0.06), Vector2(0.40,   -0.06),
-		Vector2(-0.22,    0.22), Vector2(0.22,    0.22),
 	]
 	var sizes := [
 		0.42, 0.34, 0.34, 0.36, 0.36,
-		0.32, 0.32, 0.26, 0.26,
 	]
 	var is_top := [
 		true,  true,  true,  true,  true,
-		false, false, false, false,
 	]
 
 	for pi in offsets.size():
@@ -1074,10 +1085,10 @@ func _draw_soft_puff(cx: float, cy: float, rx: float, ry: float,
 					 color: Color, density: float) -> void:
 	if rx < 1.5 or ry < 1.5 or color.a < 0.005: return
 	var a: float = color.a * density
-	_draw_oval(cx, cy, rx * 1.15, ry * 1.15, Color(color.r, color.g, color.b, a * 0.08))
-	_draw_oval(cx, cy, rx * 0.95, ry * 0.95, Color(color.r, color.g, color.b, a * 0.30))
-	_draw_oval(cx, cy, rx * 0.70, ry * 0.70, Color(color.r, color.g, color.b, a * 0.55))
-	_draw_oval(cx, cy, rx * 0.35, ry * 0.35, Color(color.r, color.g, color.b, a * 1.00))
+	# Soft, whisper-light cloud puffs — outer halo fades to denser core
+	_draw_oval(cx, cy, rx * 1.05, ry * 1.05, Color(color.r, color.g, color.b, a * 0.08))
+	_draw_oval(cx, cy, rx * 0.75, ry * 0.75, Color(color.r, color.g, color.b, a * 0.22))
+	_draw_oval(cx, cy, rx * 0.40, ry * 0.40, Color(color.r, color.g, color.b, a * 0.55))
 
 func _draw_oval(cx: float, cy: float, rx: float, ry: float, color: Color) -> void:
 	if rx < 0.5 or ry < 0.5: return
@@ -1098,8 +1109,8 @@ func _draw_fog() -> void:
 	var bl := _bg_left(); var br := _bg_right(); var st := _bg_top()
 	var sw := br - bl
 	var total_h := (ground_y + 99999.0) - st
-	for i in 5:
-		var t0 := float(i)/5.0; var t1 := float(i+1)/5.0
+	for i in 3:
+		var t0 := float(i)/3.0; var t1 := float(i+1)/3.0
 		_draw_grad_quad(bl, st+t0*total_h, sw, st+t1*total_h,
 			Color(fc.r,fc.g,fc.b, fc.a*(1.0-t0*0.65)),
 			Color(fc.r,fc.g,fc.b, fc.a*(1.0-t1*0.65)))
@@ -1406,7 +1417,7 @@ func _draw_ice_wall_sheen() -> void:
 	if not wall_valid: return
 	var sc : Color = _env.get("ice_sheen_color", Color(0.88,0.96,1.00))
 	var ws := wall_max - wall_min
-	for bi in 5:
+	for bi in 3:
 		var bs := (_scenery_seed^0xACE0)+bi*37
 		var bx := wall_min.x+_hf(bs)*ws.x; var bw := 14.0+_hf(bs+1)*38.0; var ba := 0.04+_hf(bs+2)*0.07
 		_draw_grad_quad_h(bx, wall_min.y, bx+bw, wall_max.y, Color(sc.r,sc.g,sc.b,0.0), Color(sc.r,sc.g,sc.b,ba))
@@ -1458,8 +1469,8 @@ func _draw_building_facade_wall() -> void:
 		_: base_col=Color(0.52,0.52,0.54); dark_col=Color(0.38,0.38,0.40); lite_col=Color(0.64,0.64,0.66)
 	base_col=base_col.lerp(Color(0.34,0.36,0.40),rb*0.4); lite_col=lite_col.lerp(Color(0.40,0.42,0.46),rb*0.3)
 	var w := wall_max.x-wall_min.x; var h := wall_max.y-wall_min.y
-	for vi in 14:
-		var t0 := float(vi)/14.0; var t1 := float(vi+1)/14.0
+	for vi in 8:
+		var t0 := float(vi)/8.0; var t1 := float(vi+1)/8.0
 		_draw_grad_quad(wall_min.x, wall_min.y+t0*h, w, wall_min.y+t1*h,
 			lite_col.lerp(dark_col, t0*t0*0.72+t0*0.28), lite_col.lerp(dark_col, t1*t1*0.72+t1*0.28))
 	_draw_grad_quad_h(wall_max.x-minf(w*0.04,18.0), wall_min.y, wall_max.x, wall_max.y,
@@ -1551,6 +1562,9 @@ func _draw_ground_grass() -> void:
 	pts.append(Vector2(right,ground_y+44.0))
 	_safe_draw_polygon(pts, ct)
 	var sh : Color = _rain_lerp_color(_env.get("sky_horizon",background_color.lightened(0.15)),"sky_horizon",rb)
+	# ── Wider, softer sky-bleed above the grass line (Alto-style horizon glow) ──
+	_draw_grad_quad(left,ground_y-40.0,width,ground_y,
+		Color(sh.r,sh.g,sh.b,0.0),Color(sh.r,sh.g,sh.b,0.28*(1.0-rb)))
 	_draw_grad_quad(left,ground_y-1.0,width,ground_y+18.0,Color(sh.r,sh.g,sh.b,0.18*(1.0-rb*0.5)),Color(sh.r,sh.g,sh.b,0.0))
 	var hc := ct.darkened(wall_outline_darken); hc.a=minf(wall_outline_darken*2.6,1.0)
 	draw_line(Vector2(left,ground_y),Vector2(right,ground_y),hc,wall_outline_width,true)
@@ -1558,8 +1572,8 @@ func _draw_ground_grass() -> void:
 	# ── Grass blade detail ──────────────────────────────────────────────────
 	# Grass blade detail — halve density when weather is light, skip when heavy
 	if rb < 0.4:
-		var density_mult := 3.0 if rb < 0.15 else 5.0  # fewer blades when weather
-		for bi in int(width / (120.0 * density_mult)) + 1:
+		var density_mult := 4.0 if rb < 0.15 else 6.0  # fewer blades when weather
+		for bi in int(width / (130.0 * density_mult)) + 1:
 			var bs := _scenery_seed ^ (0xB1E2 + bi * 13)
 			var bx := left + _hf(bs) * width
 			for ti in 3:
@@ -1571,7 +1585,7 @@ func _draw_ground_grass() -> void:
 					Vector2(tx + sin(tangle) * tlen, ground_y - 1.0 - cos(tangle) * tlen * 0.6),
 					Color(gc.r, gc.g, gc.b, 0.30 + _hf(bs + ti * 7 + 5) * 0.25), 0.8)
 		if rb < 0.2:
-			for fi in int(width / 400.0) + 1:  # fewer flowers
+			for fi in int(width / 600.0) + 1:  # fewer flowers
 				var fs := _scenery_seed ^ (0xC3D4 + fi * 27)
 				var fx := left + _hf(fs) * width
 				var fy := ground_y + 2.0 + _hf(fs + 1) * 16.0
@@ -2238,16 +2252,18 @@ func _polygon_valid(pts: PackedVector2Array) -> bool:
 	if min(span_x, span_y) < 0.5: return false  # zero-width
 	if max(span_x, span_y) / max(min(span_x, span_y), 0.5) > 50.0: return false  # sliver
 
-	# Quick self-intersection test (O(n²) but n is small — typically < 100 pts)
-	for i in cleaned.size():
-		var a1 := cleaned[i]
-		var b1 := cleaned[(i + 1) % cleaned.size()]
-		for j in range(i + 2, cleaned.size()):
-			if j == 0 or (j + 1) % cleaned.size() == i: continue
-			var a2 := cleaned[j]
-			var b2 := cleaned[(j + 1) % cleaned.size()]
-			if _segments_intersect(a1, b1, a2, b2):
-				return false
+	# Quick self-intersection test (O(n²) — skip for small polys that are
+	# practically guaranteed convex (e.g. 8-vertex cloud ovals))
+	if cleaned.size() >= 10:
+		for i in cleaned.size():
+			var a1 := cleaned[i]
+			var b1 := cleaned[(i + 1) % cleaned.size()]
+			for j in range(i + 2, cleaned.size()):
+				if j == 0 or (j + 1) % cleaned.size() == i: continue
+				var a2 := cleaned[j]
+				var b2 := cleaned[(j + 1) % cleaned.size()]
+				if _segments_intersect(a1, b1, a2, b2):
+					return false
 	return true
 
 func _safe_draw_polygon(pts: PackedVector2Array, color: Color) -> void:

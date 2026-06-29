@@ -11,7 +11,6 @@ var _preview_complete: bool = false
 @onready var instructions: CanvasLayer = $Instructions
 @onready var instructions_root: ColorRect = $Instructions/ColorRect
 @onready var popup_sprite: Sprite2D = $Instructions/Sprite2D
-@onready var skip_level_layer: CanvasLayer = $SkipLevel
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
@@ -26,11 +25,6 @@ var demo_finished_overlay: CanvasLayer = null
 const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
 const INSTRUCTIONS_SECTION  := "instructions"
 const INSTRUCTIONS_KEY      := "shown"
-
-const SKIP_THRESHOLD    : int    = 5
-const SKIP_SECTION      : String = "skip"
-const MAX_SKIPS_PER_ENV : int    = 2
-var   _reset_count      : int    = 0
 
 # =============================================================================
 #  ROUTE PREVIEW CAMERA
@@ -305,12 +299,14 @@ func show_popup_image(image_path: String) -> void:
 
 	instructions.process_mode = PROCESS_MODE_INHERIT
 	instructions_root.modulate.a = 0.0
+	instructions_root.scale = Vector2(0.92, 0.92)
 	instructions.show()
 	instructions_root.show()
 
-	var tween = create_tween()
-	tween.tween_property(instructions_root, "modulate:a", 1.0, 0.6) \
-		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	var tween = create_tween().set_parallel(true)
+	tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tween.tween_property(instructions_root, "modulate:a", 1.0, 0.45)
+	tween.tween_property(instructions_root, "scale", Vector2.ONE, 0.4)
 
 func _mark_popup_seen(save_key: String) -> void:
 	var cfg := ConfigFile.new()
@@ -360,15 +356,6 @@ func _ready():
 	_build_popup_configs()
 	add_to_group("main_scene")
 
-	# TEMPORARY: Reset ALL popup seen-flags so every popup re-fires on each run.
-	# Remove this entire block before shipping.
-	var cfg_reset := ConfigFile.new()
-	cfg_reset.set_value(INSTRUCTIONS_SECTION, INSTRUCTIONS_KEY, false)
-	for _entry in POPUP_CONFIGS:
-		cfg_reset.set_value("popups", _entry["save_key"], false)
-	cfg_reset.save(INSTRUCTIONS_SAVE_PATH)
-	print("  [DEBUG] All popup prefs reset")
-
 	if instructions_root:
 		instructions_root.modulate.a = 0.0
 
@@ -376,17 +363,16 @@ func _ready():
 	# CPU running their internal Button._process every frame.
 	instructions.process_mode = PROCESS_MODE_DISABLED
 
-	_setup_skip_level()
 	_setup_level_complete_overlay()
 	_setup_demo_finished_overlay()
 	_setup_pause_menu()
 	_check_paths()
 
-	if has_node("/root/LevelTransition"):
-		var lt = get_node("/root/LevelTransition")
-		lt.transition_started.connect(_on_transition_started)
-		lt.level_loaded.connect(_on_level_loaded)
-		lt.transition_finished.connect(_on_transition_finished)
+	# Connect to the unified Transition autoload
+	var tr := get_node_or_null("/root/Transition")
+	if tr:
+		tr.transition_started.connect(_on_transition_started)
+		tr.transition_finished.connect(_on_transition_finished)
 
 	var initial_level = _get_initial_level()
 	print("Initial level to load: ", initial_level)
@@ -414,89 +400,10 @@ func _show_popup_for_level(level_path: String) -> void:
 
 var _active_popup_key: String = ""
 
-# =============================================================================
-#  SKIP LEVEL
-# =============================================================================
-
-func _setup_skip_level() -> void:
-	if not skip_level_layer:
-		push_error("SkipLevel CanvasLayer not found")
-		return
-	skip_level_layer.visible = false
-	_reset_count = 0
-
-
-func _increment_fall_count() -> void:
-	if _is_level_skipped(_current_level_path):
-		print("  [Skip] Level already skipped — not counting fall")
-		return
-
-	var env := _get_env_from_path(_current_level_path)
-	var env_skip_count := _get_env_skip_count(env)
-	if env_skip_count >= MAX_SKIPS_PER_ENV:
-		print("  [Skip] Environment '%s' already used %d/%d skips — skip disabled" % [env, env_skip_count, MAX_SKIPS_PER_ENV])
-		return
-
-	_reset_count += 1
-	print("  [Skip] Fall count: %d / %d   (env=%s, level=%s)" % [_reset_count, SKIP_THRESHOLD, env, _current_level_path])
-
-	if _reset_count >= SKIP_THRESHOLD:
-		_show_skip_button()
-
-
-func _show_skip_button() -> void:
-	if not skip_level_layer:
-		push_error("  [Skip] Cannot show button — skip_level_layer is null!")
-		return
-	print("  [Skip] Showing skip button! count=%d threshold=%d" % [_reset_count, SKIP_THRESHOLD])
-	skip_level_layer.visible = true
-
-
-func _hide_skip_button(_instant: bool = false) -> void:
-	if not skip_level_layer:
-		return
-	skip_level_layer.visible = false
-
-
-func _reset_skip_state() -> void:
-	_reset_count = 0
-	_hide_skip_button(true)
-
-
-func _mark_level_skipped(level_path: String) -> void:
-	var cfg := ConfigFile.new()
-	cfg.load(INSTRUCTIONS_SAVE_PATH)
-	cfg.set_value(SKIP_SECTION, level_path.md5_text(), true)
-
-	# Track per-environment skip limit
-	var env := _get_env_from_path(level_path)
-	var env_count = cfg.get_value("env_skips", env, 0)
-	cfg.set_value("env_skips", env, env_count + 1)
-	print("  [Skip] Environment '%s' skips: %d / %d" % [env, env_count + 1, MAX_SKIPS_PER_ENV])
-
-	cfg.save(INSTRUCTIONS_SAVE_PATH)
-
-	var gs := get_node_or_null("/root/GameState")
-	if gs and gs.has_method("record_level_skip"):
-		gs.record_level_skip(level_path)
-
-
-func _is_level_skipped(level_path: String) -> bool:
-	var cfg := ConfigFile.new()
-	cfg.load(INSTRUCTIONS_SAVE_PATH)
-	return cfg.get_value(SKIP_SECTION, level_path.md5_text(), false)
-
-
 func _get_env_from_path(level_path: String) -> String:
 	# e.g. "res://data/levels/granite_crag/granite_crag_01.json" -> "granite_crag"
 	var parts := level_path.split("/")
 	return parts[-2]
-
-
-func _get_env_skip_count(env: String) -> int:
-	var cfg := ConfigFile.new()
-	cfg.load(INSTRUCTIONS_SAVE_PATH)
-	return cfg.get_value("env_skips", env, 0)
 
 
 func _get_next_level_path(current_path: String) -> String:
@@ -510,20 +417,6 @@ func _get_next_level_path(current_path: String) -> String:
 		return level_loader.get_next_level_path()
 
 	return ""
-
-
-func _on_skip_level_pressed() -> void:
-	print("  [Skip] SKIP BUTTON PRESSED — loading next level")
-	print("  [Skip] Current level: ", _current_level_path)
-	_mark_level_skipped(_current_level_path)
-	_hide_skip_button(true)
-
-	var next_path := _get_next_level_path(_current_level_path)
-	if next_path == "":
-		_on_level_complete_menu_requested()
-		return
-
-	_on_next_level_requested(next_path)
 
 # =============================================================================
 #  PAUSE MENU
@@ -620,8 +513,6 @@ func _load_initial_level(path: String) -> void:
 
 	await get_tree().process_frame
 	center_camera_on_route()
-
-	_reset_skip_state()
 
 	# ── Route preview (Option B) ──────────────────────────────────────────────
 	# Wait one more frame so the camera is positioned before the tween fires.
@@ -829,8 +720,6 @@ func on_level_complete():
 	if pause_menu and pause_menu.visible:
 		pause_menu.hide_pause_menu()
 
-	_hide_skip_button(true)
-
 	var completion_time := 0.0
 	if current_discipline == ClimbingDiscipline.Type.SPEED and speed_timer:
 		if speed_timer.has_method("get_time_remaining"):
@@ -853,14 +742,18 @@ func on_player_reset():
 	_do_player_reset()
 
 func on_player_fell():
-	# Fall detection — counts toward skip threshold
-	print("  [Main] on_player_fell() called — counting toward skip")
-	_increment_fall_count()
 	_do_player_reset()
 
 func _do_player_reset():
 	if player and not player._grab_initialized:
 		return
+
+	# Kill any active route preview tween so it doesn't fight the camera
+	if _preview_tween and _preview_tween.is_valid():
+		_preview_tween.kill()
+	if _return_tween and _return_tween.is_valid():
+		_return_tween.kill()
+	_cam_mode = CameraMode.FOLLOW_PLAYER
 
 	position_player_at_spawn()
 	camera_owned_by_main = false
@@ -918,7 +811,7 @@ func _on_next_level_requested(next_level_path: String) -> void:
 	if pause_menu:
 		pause_menu.pausing_enabled = false
 
-	await LevelTransition.fade_out_only()
+	await Transition.fade_out_only()
 
 	if player and player.has_method("reset_climb"):
 		player.reset_climb()
@@ -938,7 +831,7 @@ func _on_next_level_requested(next_level_path: String) -> void:
 
 	await get_tree().create_timer(0.1).timeout
 
-	await LevelTransition.fade_in_only()
+	await Transition.fade_in_only()
 
 	if pause_menu:
 		pause_menu.pausing_enabled = true
@@ -957,7 +850,7 @@ func _on_level_complete_restart_requested() -> void:
 	if pause_menu:
 		pause_menu.pausing_enabled = false
 
-	await LevelTransition.fade_out_only()
+	await Transition.fade_out_only()
 
 	if player and player.has_method("reset_climb"):
 		player.reset_climb()
@@ -970,7 +863,7 @@ func _on_level_complete_restart_requested() -> void:
 
 	await get_tree().create_timer(0.1).timeout
 
-	await LevelTransition.fade_in_only()
+	await Transition.fade_in_only()
 
 	if pause_menu:
 		pause_menu.pausing_enabled = true
@@ -1072,9 +965,6 @@ func _on_transition_finished():
 	if pause_menu:
 		pause_menu.pausing_enabled = true
 
-func _on_level_loaded():
-	pass
-
 # =============================================================================
 #  INSTRUCTIONS / POPUP DISMISS
 # =============================================================================
@@ -1094,10 +984,12 @@ func _on_hide_instructions_pressed() -> void:
 		instructions.process_mode = PROCESS_MODE_DISABLED
 		return
 
-	var tween = create_tween()
-	tween.tween_property(instructions_root, "modulate:a", 0.0, 0.4) \
-		.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_CUBIC)
+	var tween = create_tween().set_parallel(true)
+	tween.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(instructions_root, "modulate:a", 0.0, 0.3)
+	tween.tween_property(instructions_root, "scale", Vector2(0.94, 0.94), 0.25)
 	tween.tween_callback(func():
+		instructions_root.scale = Vector2.ONE
 		instructions.hide()
 		instructions.process_mode = PROCESS_MODE_DISABLED
 	)
