@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://phva7vynr56p"]
+[gd_scene load_steps=6 format=3 uid="uid://phva7vynr56p"]
 
 [ext_resource type="Script" uid="uid://3c1r06go1w6k" path="res://scripts/ui/menus/collections_select.gd" id="1_ns5ma"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_rcboh"]
@@ -27,9 +27,10 @@ script = ExtResource("2_rcboh")
 [node name="HBoxContainer" type="HBoxContainer" parent="."]
 layout_mode = 0
 offset_top = 71.0
-offset_right = 1408.0
 offset_bottom = 663.0
+grow_horizontal = 2
 theme_override_constants/separation = 50
+alignment = 1
 
 [node name="Sandstone" type="Button" parent="HBoxContainer"]
 visible = false

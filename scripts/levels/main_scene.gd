@@ -83,6 +83,9 @@ func start_route_preview() -> void:
 		camera_owned_by_main = false
 		return
 
+	# Disable player input so they can't move before the zoom-in completes
+	_set_player_input(false)
+
 	# Disable position smoothing during preview tween so tween_property controls
 	# the actual rendered camera position, not just the smoothing target.
 	_smoothing_was_enabled = camera.position_smoothing_enabled
@@ -138,6 +141,9 @@ func _finish_preview() -> void:
 	_preview_complete = true
 	_cam_mode = CameraMode.FOLLOW_PLAYER
 	camera_owned_by_main = false
+
+	# Re-enable player input now that the zoom-in is complete
+	_set_player_input(true)
 
 	# Don't snap position/zoom — the tween already landed at the right values.
 	# Just restore position_smoothing and call reset_smoothing() to eliminate
@@ -661,6 +667,9 @@ func on_climb_start():
 				_preview_tween.kill()
 			if _return_tween and _return_tween.is_valid():
 				_return_tween.kill()
+			# Snap zoom back to normal so camera doesn't stay zoomed out
+			if is_instance_valid(camera):
+				camera.zoom = _preview_zoom_normal
 			_finish_preview()
 
 	if current_discipline == ClimbingDiscipline.Type.SPEED:

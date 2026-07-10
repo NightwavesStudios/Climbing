@@ -69,7 +69,7 @@ static func _popup_cond_zoom(level_path: String) -> bool:
 	return level_path.ends_with("tutorial_04.json")
 
 static func _popup_cond_falling_holds(level_path: String) -> bool:
-	return level_path.ends_with("tutorial_06.json")
+	return level_path.ends_with("tutorial_07.json")
 
 static func _popup_cond_granite_topping_out(level_path: String) -> bool:
 	return level_path.ends_with("granite_crag_01.json")

@@ -16,6 +16,12 @@ func _ready() -> void:
 		push_error("collection_select: $HBoxContainer node not found!")
 		return
 
+	# Make the container span the full width and center its children
+	map_container.anchor_right = 1.0
+	map_container.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	if map_container is BoxContainer:
+		map_container.alignment = 1  # BoxContainer.ALIGN_CENTER
+
 	_find_and_map_buttons()
 	_update_collection_states()
 
