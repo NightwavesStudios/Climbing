@@ -5,8 +5,8 @@ extends Control
 var button_to_collection: Dictionary = {}
 
 const COLOR_UNLOCKED    := Color(1.0, 1.0, 1.0, 1.0)
-const COLOR_COMPLETED   := Color(0.4, 1.0, 0.4, 1.0)
-const COLOR_LOCKED      := Color(0.3, 0.3, 0.3, 0.5)
+const COLOR_COMPLETED   := Color(1.0, 1.0, 1.0, 1.0)
+const COLOR_LOCKED      := Color(1.0, 1.0, 1.0, 1.0)
 
 func _ready() -> void:
 	# Show the shared persistent menu background
