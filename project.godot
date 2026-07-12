@@ -12,9 +12,22 @@ config_version=5
 
 config/name="Climbing Simplified"
 config/description="A minimalist physics-based climbing puzzle game where every move matters. Plan your moves, manage stamina, and master different climbing disciplines as you scale gyms, cliffs, and building routes. Each hold behaves differently, and weather conditions can turn an easy climb into a serious challenge."
-run/main_scene="uid://cmudrme1ntc3v"
+run/main_scene="uid://bsmrrn3ii7r20"
 config/features=PackedStringArray("4.5", "Forward Plus")
+boot_splash/bg_color=Color(0, 0, 0, 1)
+boot_splash/show_image=false
 config/icon="uid://b2ck0fmegil3"
+config/run_main_scene="uid://cmudrme1ntc3v"
+"#mainscenesetviarun/main_sceneabove[autoload]EditorState"="*res://scripts/editor/editor_state.gd"
+GameState="*res://scripts/systems/game_state.gd"
+LevelManager="*res://scripts/levels/level_manager.gd"
+Transition="*res://scripts/ui/transition.gd"
+EnvironmentConfig="*res://scripts/environment/environment_config.gd"
+HoldRegistry="*res://scripts/climbing/hold_registry.gd"
+MusicPlayer="*res://scripts/systems/music_player.gd"
+CustomCursor="*res://scripts/systems/custom_cursor.gd"
+MenuBackgroundManager="*res://scripts/environment/menu_background_manager.gd"
+"#boot_splashsettingsareinthe[boot_splash]sectionbelowconfig/run_main_scene"="uid://cmudrme1ntc3v"
 
 [autoload]
 
@@ -27,6 +40,10 @@ HoldRegistry="*res://scripts/climbing/hold_registry.gd"
 MusicPlayer="*res://scripts/systems/music_player.gd"
 CustomCursor="*res://scripts/systems/custom_cursor.gd"
 MenuBackgroundManager="*res://scripts/environment/menu_background_manager.gd"
+
+[boot_splash]
+
+minimum_display_time="300"
 
 [display]
 
@@ -76,3 +93,7 @@ ui_fps_toggle={
 textures/vram_compression/import_etc2_astc=true
 viewport/hdr_2d="true"
 anti_aliasing/quality/msaa_2d=3
+
+[run]
+
+main_scene="res://scenes/menus/splash_screen.tscn"

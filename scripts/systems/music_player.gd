@@ -25,12 +25,13 @@ var _history: Array[int] = []
 var _crossfade_tween: Tween = null
 var _next_index: int = -1
 var _is_crossfading: bool = false
+var _started: bool = false
 
 func _ready() -> void:
 	_setup_audio()
 	_setup_timer()
 	_active_player = _player_a
-	_schedule_next_track()
+	# Music does NOT start here — SplashScreenManager calls start() after the splash
 
 	# Pause music when the window loses focus
 	var root := get_tree().root as Window
@@ -91,6 +92,15 @@ func stop() -> void:
 
 
 func resume() -> void:
+	_schedule_next_track()
+
+
+## Called by SplashScreenManager after the splash animation completes.
+## Starts the music playback loop.
+func start() -> void:
+	if _started:
+		return
+	_started = true
 	_schedule_next_track()
 
 
