@@ -161,6 +161,11 @@ func _enter_falling() -> void:
 	_force_release_all()
 	_set_collision_enabled(false)
 
+	# ── Steam: track falling hold ──────────────────────────────────────────
+	var game_state := get_node_or_null("/root/GameState")
+	if game_state and game_state.has_method("record_falling_hold"):
+		game_state.record_falling_hold()
+
 func _enter_idle_calm() -> void:
 	_state                             = _State.IDLE
 	_shake_timer                       = 0.0

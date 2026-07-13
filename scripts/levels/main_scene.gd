@@ -608,6 +608,25 @@ func on_level_complete():
 		if speed_timer.has_method("get_time_remaining"):
 			completion_time = speed_timer.get_time_remaining()
 
+	# ── Steam: discipline-based achievements ───────────────────────────────
+	var steam := get_node_or_null("/root/SteamManager")
+	if steam:
+		match current_discipline:
+			ClimbingDiscipline.Type.SPEED:
+				if speed_timer:
+					var time_limit := speed_timer.time_limit as float
+					if time_limit > 0:
+						var time_remaining := completion_time
+						var ratio := time_remaining / time_limit
+						# SPEED_DEMON: > 50% time remaining
+						if ratio > 0.5:
+							steam.unlock_achievement(steam.ACHIEVEMENTS.SPEED_DEMON)
+						# PHOTO_FINISH: < 3 seconds remaining
+						if time_remaining < 3.0:
+							steam.unlock_achievement(steam.ACHIEVEMENTS.PHOTO_FINISH)
+			ClimbingDiscipline.Type.ROPED:
+				steam.unlock_achievement(steam.ACHIEVEMENTS.ROPE_GUN)
+
 	var game_state = get_node_or_null("/root/GameState")
 	if game_state and game_state.has_method("record_level_completion"):
 		game_state.record_level_completion(_current_level_path, completion_time)

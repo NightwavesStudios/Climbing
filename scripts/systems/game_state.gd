@@ -13,6 +13,10 @@ var last_completed_level: String = ""
 var completed_levels: Dictionary = {}  # level_path: completion_time
 var completed_collections: Array[String] = []
 
+# Stats for Steam achievements
+var total_falls: int = 0
+var total_falling_holds: int = 0
+
 # Climb metadata storage (name and grade for each level)
 var climb_metadata: Dictionary = {}  # level_path: {name: String, grade: String}
 
@@ -136,9 +140,18 @@ func record_level_completion(level_path: String, completion_time: float) -> void
 	last_completed_level = level_path
 	_update_current_collection_from_level(level_path)
 
-	if level_path not in completed_levels:
+	var is_first_completion := level_path not in completed_levels
+
+	if is_first_completion:
 		completed_levels[level_path] = completion_time
 		print("GameState: Completed " + level_path + " in " + str(completion_time) + "s")
+
+		# ── Steam: FIRST_CLIMB ─────────────────────────────────────────────
+		if completed_levels.size() == 1:
+			var steam := get_node_or_null("/root/SteamManager")
+			if steam:
+				steam.unlock_achievement(steam.ACHIEVEMENTS.FIRST_CLIMB)
+
 		_check_collection_completion(level_path)
 		save_game()
 	else:
@@ -274,6 +287,16 @@ func _check_collection_completion(level_path: String) -> void:
 			completed_collections.append(collection_id)
 			print("🎉 COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
 
+			# ── Steam: collection-based achievements ──────────────────────
+			var steam := get_node_or_null("/root/SteamManager")
+			if steam:
+				match collection_id:
+					"intro-gym":
+						steam.unlock_achievement(steam.ACHIEVEMENTS.GYM_RAT)
+					"granite-crag":
+						steam.unlock_achievement(steam.ACHIEVEMENTS.ON_REAL_ROCK)
+						steam.unlock_achievement(steam.ACHIEVEMENTS.DEMO_COMPLETE)
+
 func _update_current_collection_from_level(level_path: String) -> void:
 	"""Find and set which collection this level belongs to"""
 	for collection_id in COLLECTIONS:
@@ -384,6 +407,34 @@ func get_overall_completion_percentage() -> float:
 	return (float(completed_levels.size()) / float(total)) * 100.0
 
 # =============================================================================
+# STATS (for Steam achievements)
+# =============================================================================
+
+func record_fall() -> void:
+	total_falls += 1
+	var steam := get_node_or_null("/root/SteamManager")
+	if steam:
+		steam.increment_stat(steam.STAT_FALLS)
+	save_game()
+
+
+func record_falling_hold() -> void:
+	total_falling_holds += 1
+	var steam := get_node_or_null("/root/SteamManager")
+	if steam:
+		steam.increment_stat(steam.STAT_FALLING_HOLDS)
+	save_game()
+
+
+func get_total_falls() -> int:
+	return total_falls
+
+
+func get_total_falling_holds() -> int:
+	return total_falling_holds
+
+
+# =============================================================================
 # SAVE / LOAD
 # =============================================================================
 
@@ -426,6 +477,8 @@ func reset_progress() -> void:
 	current_level = ""
 	current_collection = ""
 	last_completed_level = ""
+	total_falls = 0
+	total_falling_holds = 0
 	save_game()
 	print("GameState: Progress reset")
 
@@ -436,6 +489,8 @@ func get_save_data() -> Dictionary:
 		"climb_metadata": climb_metadata,
 		"current_level": current_level,
 		"current_collection": current_collection,
+		"total_falls": total_falls,
+		"total_falling_holds": total_falling_holds,
 	}
 
 func load_save_data(data: Dictionary) -> void:
@@ -444,3 +499,5 @@ func load_save_data(data: Dictionary) -> void:
 	climb_metadata = data.get("climb_metadata", {})
 	current_level = data.get("current_level", "")
 	current_collection = data.get("current_collection", "")
+	total_falls = data.get("total_falls", 0)
+	total_falling_holds = data.get("total_falling_holds", 0)

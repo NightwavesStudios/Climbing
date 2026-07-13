@@ -1600,6 +1600,11 @@ func check_fall_detection(delta: float) -> void:
 	if _count_held_limbs() == 0 and com_velocity.y > FALL_VELOCITY_THRESHOLD and not in_water:
 		fall_timer += delta
 		if fall_timer >= FALL_DETECTION_TIME:
+			# ── Steam: track fall ──────────────────────────────────────────
+			var game_state := get_node_or_null("/root/GameState")
+			if game_state and game_state.has_method("record_fall"):
+				game_state.record_fall()
+
 			if current_discipline == 2 and speed_timer and speed_timer.has_method("pause_timer"):
 				speed_timer.pause_timer()
 			var main = get_tree().current_scene
