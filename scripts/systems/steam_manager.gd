@@ -46,13 +46,13 @@ func _try_init_steam() -> bool:
 		return false
 
 	# Double-check the Steam client is actually running.
-	if not Steam.is_steam_running():
+	if not Steam.isSteamRunning():
 		print("SteamManager: Steam client is not running")
 		return false
 
 	# Initialize the Steam API. On GodotSteam GDExtension, this may already be
 	# auto-initialized; calling it again is safe and returns true.
-	var result := Steam.steam_init()
+	var result = Steam.steamInit()
 	if not result:
 		print("SteamManager: steam_init() returned false")
 		return false
@@ -73,11 +73,11 @@ func unlock_achievement(api_name: String) -> void:
 		return
 
 	# Avoid re-setting already-unlocked achievements (saves a store_stats round-trip).
-	if Steam.get_achievement(api_name):
+	if Steam.getAchievement(api_name):
 		return
 
-	Steam.set_achievement(api_name)
-	Steam.store_stats()
+	Steam.setAchievement(api_name)
+	Steam.storeStats()
 	print("SteamManager: ✅ Achievement unlocked: ", api_name)
 
 
@@ -85,15 +85,15 @@ func unlock_achievement(api_name: String) -> void:
 func set_stat_int(stat_name: String, value: int) -> void:
 	if not is_available():
 		return
-	Steam.set_stat_int(stat_name, value)
-	Steam.store_stats()
+	Steam.setStatInt(stat_name, value)
+	Steam.storeStats()
 
 
 ## Get the current value of an int stat from Steam.
 func get_stat_int(stat_name: String) -> int:
 	if not is_available():
 		return 0
-	return Steam.get_stat_int(stat_name)
+	return Steam.getStatInt(stat_name)
 
 
 ## Increment an int stat by the given amount and check threshold-based achievements.
@@ -101,10 +101,10 @@ func increment_stat(stat_name: String, amount: int = 1) -> void:
 	if not is_available():
 		return
 
-	var current := Steam.get_stat_int(stat_name)
+	var current: int = Steam.getStatInt(stat_name)
 	current += amount
-	Steam.set_stat_int(stat_name, current)
-	Steam.store_stats()
+	Steam.setStatInt(stat_name, current)
+	Steam.storeStats()
 
 	# Check threshold-based achievements
 	match stat_name:
