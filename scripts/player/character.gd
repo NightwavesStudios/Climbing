@@ -119,12 +119,6 @@ const P2_SHAKE_ONSET    = 0.15
 const P2_SHAKE_MAX_AMP  = 3.0
 const P2_SHAKE_LERP_IN  = 0.2
 const P2_SHAKE_LERP_OUT = 1.2
-const P2_PULSE_ONSET    = 0.65
-const P2_PULSE_AMP      = 1.8
-const P2_PULSE_FREQ     = 3.0
-const P2_DARK_ONSET     = 0.35
-const P2_DARK_COLOR     = Color(0.18, 0.12, 0.12, 1.0)
-const P2_DARK_MAX_BLEND = 0.55
 const SHAKE_LERP_SPEED  = 2.0
 
 # -- Failure / P3 -------------------------------------------------------------
@@ -282,7 +276,6 @@ func _set_default_local_positions() -> void:
 	_rf_joint.position = Vector2( HIP_OFFSET, HIP_DOWN + 20)
 	_lf_node.position  = Vector2(-HIP_OFFSET, HIP_DOWN + LEG_UPPER_LENGTH + LEG_LOWER_LENGTH / 2)
 	_rf_node.position  = Vector2( HIP_OFFSET, HIP_DOWN + LEG_UPPER_LENGTH + LEG_LOWER_LENGTH / 2)
-	_ensure_shadow_node()
 
 # =============================================================================
 #  INPUT GATE (called by main.gd during route preview)
@@ -302,8 +295,6 @@ func set_input_enabled(enabled: bool) -> void:
 func _process(delta: float) -> void:
 	if not _grab_initialized:
 		queue_redraw()
-		if _shadow_node and is_instance_valid(_shadow_node):
-			_shadow_node.queue_redraw()
 		return
 
 	if _ragdoll_active:
@@ -312,8 +303,6 @@ func _process(delta: float) -> void:
 			_ragdoll_active = false
 		update_camera()
 		queue_redraw()
-		if _shadow_node and is_instance_valid(_shadow_node):
-			_shadow_node.queue_redraw()
 		return
 
 	handle_input()
@@ -328,8 +317,6 @@ func _process(delta: float) -> void:
 	_update_weather_modifier()
 	_update_draw_scales(delta)
 	queue_redraw()
-	if _shadow_node and is_instance_valid(_shadow_node):
-		_shadow_node.queue_redraw()
 
 # =============================================================================
 #  INPUT
@@ -634,9 +621,8 @@ func update_shake_effects(delta: float) -> void:
 			var amp  = hs.shake_lerp * P2_SHAKE_MAX_AMP
 			var freq = 28.0 + hs.shake_lerp * 8.0
 			var ph   = 0.0 if hs.is_left else 0.5
-			hs.shake_offset = (Vector2(sin(t_now * freq + ph) * amp,
+			hs.shake_offset = Vector2(sin(t_now * freq + ph) * amp,
 				sin(t_now * freq * 1.3 + 1.7 + ph) * amp)
-				+ _get_pulse_offset(hs.pressure, 0.0 if hs.is_left else PI))
 		else:
 			hs.shake_offset = Vector2.ZERO
 
@@ -677,20 +663,6 @@ func _get_pressure_shake_frac(p: float) -> float:
 	if t < P2_SHAKE_ONSET: return 0.0
 	return (t - P2_SHAKE_ONSET) / (1.0 - P2_SHAKE_ONSET)
 
-
-func _get_pulse_offset(pressure: float, phase: float) -> Vector2:
-	var t = pressure / PRESSURE_FAIL
-	if t < P2_PULSE_ONSET: return Vector2.ZERO
-	var strength = (t - P2_PULSE_ONSET) / (1.0 - P2_PULSE_ONSET)
-	var p = sin(Time.get_ticks_msec() * 0.001 * P2_PULSE_FREQ * TAU + phase) * P2_PULSE_AMP * strength
-	return Vector2(p * 0.25, p)
-
-
-func _get_limb_color(pressure: float) -> Color:
-	var t = pressure / PRESSURE_FAIL
-	if t < P2_DARK_ONSET: return Color.BLACK
-	var blend = minf((t - P2_DARK_ONSET) / (1.0 - P2_DARK_ONSET), 1.0) * P2_DARK_MAX_BLEND
-	return Color.BLACK.lerp(P2_DARK_COLOR, blend)
 
 # =============================================================================
 #  DRAW SCALE & HOVER JITTER
@@ -1675,22 +1647,6 @@ func _draw() -> void:
 		_draw_stick_figure()
 
 # =============================================================================
-#  SHADOW CHILD NODE
-# =============================================================================
-
-func _ensure_shadow_node() -> void:
-	if _shadow_node != null and is_instance_valid(_shadow_node):
-		return
-	_shadow_node = CharacterShadowDrawer.new()
-	_shadow_node.z_index = -1
-	_shadow_node.name    = "ShadowLayer"
-	add_child(_shadow_node)
-	_shadow_node.owner_ref = self
-
-
-var _shadow_node: Node2D = null
-
-# =============================================================================
 #  STICK FIGURE + TONAL OUTLINE
 # =============================================================================
 
@@ -1827,44 +1783,6 @@ func _query_water(pos: Vector2, vel: Vector2) -> Dictionary:
 		return dwall.check_water_collision(pos, vel)
 	return {"in_water": false, "depth": 0.0, "surface_y": 0.0,
 			"drag": Vector2(1.0, 1.0), "buoyancy": 0.0}
-
-
-func _get_light_info() -> Dictionary:
-	var env_wall: Node2D = get_tree().get_first_node_in_group("environment_walls")
-	if not env_wall:
-		return {"direction": Vector2(0.3, 1.0).normalized(), "intensity": 0.38, "ambient": 0.14}
-	var env: Dictionary = env_wall.get("_env") if env_wall.get("_env") != null else {}
-	var wmod: Node        = _weather_modifier
-	var weather_type: int = 0
-	if wmod and "weather" in wmod: weather_type = int(wmod.weather)
-	if weather_type == 2:
-		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 1.0
-		return {"direction": Vector2(0.0, 1.0), "intensity": 0.05 * blend, "ambient": 0.02}
-	if weather_type == 5:
-		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 1.0
-		return {"direction": Vector2(0.0, 1.0), "intensity": lerp(0.34, 0.07, blend), "ambient": lerp(0.12, 0.20, blend)}
-	var weather_shadow_mult: float = 1.0
-	if weather_type in [1, 4, 6]:
-		var blend: float = float(wmod.get_blend()) if wmod.has_method("get_blend") else 0.0
-		weather_shadow_mult = lerp(1.0, 0.42, blend)
-	if not env.get("has_sun", true):
-		return {"direction": Vector2(0.0, 1.0), "intensity": 0.11 * weather_shadow_mult, "ambient": 0.07}
-	var sun_color: Color = env.get("sun_color", Color(1.0, 0.95, 0.70)) as Color
-	var sun_lum:   float = sun_color.r * 0.299 + sun_color.g * 0.587 + sun_color.b * 0.114
-	var sky_top:   Color = env.get("sky_top",   Color(0.20, 0.45, 0.78)) as Color
-	var sky_lum:   float = sky_top.r * 0.299 + sky_top.g * 0.587 + sky_top.b * 0.114
-	var sky_horiz: Color = env.get("sky_horizon", Color(0.72, 0.85, 0.95)) as Color
-	var is_dusk:   bool  = sky_horiz.r > sky_horiz.b + 0.15
-	var direction: Vector2; var intensity: float; var ambient: float
-	if is_dusk:
-		direction = Vector2(0.55, 0.95).normalized(); intensity = 0.44 * sun_lum * weather_shadow_mult; ambient = 0.17
-	elif sky_lum < 0.15:
-		direction = Vector2(0.0, 1.0); intensity = 0.05 * weather_shadow_mult; ambient = 0.03
-	else:
-		direction = Vector2(0.28, 0.96).normalized(); intensity = clamp(sun_lum * 0.54, 0.20, 0.54) * weather_shadow_mult; ambient = 0.11
-	if env.get("has_gym_interior", false):
-		direction = Vector2(0.12, 1.0).normalized(); intensity = 0.18 * weather_shadow_mult; ambient = 0.22
-	return {"direction": direction, "intensity": intensity, "ambient": ambient}
 
 # =============================================================================
 #  EXTERNAL API

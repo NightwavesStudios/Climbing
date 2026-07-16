@@ -1,8 +1,11 @@
+@tool
 extends Node2D
 ## Main game scene with dynamic wall integration and climbing disciplines
 
 @export var default_level_path: String = "res://data/levels/tutorial/tutorial_01.json"
+signal ready_to_show
 var camera_owned_by_main: bool = false
+var _loading_complete := false
 var _preview_complete: bool = false
 @onready var level_loader: LevelLoader = $LevelLoader
 @onready var player: CharacterBody2D = $Character
@@ -238,6 +241,17 @@ func _check_paths() -> void:
 # =============================================================================
 
 func _ready():
+	if Engine.is_editor_hint():
+		# Editor preview: load level data so holds/wall are visible in the editor
+		print("=== MAIN SCENE [EDITOR PREVIEW] ===")
+		
+		# Trigger editor preview on the LevelLoader after a short delay
+		# to ensure containers are ready
+		if level_loader and level_loader.has_method("_editor_auto_load"):
+			level_loader._editor_auto_load()
+		
+		return
+	
 	print("=== MAIN SCENE READY ===")
 
 	# Hide the menu background — it's persistent at root level and
@@ -273,7 +287,23 @@ func _ready():
 
 	await get_tree().process_frame
 	_show_popup_for_level(initial_level)
+
+	_loading_complete = true
+	ready_to_show.emit()
 	print("=== MAIN SCENE READY COMPLETE ===")
+
+# =============================================================================
+#  TRANSITION READY HOOK
+# =============================================================================
+
+## Called by Transition autoload after the scene has been added to the tree
+## but before the fade-in.  Returns as soon as the level is fully loaded,
+## so the reveal shows everything at once.
+func _on_before_show() -> void:
+	if _loading_complete:
+		return
+	await ready_to_show
+
 
 # =============================================================================
 #  POPUP ENTRY POINT
@@ -363,20 +393,41 @@ func _setup_level_complete_overlay() -> void:
 # =============================================================================
 
 func _get_initial_level() -> String:
-	var game_state = get_node_or_null("/root/GameState")
-	if game_state and game_state.has_method("get_current_level"):
-		var lvl = game_state.get_current_level()
-		if lvl and lvl != "":
-			return lvl
+	# ── Level-select flow (base main_scene.tscn) ──────────────────────────
+	# level_select stores the user's pick in GameState.current_level, then
+	# transitions to res://scenes/main/main_scene.tscn.  In that scenario
+	# scene_file_path is the BASE scene and default_level_path is empty, so
+	# we MUST read the real level from GameState.
+	#
+	# ── Direct-open flow (level .tscn in editor / Play Scene) ─────────────
+	# When opening a level .tscn directly (e.g. sandstone_01.tscn),
+	# default_level_path is set in the file to the correct .json.  GameState
+	# may hold a stale value from the save file — we MUST NOT use it.
+	# =========================================================================
+	if scene_file_path == "res://scenes/main/main_scene.tscn":
+		var gs := get_node_or_null("/root/GameState")
+		if gs:
+			var gs_level: String = gs.get_current_level()
+			if not gs_level.is_empty():
+				return gs_level
+
+	# Direct-open / editor-preview: use the level scene's own default.
 	return default_level_path
 
-func _load_initial_level(path: String) -> void:
-	print("  Loading level: ", path)
-	_current_level_path = path
+func _load_initial_level(level_path: String) -> void:
+	# Normalize to .tscn path for tracking (GameState COLLECTIONS use .tscn paths now)
+	var tscn_path := level_path
+	if level_path.ends_with(".json"):
+		tscn_path = level_path.replace("res://data/levels/", "res://scenes/levels/").replace(".json", ".tscn")
+	_current_level_path = tscn_path
 
-	var success = await level_loader.load_level(path)
+	# Convert to .json path for the level loader
+	var json_path := tscn_path.replace("res://scenes/levels/", "res://data/levels/").replace(".tscn", ".json")
+
+	print("  Loading level: ", json_path)
+	var success = await level_loader.load_level(json_path)
 	if not success:
-		print("  ERROR: Failed to load level: ", path)
+		print("  ERROR: Failed to load level: ", json_path)
 		return
 
 	await get_tree().process_frame
@@ -403,7 +454,7 @@ func _load_initial_level(path: String) -> void:
 	start_route_preview()
 	# ─────────────────────────────────────────────────────────────────────────
 
-	print("  ✓ Level ready: ", path)
+	print("  ✓ Level ready: ", json_path)
 
 # =============================================================================
 #  DISCIPLINE SYSTEM SETUP

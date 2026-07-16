@@ -1,3 +1,4 @@
+@tool
 extends Node2D
 class_name LevelLoader
 
@@ -41,7 +42,9 @@ func _ready():
 	else:
 		crashpads_container = get_node("Crashpads")
 
-	call_deferred("_create_dynamic_wall")
+	if not Engine.is_editor_hint():
+		call_deferred("_create_dynamic_wall")
+	
 
 # =============================================================================
 # HOLD REGISTRY HELPERS
@@ -62,6 +65,149 @@ func _get_hold_scene(type_name: String) -> PackedScene:
 	return scene
 
 # =============================================================================
+# EDITOR PREVIEW (auto-loads level when opening .tscn in editor)
+# =============================================================================
+# Map hold type names to scene paths (used as fallback when HoldRegistry isn't available in editor)
+const EDITOR_HOLD_SCENE_MAP = {
+	"JUG":    "res://scenes/holds/jug.tscn",
+	"CRIMP":  "res://scenes/holds/crimp.tscn",
+	"SLOPER": "res://scenes/holds/sloper.tscn",
+	"POCKET": "res://scenes/holds/pocket.tscn",
+	"FOOT":   "res://scenes/holds/foothold.tscn",
+	"START":  "res://scenes/holds/start.tscn",
+	"TOP":    "res://scenes/holds/top_out.tscn",
+	"WINDOW": "res://scenes/holds/window.tscn",
+	"LEDGE":  "res://scenes/holds/ledge.tscn",
+}
+
+func _editor_spawn_hold(hold_data: Dictionary) -> void:
+	var type_name: String = (hold_data.get("type", "JUG") as String).to_upper()
+	
+	# Try direct scene load (registry may not be available in editor)
+	var scene_path: String = EDITOR_HOLD_SCENE_MAP.get(type_name, "")
+	if scene_path.is_empty() or not ResourceLoader.exists(scene_path):
+		print("LevelLoader [editor]: No scene for hold type ", type_name)
+		return
+	
+	var scene: PackedScene = load(scene_path)
+	if not scene:
+		return
+	
+	var hold := scene.instantiate()
+	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
+	
+	if "rotation" in hold_data:
+		hold.rotation = hold_data.get("rotation", 0.0)
+	
+	if hold.has_method("set_hold_type_from_string"):
+		hold.set_hold_type_from_string(type_name)
+	
+	if "hold_type" in hold:
+		hold.hold_type = type_name
+	
+	holds_container.add_child(hold)
+	var edited_root := get_tree().edited_scene_root if Engine.is_editor_hint() else null
+	if edited_root:
+		hold.owner = edited_root
+		# Also set owner on all descendants so sprites are visible
+		for c in hold.find_children("*", "", true, false):
+			c.owner = edited_root
+	hold.add_to_group("holds")
+	
+	# Custom spawn
+	if hold_data.get("custom_spawn", false):
+		custom_spawn_hold = hold
+
+func _editor_auto_load() -> void:
+	# Safety check: ensure containers exist
+	if not holds_container:
+		holds_container = Node2D.new()
+		holds_container.name = "Holds"
+		add_child(holds_container)
+	if not crashpads_container:
+		crashpads_container = Node2D.new()
+		crashpads_container.name = "Crashpads"
+		add_child(crashpads_container)
+	
+	# Try to get the json path from the parent's default_level_path export
+	var level_path: String = ""
+	var parent_script := get_parent()
+	if parent_script and "default_level_path" in parent_script:
+		level_path = parent_script.default_level_path
+	if level_path.is_empty():
+		# Fallback: derive json path from our own scene_file_path
+		# e.g. res://scenes/levels/tutorial/tutorial_01.tscn → res://data/levels/tutorial/tutorial_01.json
+		var scene_path := scene_file_path
+		if scene_path.ends_with(".tscn"):
+			level_path = scene_path.replace("res://scenes/levels/", "res://data/levels/").replace(".tscn", ".json")
+	if level_path.is_empty():
+		return
+	
+	print("LevelLoader [editor]: Auto-loading ", level_path)
+	
+	# Read and parse JSON
+	var file := FileAccess.open(level_path, FileAccess.READ)
+	if not file:
+		print("LevelLoader [editor]: Could not open ", level_path)
+		return
+	var json_string := file.get_as_text()
+	file.close()
+	
+	var json := JSON.new()
+	if json.parse(json_string) != OK:
+		print("LevelLoader [editor]: Invalid JSON in ", level_path)
+		return
+	
+	var level_data: Dictionary = json.data
+	
+	# ── Create dynamic wall ────────────────────────────────────────────────────
+	_create_dynamic_wall()
+	
+	# ── Metadata ──────────────────────────────────────────────────────────────
+	current_level_name        = level_data.get("name",        "")
+	current_level_grade       = level_data.get("grade",       "")
+	current_level_environment = level_data.get("environment", "gym")
+	current_level_discipline  = level_data.get("discipline",  "bouldering")
+	
+	# ── Environment ────────────────────────────────────────────────────────────
+	set_environment_from_string(current_level_environment)
+	
+	# ── Spawn holds (synchronously in editor — no awaits) ─────────────────────
+	if "holds" in level_data:
+		print("LevelLoader [editor]: Spawning ", level_data.holds.size(), " holds")
+		for hold_data in level_data.holds:
+			_editor_spawn_hold(hold_data)
+		
+		var tree := get_tree()
+		if tree:
+			for hold in tree.get_nodes_in_group("holds"):
+				if hold.has_method("_update_sprite_for_environment"):
+					hold._update_sprite_for_environment()
+	
+	# ── Crashpads ─────────────────────────────────────────────────────────────
+	load_crashpads(level_data)
+	
+	# ── Wall polygon ──────────────────────────────────────────────────────────
+	if "wall_polygon" in level_data and dynamic_wall:
+		if dynamic_wall.has_method("set_polygon_data"):
+			dynamic_wall.set_polygon_data(level_data.wall_polygon)
+			if "top_edge_indices" in level_data.wall_polygon and dynamic_wall.has_method("set_polygon_data"):
+				# Pass top_edge_indices via set_polygon_data (it stores them internally)
+				pass
+			if dynamic_wall.has_method("_create_top_edge_holds"):
+				dynamic_wall._create_top_edge_holds()
+	
+	update_wall_bounds()
+	
+	# ── Weather ───────────────────────────────────────────────────────────────
+	var weather_type      := int(level_data.get("weather",           0))
+	var weather_intensity := float(level_data.get("weather_intensity", 1.0))
+	if dynamic_wall and dynamic_wall.has_method("set_weather"):
+		dynamic_wall.set_weather(weather_type, weather_intensity)
+	
+	print("LevelLoader [editor]: ✓ Level preview loaded: ", current_level_name)
+
+# =============================================================================
 # DYNAMIC WALL
 # =============================================================================
 func _create_dynamic_wall():
@@ -77,6 +223,8 @@ func _create_dynamic_wall():
 	dynamic_wall.name    = "DynamicWall"
 	dynamic_wall.z_index = -10
 	get_parent().add_child(dynamic_wall)
+	if Engine.is_editor_hint():
+		dynamic_wall.owner = get_tree().edited_scene_root
 
 func _free_dynamic_wall() -> void:
 	if dynamic_wall == null:
@@ -174,7 +322,9 @@ func load_level(path: String) -> bool:
 
 	var game_state = get_node_or_null("/root/GameState")
 	if game_state and game_state.has_method("set_climb_metadata"):
-		game_state.set_climb_metadata(path, current_level_name, current_level_grade)
+		# Convert .json path to .tscn path for GameState (which uses .tscn paths)
+		var tscn_path := path.replace("res://data/levels/", "res://scenes/levels/").replace(".json", ".tscn")
+		game_state.set_climb_metadata(tscn_path, current_level_name, current_level_grade)
 
 	print("\n=== SPAWNING HOLDS ===")
 
@@ -593,6 +743,8 @@ func load_crashpads(level_data: Dictionary) -> void:
 								   crashpad_data.get("y", 0))
 		var crashpad = crashpad_scene.instantiate()
 		crashpads_container.add_child(crashpad)
+		if Engine.is_editor_hint():
+			crashpad.owner = get_tree().edited_scene_root
 		crashpad.global_position = crashpad_pos
 		crashpad.add_to_group("crashpads")
 		crashpad_count += 1

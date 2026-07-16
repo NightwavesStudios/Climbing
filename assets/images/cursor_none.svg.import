@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dmoxns0txx7np"
-path="res://.godot/imported/grunge-mask.jpg-fab3da71b73e251e7cb070982223c8c5.ctex"
+uid="uid://ebgogvnu0w7f"
+path="res://.godot/imported/cursor_none.svg-b4bae1b6dd67194543286a3bb2f5e9d9.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/grunge-mask.jpg"
-dest_files=["res://.godot/imported/grunge-mask.jpg-fab3da71b73e251e7cb070982223c8c5.ctex"]
+source_file="res://assets/images/cursor_none.svg"
+dest_files=["res://.godot/imported/cursor_none.svg-b4bae1b6dd67194543286a3bb2f5e9d9.ctex"]
 
 [params]
 
@@ -38,3 +38,6 @@ process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
 detect_3d/compress_to=1
+svg/scale=1.0
+editor/scale_with_editor_scale=false
+editor/convert_colors_with_editor_theme=false

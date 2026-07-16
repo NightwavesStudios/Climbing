@@ -1,9 +1,8 @@
-[gd_scene load_steps=9 format=3 uid="uid://dbyu6py4a276m"]
+[gd_scene load_steps=8 format=3 uid="uid://dbyu6py4a276m"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/climbing/holds.gd" id="1_6lxc5"]
 [ext_resource type="Texture2D" uid="uid://fc7hycrrbkr7" path="res://assets/images/holds/gym/sloper.png" id="2_6ows1"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="2_js2ht"]
-[ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="3_3yt30"]
 [ext_resource type="Texture2D" uid="uid://c7f21ysun8i7t" path="res://assets/images/holds/granite/granite-sloper.png" id="5_3yt30"]
 [ext_resource type="Texture2D" uid="uid://ip0cr2t17pnh" path="res://assets/images/holds/sandstone/sandstone-sloper.png" id="6_f3fsl"]
 
@@ -12,9 +11,7 @@ radius = 115.00001
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_f3fsl"]
 shader = ExtResource("2_js2ht")
-shader_parameter/grunge_mask = ExtResource("3_3yt30")
 shader_parameter/wear_strength = 0.30000001425
-shader_parameter/grunge_scale = 1.00000004424012
 
 [node name="Sloper" type="Node2D"]
 scale = Vector2(0.2, 0.2)

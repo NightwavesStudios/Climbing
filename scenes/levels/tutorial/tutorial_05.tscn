@@ -1,0 +1,15 @@
+[gd_scene load_steps=2 format=3 uid="uid://cjkkrt57hgin3"]
+
+[ext_resource type="PackedScene" uid="uid://dobbv2ep5jfco" path="res://scenes/main/main_scene.tscn" id="1_xxx"]
+
+[node name="MainScene" instance=ExtResource("1_xxx")]
+default_level_path = "res://data/levels/tutorial/tutorial_05.json"
+
+[node name="Camera2D" parent="." index="0"]
+position = Vector2(0, 994.97345)
+
+[node name="Instructions" parent="." index="5"]
+process_mode = 4
+
+[node name="ColorRect" parent="Instructions" index="0"]
+modulate = Color(1, 1, 1, 0)

@@ -30,7 +30,6 @@ extends Node2D
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 
-const SUN_GLOW      := preload("res://assets/generated/sun_glow.png")
 const CLOUD_COUNT   = 5
 const CLOUD_LAYERS  = 3
 
@@ -384,17 +383,6 @@ func _draw_sun(vp: Rect2, pal: Dictionary) -> void:
 	var sun_radius := 800.0  # accounts for the wide glow texture
 	if sx + sun_radius < 0.0 or sx - sun_radius > vp.size.x: return
 	if sy + sun_radius < 0.0: return
-
-	# ── Sun glow — soft texture-based halo around the disc ───────────────────
-	var center := Vector2(sx, sy)
-	var gs := 256.0  # glow texture size (px)
-
-	# 1. Massive atmospheric halo — huge, barely visible, pure white
-	draw_texture_rect(SUN_GLOW, Rect2(center - Vector2.ONE * gs * 2.5, Vector2.ONE * gs * 5.0), false, Color(1.0, 1.0, 1.0, 0.030 * sc.a))
-	# 2. Outer warm glow — tinted with sun colour
-	draw_texture_rect(SUN_GLOW, Rect2(center - Vector2.ONE * gs * 1.25, Vector2.ONE * gs * 2.5), false, Color(sc.r, sc.g, sc.b, 0.07 * sc.a))
-	# 3. Inner bright glow — tighter, brighter
-	draw_texture_rect(SUN_GLOW, Rect2(center - Vector2.ONE * gs * 0.5, Vector2.ONE * gs * 1.0), false, Color(min(sc.r * 1.3, 1.0), min(sc.g * 1.3, 1.0), min(sc.b * 1.3, 1.0), 0.20 * sc.a))
 
 	# ── Sun disc — crisp yellow core ────────────────────────────────────────
 	draw_circle(Vector2(sx, sy), 48.0, Color(sc.r, sc.g, sc.b, sc.a))
