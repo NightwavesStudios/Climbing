@@ -322,9 +322,8 @@ func load_level(path: String) -> bool:
 
 	var game_state = get_node_or_null("/root/GameState")
 	if game_state and game_state.has_method("set_climb_metadata"):
-		# Convert .json path to .tscn path for GameState (which uses .tscn paths)
-		var tscn_path := path.replace("res://data/levels/", "res://scenes/levels/").replace(".json", ".tscn")
-		game_state.set_climb_metadata(tscn_path, current_level_name, current_level_grade)
+		# Use .json path directly for GameState metadata (COLLECTIONS use .json paths now)
+		game_state.set_climb_metadata(path, current_level_name, current_level_grade)
 
 	print("\n=== SPAWNING HOLDS ===")
 

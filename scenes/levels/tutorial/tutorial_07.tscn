@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="PackedScene" uid="uid://dobbv2ep5jfco" path="res://scenes/main/main_scene.tscn" id="1_xxx"]
-
-[node name="MainScene" instance=ExtResource("1_xxx")]
-default_level_path = "res://data/levels/tutorial/tutorial_07.json"

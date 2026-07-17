@@ -162,6 +162,9 @@ const FALL_VELOCITY_THRESHOLD = 400.0
 # -- Visual -------------------------------------------------------------------
 const VISUAL_ANIMATION_SPEED = 0.25
 
+# -- Hold-to-reset -----------------------------------------------------------
+const RESET_HOLD_DURATION: float = 1.0
+
 # -- Draw scale / hover jitter ------------------------------------------------
 const LIMB_FREE_SCALE_TARGET = 1.15
 const LIMB_SCALE_LERP_SPEED  = 8.0
@@ -235,7 +238,12 @@ var _rf_hover_jitter: Vector2 = Vector2.ZERO
 
 # -- Input gate (set by main.gd during route preview) -------------------------
 var _input_enabled: bool = true
-var _r_was_pressed: bool = false
+
+# -- Hold-to-reset state ----------------------------------------------------
+var _reset_hold_time: float = 0.0
+
+@onready var _reset_hold_popup: CanvasLayer = $ResetHoldPopup
+@onready var _reset_hold_fill: ColorRect = $ResetHoldPopup/Panel/VBoxContainer/ProgressBg/ProgressFill
 
 # =============================================================================
 #  INIT
@@ -305,7 +313,7 @@ func _process(delta: float) -> void:
 		queue_redraw()
 		return
 
-	handle_input()
+	handle_input(delta)
 	update_grip_states(delta)
 	update_shake_effects(delta)
 	simulate_physics(delta)
@@ -322,20 +330,27 @@ func _process(delta: float) -> void:
 #  INPUT
 # =============================================================================
 
-func handle_input() -> void:
+func handle_input(delta: float) -> void:
 	# Bail out when main.gd has locked input (e.g. during route preview)
 	if not _input_enabled:
 		return
 
-	var r_pressed := Input.is_key_pressed(KEY_R)
-	if Input.is_action_just_pressed("ui_cancel") or (r_pressed and not _r_was_pressed):
-		var main = get_tree().current_scene
-		if main and main.has_method("on_player_reset"):
-			main.on_player_reset()
-		else:
-			reset_climb()
-		return
-	_r_was_pressed = r_pressed
+	# --- Hold-to-reset: "restart" action (R key) ---
+	# Cancel hold if released early
+	if _reset_hold_time > 0.0 and not Input.is_action_pressed("restart"):
+		_reset_hold_time = 0.0
+		_hide_reset_hold_popup()
+
+	# Accumulate hold time while key is held
+	if Input.is_action_pressed("restart"):
+		_reset_hold_time += delta
+		_show_reset_hold_popup()
+		_update_reset_hold_popup()
+		if _reset_hold_time >= RESET_HOLD_DURATION:
+			_reset_hold_time = 0.0
+			_hide_reset_hold_popup()
+			_execute_reset()
+			return
 
 	building_momentum = false
 	var shift_held = Input.is_key_pressed(KEY_SHIFT)
@@ -1800,3 +1815,37 @@ func set_rope_system(rope: Node2D) -> void:
 
 func set_speed_timer(timer: Node) -> void:    speed_timer = timer
 func get_climbing_discipline() -> int:        return current_discipline
+
+# =============================================================================
+#  HOLD-TO-RESET
+# =============================================================================
+
+func _execute_reset() -> void:
+	var main := get_tree().current_scene
+	if main and main.has_method("on_player_reset"):
+		main.on_player_reset()
+	else:
+		reset_climb()
+
+
+func _show_reset_hold_popup() -> void:
+	if not _reset_hold_popup or _reset_hold_popup.visible:
+		return
+	var panel: Control = _reset_hold_popup.get_node("Panel")
+	if panel:
+		var viewport_size := get_viewport().get_visible_rect().size
+		panel.position = viewport_size * 0.5 - panel.size * 0.5
+	_reset_hold_popup.visible = true
+
+
+func _hide_reset_hold_popup() -> void:
+	if _reset_hold_popup:
+		_reset_hold_popup.visible = false
+
+
+func _update_reset_hold_popup() -> void:
+	if not _reset_hold_popup or not _reset_hold_popup.visible:
+		return
+	var progress := clampf(_reset_hold_time / RESET_HOLD_DURATION, 0.0, 1.0)
+	if _reset_hold_fill:
+		_reset_hold_fill.size.x = _reset_hold_fill.get_parent().size.x * progress
