@@ -6,7 +6,7 @@
 	<dict>
 		<key>Resources/Climbing Simplified.pck</key>
 		<data>
-		u/80TP+iLRNexDlnT8OOHidlNmc=
+		fqVeNGmcl48HXppioyXbfeMoJ20=
 		</data>
 		<key>Resources/PrivacyInfo.xcprivacy</key>
 		<data>
@@ -19,11 +19,29 @@
 	</dict>
 	<key>files2</key>
 	<dict>
+		<key>Frameworks/libgodotsteam.macos.template_release.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			Ex6lDxQWdTaKVuoY4cXu5Njoo/g=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"131ea50f141675368a56ea18e1c5eee4d8e8a3f8" or cdhash H"e9a0428fdd63f6c06a383e80bf46603278ed1e21"</string>
+		</dict>
+		<key>Frameworks/libsteam_api.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			uRk/gRrQ5wi+5Lzlky2azQk3x7g=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"b9193f811ad0e708bee4bce5932d9acd0937c7b8" or cdhash H"24b3a97cbfb92eaa20ff4aa43fe4160354199ae7"</string>
+		</dict>
 		<key>Resources/Climbing Simplified.pck</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			1M6H1Ycuyk9v03GLIVWO+ThACHb/Lhl/2tR/+9XDA60=
+			weheS9uGkBz34nKw1GrHhsBumLc2wTSVGaDm+HyzFZs=
 			</data>
 		</dict>
 		<key>Resources/PrivacyInfo.xcprivacy</key>
