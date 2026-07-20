@@ -415,11 +415,14 @@ func _get_initial_level() -> String:
 	return default_level_path
 
 func _load_initial_level(level_path: String) -> void:
-	# Normalize to .json path for tracking (COLLECTIONS use .json paths now)
-	var json_path := level_path
-	if level_path.ends_with(".tscn"):
-		json_path = level_path.replace("res://scenes/levels/", "res://data/levels/").replace(".tscn", ".json")
-	_current_level_path = json_path
+	# Normalize to .tscn path for tracking (GameState COLLECTIONS use .tscn paths now)
+	var tscn_path := level_path
+	if level_path.ends_with(".json"):
+		tscn_path = level_path.replace("res://data/levels/", "res://scenes/levels/").replace(".json", ".tscn")
+	_current_level_path = tscn_path
+
+	# Convert to .json path for the level loader
+	var json_path := tscn_path.replace("res://scenes/levels/", "res://data/levels/").replace(".tscn", ".json")
 
 	print("  Loading level: ", json_path)
 	var success = await level_loader.load_level(json_path)

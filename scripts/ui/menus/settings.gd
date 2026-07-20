@@ -13,7 +13,6 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"select_right",
 	"select_left_foot",
 	"select_right_foot",
-	"restart",
 ]
 
 # Maps OptionButton index → Engine.max_fps value (0 = unlimited)
@@ -29,7 +28,7 @@ const WINDOW_MODES: Array[int] = [
 # ─────────────────────────────────────────────
 #  NODE REFS
 # ─────────────────────────────────────────────
-@onready var volume_slider:       HSlider          = $MarginContainer/VBoxContainer/HBoxContainer/Volume
+@onready var volume_slider:       HSlider          = $MarginContainer/VBoxContainer/Volume
 @onready var window_mode_option:  OptionButton     = $MarginContainer/VBoxContainer/WindowMode
 @onready var vsync_toggle:        CheckBox         = $MarginContainer/VBoxContainer/VSyncRow/VSync
 @onready var fps_cap_option:      OptionButton     = $MarginContainer/VBoxContainer/FPSCapRow/FPSCap
