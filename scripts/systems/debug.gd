@@ -15,7 +15,7 @@ func _ready() -> void:
 	_fps_timer.timeout.connect(_on_fps_tick)
 	add_child(_fps_timer)
 
-	
+	print("[FPS] Press F3 to show/hide framerate in console.")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -27,12 +27,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_fps_timer.start()
 			# Print the first reading immediately
 			_on_fps_tick()
-			
+			print("[FPS] Enabled.")
 		else:
 			_fps_timer.stop()
-			
+			print("[FPS] Disabled.")
 
 
 func _on_fps_tick() -> void:
-	var _fps := Engine.get_frames_per_second()
-	
+	var fps := Engine.get_frames_per_second()
+	print("[FPS] %d" % fps)

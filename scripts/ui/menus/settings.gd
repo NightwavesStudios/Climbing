@@ -137,10 +137,13 @@ func _on_save_pressed() -> void:
 
 	if cfg.save(SETTINGS_PATH) != OK:
 		push_error("Settings save failed: %s" % SETTINGS_PATH)
+	else:
+		print("Settings saved: ", SETTINGS_PATH)
 
 func load_settings() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) != OK:
+		print("No settings file — applying defaults.")
 		_apply_window_mode(1)
 		window_mode_option.select(1)
 		_apply_vsync(true)
@@ -267,6 +270,7 @@ func _on_reset_data_dialog_confirmed() -> void:
 	prefs.set_value("popups",       "granite_topping_out_popup", false)
 	prefs.save(PREFS_PATH)
 
+	print("Settings: all progress data reset.")
 	reset_btn.text = "✓ Data Reset!"
 	await get_tree().create_timer(2.0).timeout
 	if is_instance_valid(reset_btn):

@@ -93,12 +93,6 @@ func _on_settings_pressed() -> void:
 	await hide_pause_menu()
 	Transition.to("res://scenes/menus/settings.tscn")
 
-func _on_restart_pressed() -> void:
-	await hide_pause_menu()
-	var main = get_tree().get_first_node_in_group("main_scene")
-	if main and main.has_method("on_player_reset"):
-		main.on_player_reset()
-
 func _on_main_menu_pressed() -> void:
 	await hide_pause_menu()
 	var main = get_tree().get_first_node_in_group("main_scene")

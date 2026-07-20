@@ -82,8 +82,10 @@ static func _popup_cond_weather(level_path: String) -> bool:
 func show_popup_for_level(level_path: String) -> void:
 	var entry = _resolve_popup(level_path)
 	if entry.is_empty():
+		print("  [Popup] No popup for this level/state")
 		return
 
+	print("  [Popup] Showing: ", entry["image_path"], " (key: ", entry["save_key"], ")")
 	_show_popup_image(entry["image_path"])
 
 	_active_popup_key = entry["save_key"]
@@ -146,6 +148,7 @@ func _show_popup_image(image_path: String) -> void:
 		var tex = load(image_path) as Texture2D
 		if tex:
 			_popup_sprite.texture = tex
+			print("  [Popup] Sprite2D texture set to: ", image_path)
 		else:
 			push_error("show_popup_image: Failed to load texture: " + image_path)
 

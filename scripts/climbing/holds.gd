@@ -36,6 +36,7 @@ func _ready():
 		add_to_group("holds")
 		return
 	
+	print("climbing_hold _ready fired on: ", name, " | has _process: ", has_method("_process"))
 	if not is_grabbable:
 		collision_layer = 0
 		collision_mask = 0
@@ -62,6 +63,7 @@ func _ready():
 	if registry:
 		var type_key = HoldType.keys()[hold_type]
 		_max_limbs = registry.get_config_value(type_key, "max_limbs", 1)
+		print("Hold: ", name, " | type: ", type_key, " | _max_limbs: ", _max_limbs)
 
 	add_to_group("holds")
 
@@ -94,6 +96,8 @@ func _setup_multi_areas():
 	for child in get_children():
 		if child is CollisionShape2D:
 			grab_areas.append(child)
+	print("multi_area setup on ", name, " — found ", grab_areas.size(), " shapes")
+
 func _find_nearest_shape(global_pos: Vector2) -> CollisionShape2D:
 	if grab_areas.is_empty():
 		return get_node_or_null("CollisionShape2D")

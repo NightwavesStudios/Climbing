@@ -86,6 +86,7 @@ func _editor_spawn_hold(hold_data: Dictionary) -> void:
 	# Try direct scene load (registry may not be available in editor)
 	var scene_path: String = EDITOR_HOLD_SCENE_MAP.get(type_name, "")
 	if scene_path.is_empty() or not ResourceLoader.exists(scene_path):
+		print("LevelLoader [editor]: No scene for hold type ", type_name)
 		return
 	
 	var scene: PackedScene = load(scene_path)
@@ -95,13 +96,14 @@ func _editor_spawn_hold(hold_data: Dictionary) -> void:
 	var hold := scene.instantiate()
 	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
 	
-	var climbing_hold = _get_climbing_hold(hold)
-	
 	if "rotation" in hold_data:
 		hold.rotation = hold_data.get("rotation", 0.0)
 	
-	if climbing_hold.has_method("set_hold_type_from_string"):
-		climbing_hold.set_hold_type_from_string(type_name)
+	if hold.has_method("set_hold_type_from_string"):
+		hold.set_hold_type_from_string(type_name)
+	
+	if "hold_type" in hold:
+		hold.hold_type = type_name
 	
 	holds_container.add_child(hold)
 	var edited_root := get_tree().edited_scene_root if Engine.is_editor_hint() else null
@@ -112,9 +114,9 @@ func _editor_spawn_hold(hold_data: Dictionary) -> void:
 			c.owner = edited_root
 	hold.add_to_group("holds")
 	
-	# Custom spawn — store the ClimbingHold child so HoldPoint works
+	# Custom spawn
 	if hold_data.get("custom_spawn", false):
-		custom_spawn_hold = climbing_hold
+		custom_spawn_hold = hold
 
 func _editor_auto_load() -> void:
 	# Safety check: ensure containers exist
@@ -141,15 +143,19 @@ func _editor_auto_load() -> void:
 	if level_path.is_empty():
 		return
 	
+	print("LevelLoader [editor]: Auto-loading ", level_path)
+	
 	# Read and parse JSON
 	var file := FileAccess.open(level_path, FileAccess.READ)
 	if not file:
+		print("LevelLoader [editor]: Could not open ", level_path)
 		return
 	var json_string := file.get_as_text()
 	file.close()
 	
 	var json := JSON.new()
 	if json.parse(json_string) != OK:
+		print("LevelLoader [editor]: Invalid JSON in ", level_path)
 		return
 	
 	var level_data: Dictionary = json.data
@@ -168,6 +174,7 @@ func _editor_auto_load() -> void:
 	
 	# ── Spawn holds (synchronously in editor — no awaits) ─────────────────────
 	if "holds" in level_data:
+		print("LevelLoader [editor]: Spawning ", level_data.holds.size(), " holds")
 		for hold_data in level_data.holds:
 			_editor_spawn_hold(hold_data)
 		
@@ -198,6 +205,8 @@ func _editor_auto_load() -> void:
 	if dynamic_wall and dynamic_wall.has_method("set_weather"):
 		dynamic_wall.set_weather(weather_type, weather_intensity)
 	
+	print("LevelLoader [editor]: ✓ Level preview loaded: ", current_level_name)
+
 # =============================================================================
 # DYNAMIC WALL
 # =============================================================================
@@ -205,6 +214,7 @@ func _create_dynamic_wall():
 	# Guard: if a valid wall already exists, don't create a second one.
 	# This can happen if load_level() is called without unload_level() first.
 	if is_instance_valid(dynamic_wall):
+		print("LevelLoader: dynamic_wall already exists — skipping creation")
 		return
 
 	var wall_script = preload("res://scripts/climbing/dynamic_wall.gd")
@@ -291,13 +301,22 @@ func load_level(path: String) -> bool:
 	current_level_discipline  = level_data.get("discipline",  "bouldering")
 
 	speed_time_limit = float(level_data.get("speed_time_limit", 60.0))
+	print("LevelLoader: speed_time_limit = ", speed_time_limit, " s  (discipline: ", current_level_discipline, ")")
+
 	if "belayer_position" in level_data:
 		var bd = level_data.belayer_position
 		rope_belayer_position = Vector2(bd.get("x", 0), bd.get("y", 0))
 	else:
 		rope_belayer_position = Vector2.ZERO
 
+	print("Setting environment to: " + current_level_environment)
 	set_environment_from_string(current_level_environment)
+
+	print("Discipline: " + current_level_discipline)
+	if current_level_discipline == "speed":
+		print("  Time limit: " + str(speed_time_limit) + " seconds")
+	elif current_level_discipline == "roped":
+		print("  Belayer position: " + str(rope_belayer_position))
 
 	await get_tree().process_frame
 
@@ -305,6 +324,21 @@ func load_level(path: String) -> bool:
 	if game_state and game_state.has_method("set_climb_metadata"):
 		# Use .json path directly for GameState metadata (COLLECTIONS use .json paths now)
 		game_state.set_climb_metadata(path, current_level_name, current_level_grade)
+
+	print("\n=== SPAWNING HOLDS ===")
+
+	# ── Diagnostic: dump raw hold data before spawning ────────────────────────
+	print("  Raw holds in JSON: ", level_data.holds.size())
+	for i in range(level_data.holds.size()):
+		var hd = level_data.holds[i]
+		var has_mods = "modifiers" in hd and (hd["modifiers"] as Array).size() > 0
+		print("  [%d] type=%s  custom_spawn=%s  has_modifiers=%s  modifier_count=%d" % [
+			i,
+			hd.get("type", "?"),
+			hd.get("custom_spawn", false),
+			has_mods,
+			(hd["modifiers"] as Array).size() if has_mods else 0,
+		])
 
 	for hold_data in level_data.holds:
 		spawn_hold(hold_data)
@@ -330,6 +364,11 @@ func load_level(path: String) -> bool:
 			await get_tree().process_frame
 			dynamic_wall.set_polygon_data(level_data.wall_polygon)
 			has_custom_polygon = true
+			print("  ✓ Loaded wall polygon with ",
+				  level_data.wall_polygon.get("points", []).size(), " points")
+			if "top_edge_indices" in level_data.wall_polygon:
+				print("  ✓ Polygon has top edge indices: ",
+					  level_data.wall_polygon.top_edge_indices)
 
 	update_wall_bounds()
 
@@ -337,19 +376,53 @@ func load_level(path: String) -> bool:
 		await get_tree().process_frame
 		await get_tree().process_frame
 		if dynamic_wall.has_method("_create_top_edge_holds"):
+			print("  Creating top edge holds...")
 			dynamic_wall._create_top_edge_holds()
 			var top_hold_count = 0
 			for child in dynamic_wall.get_children():
 				if child.has_meta("is_top_edge_hold"):
 					top_hold_count += 1
-			if top_hold_count <= 0 and "top_edge_indices" in dynamic_wall and not dynamic_wall.top_edge_indices.is_empty():
+					print("    - Created top hold at: ", child.global_position)
+			if top_hold_count > 0:
+				print("  ✓ Created ", top_hold_count, " top edge holds")
+			elif "top_edge_indices" in dynamic_wall and not dynamic_wall.top_edge_indices.is_empty():
 				print("  ⚠ WARNING: top_edge_indices exist but no holds created!")
+				print("    Indices: ", dynamic_wall.top_edge_indices)
 
 	# ── Weather ───────────────────────────────────────────────────────────────
 	var weather_type      := int(level_data.get("weather",           0))
 	var weather_intensity := float(level_data.get("weather_intensity", 1.0))
 	if dynamic_wall and dynamic_wall.has_method("set_weather"):
 		dynamic_wall.set_weather(weather_type, weather_intensity)
+		if weather_type > 0:
+			print("  ✓ Weather set: type=", weather_type,
+				  " intensity=", weather_intensity)
+		else:
+			print("  Weather: none")
+
+	print("\n═══════════════════════════════════════")
+	print("✓ LEVEL LOADED: " + path)
+	if current_level_name != "":
+		print("  Name: " + current_level_name + " (" + current_level_grade + ")")
+	print("  Environment: " + current_level_environment)
+	print("  Discipline:  " + current_level_discipline)
+	if current_level_discipline == "speed":
+		print("    Time limit: " + str(speed_time_limit) + "s")
+	elif current_level_discipline == "roped":
+		print("    Belayer at: " + str(rope_belayer_position))
+	print("  Holds: " + str(level_data.holds.size()))
+	if "crashpads" in level_data:
+		print("  Crashpads: " + str(level_data.crashpads.size()))
+	if "wall_polygon" in level_data:
+		print("  Wall: Custom polygon shape")
+		if "top_edge_indices" in level_data.wall_polygon:
+			print("  Top edges: " + str(level_data.wall_polygon.top_edge_indices))
+	if weather_type > 0:
+		print("  Weather: type=", weather_type, " intensity=", weather_intensity)
+	if is_instance_valid(custom_spawn_hold):
+		print("  Custom spawn hold node pos: ", custom_spawn_hold.global_position)
+		print("  Custom spawn resolved pos:  ", _custom_spawn_position)
+	print("═══════════════════════════════════════\n")
 
 	return true
 
@@ -360,14 +433,17 @@ func load_level(path: String) -> bool:
 func _resolve_custom_spawn_position() -> void:
 	_custom_spawn_position = Vector2.ZERO
 	if not is_instance_valid(custom_spawn_hold):
+		print("  [custom_spawn] No custom spawn hold — nothing to resolve.")
 		return
 
 	var hold_point = custom_spawn_hold.get_node_or_null("HoldPoint")
 	var world_pos: Vector2
 	if hold_point:
 		world_pos = hold_point.global_position
+		print("  [custom_spawn] Via HoldPoint: ", world_pos)
 	else:
 		world_pos = custom_spawn_hold.global_position
+		print("  [custom_spawn] Via hold root (no HoldPoint): ", world_pos)
 
 	if world_pos == Vector2.ZERO:
 		push_warning("LevelLoader: _resolve_custom_spawn_position got ZERO. " +
@@ -389,6 +465,8 @@ func set_environment_from_string(env_name: String):
 	for env_type in env_config.get_all_environment_types():
 		if env_config.get_environment_name(env_type).to_lower() == env_name.to_lower():
 			env_config.set_environment(env_type)
+			print("Level environment set to: " +
+				  env_config.get_environment_name(env_type).to_upper())
 			matched = true
 			break
 
@@ -403,22 +481,6 @@ func set_environment_from_string(env_name: String):
 		dynamic_wall.update_environment_settings()
 
 # =============================================================================
-# CLIMBING HOLD HELPER
-# The hold scene root is a plain Node2D; the ClimbingHold script + relevant
-# methods (is_start_hold, set_hold_type_from_string, HoldPoint, etc.) live on
-# a child Area2D.  This helper returns that Area2D, or the root itself if no
-# such child exists (fallback for direct-scripted nodes).
-# =============================================================================
-func _get_climbing_hold(hold_root: Node2D) -> Node2D:
-	if hold_root.get_script() != null:
-		return hold_root
-	for child in hold_root.get_children():
-		if child is Area2D and child.get_script() != null:
-			return child
-	return hold_root
-
-
-# =============================================================================
 # HOLDS
 # =============================================================================
 func spawn_hold(hold_data: Dictionary) -> Node2D:
@@ -426,50 +488,63 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 
 	var scene = _get_hold_scene(type_name)
 	if scene == null:
+		print("WARNING: Skipping hold — no scene registered for type: " + type_name)
 		return null
 
 	var hold = scene.instantiate()
 	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
 
-	# Property/method checks must go to the ClimbingHold Area2D child, not the
-	# plain Node2D root.
-	var climbing_hold = _get_climbing_hold(hold)
+	if "hold_type" in hold:
+		hold.hold_type = type_name
+		print("  Spawned %s hold at (%.1f, %.1f)" % [
+			type_name, hold.global_position.x, hold.global_position.y])
+	else:
+		print("  WARNING: Hold at (%.1f, %.1f) missing 'hold_type' property!" % [
+			hold.global_position.x, hold.global_position.y])
+		print("  Hold class: %s | script: %s" % [
+			hold.get_class(),
+			hold.get_script().resource_path if hold.get_script() else "NO SCRIPT"
+		])
 
-	if climbing_hold != hold:
-		# Root is a wrapper — pass along rotation so sprites line up
-		if "rotation" in hold_data:
-			hold.rotation = hold_data.get("rotation", 0.0)
-
-	if climbing_hold.has_method("set_hold_type_from_string"):
-		climbing_hold.set_hold_type_from_string(type_name)
+	if hold.has_method("set_hold_type_from_string"):
+		hold.set_hold_type_from_string(type_name)
 
 	holds_container.add_child(hold)
 	hold.add_to_group("holds")
 
-	# ── Custom spawn flag — store the ClimbingHold node so HoldPoint etc. work ─
+	# ── Custom spawn flag ─────────────────────────────────────────────────────
 	if hold_data.get("custom_spawn", false):
-		custom_spawn_hold = climbing_hold
+		custom_spawn_hold = hold
+		print("  [spawn_hold] custom_spawn flag found on %s hold — node stored." % type_name)
 
 	# ── Attach modifiers ──────────────────────────────────────────────────────
 	var modifiers_data: Array = hold_data.get("modifiers", [])
+	print("  [spawn_hold] type=%s modifier_count=%d" % [type_name, modifiers_data.size()])
 	if not modifiers_data.is_empty():
 		_attach_modifiers_to_hold(hold, modifiers_data)
+	else:
+		print("  [spawn_hold] No modifiers for this hold.")
 
 	return hold
 
 func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
+	print("  [_attach_modifiers] Attaching %d modifier(s) to hold..." % modifiers_data.size())
+
 	var target: Node2D = hold
 	if hold.get_script() == null:
 		for child in hold.get_children():
 			if child is Area2D and child.get_script() != null:
 				target = child
+				print("  [_attach_modifiers] Wrapper root — targeting child Area2D: %s" % child.name)
 				break
 
 	for mod_data in modifiers_data:
 		if not mod_data is Dictionary:
+			print("  [_attach_modifiers] Skipping non-Dictionary entry: ", mod_data)
 			continue
 
 		var type_key: String = mod_data.get("type", "")
+		print("  [_attach_modifiers] Creating modifier type='%s'" % type_key)
 
 		var modifier: Node = null
 
@@ -500,6 +575,10 @@ func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 		if modifier.has_method("on_hold_ready"):
 			modifier.on_hold_ready()
 
+		print("  ✓ Attached '%s' to '%s' | is_processing=%s" % [
+			type_key, target.name, target.is_processing()
+		])
+
 func clear_holds():
 	custom_spawn_hold      = null
 	_custom_spawn_position = Vector2.ZERO
@@ -514,18 +593,16 @@ func get_start_holds() -> Array[Node2D]:
 	var starts: Array[Node2D] = []
 	if holds_container:
 		for hold in holds_container.get_children():
-			var ch = _get_climbing_hold(hold)
-			if ch.has_method("is_start_hold") and ch.is_start_hold():
-				starts.append(ch)
+			if hold.has_method("is_start_hold") and hold.is_start_hold():
+				starts.append(hold)
 	return starts
 
 func get_top_holds() -> Array[Node2D]:
 	var tops: Array[Node2D] = []
 	if holds_container:
 		for hold in holds_container.get_children():
-			var ch = _get_climbing_hold(hold)
-			if ch.has_method("is_top_out") and ch.is_top_out():
-				tops.append(ch)
+			if hold.has_method("is_top_out") and hold.is_top_out():
+				tops.append(hold)
 	if dynamic_wall:
 		for child in dynamic_wall.get_children():
 			if child.has_meta("is_top_edge_hold"):
@@ -533,23 +610,35 @@ func get_top_holds() -> Array[Node2D]:
 	return tops
 
 func get_player_spawn_position() -> Vector2:
+	print("\n=== GET_PLAYER_SPAWN_POSITION ===")
+	print("  custom_spawn_hold valid: ", is_instance_valid(custom_spawn_hold))
+	print("  _custom_spawn_position:  ", _custom_spawn_position)
+
 	# ── Custom spawn takes absolute priority ──────────────────────────────────
 	var spawn_pos: Vector2
 	if is_instance_valid(custom_spawn_hold):
 		if _custom_spawn_position != Vector2.ZERO:
 			spawn_pos = _custom_spawn_position + Vector2(0, 80)
+			print("  → Custom spawn (cached): ", spawn_pos)
+			print("================================\n")
 			return spawn_pos
 
+		print("  [custom_spawn] Cache is zero — resolving on-the-fly now...")
 		_resolve_custom_spawn_position()
 
 		if _custom_spawn_position != Vector2.ZERO:
 			spawn_pos = _custom_spawn_position + Vector2(0, 80)
+			print("  → Custom spawn (on-the-fly): ", spawn_pos)
+			print("================================\n")
 			return spawn_pos
 
 		var hold_point = custom_spawn_hold.get_node_or_null("HoldPoint")
 		var raw: Vector2 = hold_point.global_position if hold_point else custom_spawn_hold.global_position
+		print("  [custom_spawn] Last-resort direct read: ", raw)
 		if raw != Vector2.ZERO:
 			spawn_pos = raw + Vector2(0, 80)
+			print("  → Custom spawn (last-resort): ", spawn_pos)
+			print("================================\n")
 			return spawn_pos
 
 		push_warning("LevelLoader: custom_spawn_hold exists but ALL position reads returned ZERO." +
@@ -557,15 +646,28 @@ func get_player_spawn_position() -> Vector2:
 
 	# ── Fall back to START holds ──────────────────────────────────────────────
 	var starts = get_start_holds()
+	print("  No custom spawn — checking START holds. Found: %d" % starts.size())
 
 	if starts.size() == 0:
 		print("⚠️  WARNING: No START holds found and no valid custom spawn!")
+		if holds_container:
+			for i in min(10, holds_container.get_child_count()):
+				var hold       = holds_container.get_child(i)
+				var has_method_flag = hold.has_method("is_start_hold")
+				var is_start   = has_method_flag and hold.is_start_hold()
+				var hold_type  = hold.get("hold_type") if "hold_type" in hold else "NO_TYPE"
+				print("  [%d] hold_type='%s', has_method_flag=%s, is_start=%s, pos=(%.1f, %.1f)" % [
+					i, hold_type, has_method_flag, is_start,
+					hold.global_position.x, hold.global_position.y])
+		print("================================\n")
 		return Vector2.ZERO
 
 	if starts.size() == 1:
 		var hold_point = starts[0].get_node_or_null("HoldPoint")
 		spawn_pos  = (hold_point.global_position if hold_point
 						  else starts[0].global_position) + Vector2(0, 80)
+		print("  Single START hold spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+		print("================================\n")
 		return spawn_pos
 
 	var sum = Vector2.ZERO
@@ -573,10 +675,16 @@ func get_player_spawn_position() -> Vector2:
 		var hold_point = hold.get_node_or_null("HoldPoint")
 		if hold_point:
 			sum += hold_point.global_position
+			print("  START hold (HoldPoint) at: (%.1f, %.1f)" % [
+				hold_point.global_position.x, hold_point.global_position.y])
 		else:
 			sum += hold.global_position
+			print("  START hold at: (%.1f, %.1f)" % [
+				hold.global_position.x, hold.global_position.y])
 
 	spawn_pos = sum / starts.size() + Vector2(0, 80)
+	print("  Averaged START spawn: (%.1f, %.1f)" % [spawn_pos.x, spawn_pos.y])
+	print("================================\n")
 	return spawn_pos
 
 func validate_level() -> Dictionary:
@@ -612,6 +720,7 @@ func validate_level() -> Dictionary:
 # =============================================================================
 func load_crashpads(level_data: Dictionary) -> void:
 	if not "crashpads" in level_data:
+		print("  No crashpads in level data")
 		return
 
 	if not crashpads_container:
@@ -624,7 +733,9 @@ func load_crashpads(level_data: Dictionary) -> void:
 		return
 
 	var crashpad_scene = load(CRASHPAD_SCENE)
-	var _crashpad_count = 0
+	var crashpad_count = 0
+
+	print("\n=== SPAWNING CRASHPADS ===")
 
 	for crashpad_data in level_data.crashpads:
 		var crashpad_pos = Vector2(crashpad_data.get("x", 0),
@@ -635,13 +746,16 @@ func load_crashpads(level_data: Dictionary) -> void:
 			crashpad.owner = get_tree().edited_scene_root
 		crashpad.global_position = crashpad_pos
 		crashpad.add_to_group("crashpads")
-		_crashpad_count += 1
+		crashpad_count += 1
+		print("  Spawned crashpad at: " + str(crashpad.global_position))
 
 	await get_tree().process_frame
 
 	for crashpad in crashpads_container.get_children():
 		if crashpad.has_method("_update_sprite_for_environment"):
 			crashpad._update_sprite_for_environment()
+
+	print("  Loaded " + str(crashpad_count) + " crashpads")
 
 func clear_crashpads():
 	if crashpads_container:
@@ -688,3 +802,5 @@ func unload_level() -> void:
 	# call _create_dynamic_wall() and add a SECOND wall to the scene. main_scene
 	# then held a stale reference to the first wall → freed-instance crash.
 	_free_dynamic_wall()
+
+	print("LevelLoader: level unloaded")
