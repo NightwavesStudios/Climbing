@@ -27,7 +27,6 @@ func _ready() -> void:
 
 func _find_and_map_buttons() -> void:
 	var active_ids: Array = GameState.get_all_collection_ids()
-	print("=== COLLECTION SELECT: Active collection IDs: ", active_ids)
 
 	for child in map_container.get_children():
 		if not child is Button:
@@ -40,8 +39,6 @@ func _find_and_map_buttons() -> void:
 		var btn_lower := child.name.to_lower()
 		var matched_id := _match_collection_id(btn_lower, active_ids)
 
-		print("  Button '%s' (lower: '%s') → matched: '%s'" % [child.name, btn_lower, matched_id])
-
 		if matched_id != "":
 			button_to_collection[child] = matched_id
 			child.visible = true
@@ -49,9 +46,6 @@ func _find_and_map_buttons() -> void:
 				child.pressed.connect(_on_button_pressed.bind(child))
 		else:
 			child.visible = false
-
-	print("  Total mapped buttons: ", button_to_collection.size())
-
 
 func _match_collection_id(btn_lower: String, all_ids: Array) -> String:
 	var sorted := all_ids.duplicate()
@@ -156,14 +150,11 @@ func _on_button_pressed(button: Button) -> void:
 
 
 func _select_collection(id: String) -> void:
-	print("collection_select: Selected '%s', unlocked=%s" % [id, GameState.is_collection_unlocked(id)])
-
 	if not GameState.is_collection_unlocked(id):
 		_show_unlock_requirement(id)
 		return
 
 	GameState.set_current_collection(id)
-	print("collection_select: GameState.current_collection = ", GameState.current_collection)
 	Transition.to("res://scenes/menus/level_select.tscn")
 
 
@@ -182,8 +173,6 @@ func _show_unlock_requirement(id: String) -> void:
 		"collections_complete":
 			msg += "Complete %d collections to unlock\nProgress: %d/%d" \
 				% [req.count, GameState.completed_collections.size(), req.count]
-
-	print(msg)
 
 func _on_back_pressed() -> void:
 	Transition.to("res://scenes/menus/main_menu.tscn")

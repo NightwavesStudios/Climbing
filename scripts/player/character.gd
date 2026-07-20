@@ -242,6 +242,10 @@ var _input_enabled: bool = true
 # -- Hold-to-reset state ----------------------------------------------------
 var _reset_hold_time: float = 0.0
 
+# Hint shown after hanging on rope for a few seconds
+var _rope_hang_time: float = 0.0
+const ROPE_HINT_DELAY: float = 2.0
+
 @onready var _reset_hold_popup: CanvasLayer = $ResetHoldPopup
 @onready var _reset_hold_fill: ColorRect = $ResetHoldPopup/Panel/VBoxContainer/ProgressBg/ProgressFill
 
@@ -324,6 +328,7 @@ func _process(delta: float) -> void:
 	_update_spotlight()
 	_update_weather_modifier()
 	_update_draw_scales(delta)
+	_update_rope_hang_hint(delta)
 	queue_redraw()
 
 # =============================================================================
@@ -1841,6 +1846,27 @@ func _show_reset_hold_popup() -> void:
 func _hide_reset_hold_popup() -> void:
 	if _reset_hold_popup:
 		_reset_hold_popup.visible = false
+
+
+func _update_rope_hang_hint(delta: float) -> void:
+	# Show a hint when the player is caught by the rope and hasn't pressed R yet
+	if is_instance_valid(rope_system) and "catch_state" in rope_system:
+		var cs = rope_system.catch_state
+		# CatchState.HELD == 3 (IDLE=0, FALLING=1, STRETCHING=2, HELD=3)
+		if typeof(cs) == TYPE_INT and cs == 3:
+			_rope_hang_time += delta
+			if _rope_hang_time >= ROPE_HINT_DELAY and _reset_hold_time <= 0.0:
+				if _reset_hold_popup and not _reset_hold_popup.visible:
+					var panel: Control = _reset_hold_popup.get_node("Panel")
+					if panel:
+						var viewport_size := get_viewport().get_visible_rect().size
+						panel.position = viewport_size * 0.5 - panel.size * 0.5
+					_reset_hold_popup.visible = true
+			return
+	
+	_rope_hang_time = 0.0
+	if _reset_hold_time <= 0.0:
+		_hide_reset_hold_popup()
 
 
 func _update_reset_hold_popup() -> void:

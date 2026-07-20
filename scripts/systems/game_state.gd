@@ -2,7 +2,7 @@ extends Node
 ## Autoload singleton for managing game state, collections, and progression
 
 # Debug flags
-var debug_unlock_all: bool = false  # Set to true to unlock all collections and levels
+var debug_unlock_all: bool = true  # Set to true to unlock all collections and levels
 
 # Current gameplay state
 var current_level: String = ""
@@ -127,7 +127,6 @@ func _ready():
 func set_current_level(level_path: String) -> void:
 	current_level = level_path
 	_update_current_collection_from_level(level_path)
-	print("GameState: Level set to " + level_path)
 
 func get_current_level() -> String:
 	return current_level
@@ -143,7 +142,6 @@ func record_level_completion(level_path: String, completion_time: float) -> void
 
 	if is_first_completion:
 		completed_levels[level_path] = completion_time
-		print("GameState: Completed " + level_path + " in " + str(completion_time) + "s")
 
 		# ── Steam: FIRST_CLIMB ─────────────────────────────────────────────
 		if completed_levels.size() == 1:
@@ -156,7 +154,6 @@ func record_level_completion(level_path: String, completion_time: float) -> void
 	else:
 		if completion_time < completed_levels[level_path]:
 			completed_levels[level_path] = completion_time
-			print("GameState: New best time for " + level_path + ": " + str(completion_time) + "s")
 			save_game()
 
 func is_level_completed(level_path: String) -> bool:
@@ -184,7 +181,6 @@ func set_climb_metadata(level_path: String, climb_name: String, grade: String) -
 		"name": climb_name,
 		"grade": grade
 	}
-	print("GameState: Set metadata for " + level_path + " - " + climb_name + " (" + grade + ")")
 
 func get_climb_name(level_path: String) -> String:
 	"""Get the name of a climb (returns empty string if not set)"""
@@ -208,7 +204,6 @@ func get_climb_metadata(level_path: String) -> Dictionary:
 
 func set_current_collection(collection_id: String) -> void:
 	current_collection = collection_id
-	print("GameState: Collection set to " + collection_id)
 
 func get_current_collection() -> String:
 	return current_collection
@@ -284,7 +279,6 @@ func _check_collection_completion(level_path: String) -> void:
 
 		if all_complete and collection_id not in completed_collections:
 			completed_collections.append(collection_id)
-			print("🎉 COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
 
 			# ── Steam: collection-based achievements ──────────────────────
 			var steam := get_node_or_null("/root/SteamManager")
@@ -301,7 +295,6 @@ func _update_current_collection_from_level(level_path: String) -> void:
 	for collection_id in COLLECTIONS:
 		if level_path in COLLECTIONS[collection_id].levels:
 			current_collection = collection_id
-			print("GameState: Current collection set to " + collection_id)
 			return
 
 # =============================================================================
@@ -365,10 +358,8 @@ func get_next_level(level_path: String) -> String:
 			if index != -1:
 				if index + 1 < data.levels.size():
 					var next_level = data.levels[index + 1]
-					print("GameState: Next level is " + next_level)
 					return next_level
 				else:
-					print("GameState: Last level in collection '" + current_collection + "'")
 					return ""
 
 	# Fallback: search all collections
@@ -378,13 +369,10 @@ func get_next_level(level_path: String) -> String:
 		if index != -1:
 			if index + 1 < levels.size():
 				var next_level = levels[index + 1]
-				print("GameState: Next level is " + next_level)
 				return next_level
 			else:
-				print("GameState: Last level in collection '" + collection_id + "'")
 				return ""
 
-	print("GameState: Level not found in any collection: " + level_path)
 	return ""
 
 func has_next_level(level_path: String) -> bool:
@@ -446,11 +434,9 @@ func save_game() -> void:
 		return
 	file.store_string(JSON.stringify(get_save_data(), "\t"))
 	file.close()
-	print("GameState: Game saved to " + SAVE_PATH)
 
 func load_game() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
-		print("GameState: No save file found — starting fresh")
 		return
 
 	var file = FileAccess.open(SAVE_PATH, FileAccess.READ)
@@ -467,7 +453,6 @@ func load_game() -> void:
 		return
 
 	load_save_data(json.data)
-	print("GameState: Game loaded. Completed levels: " + str(completed_levels.size()))
 
 func reset_progress() -> void:
 	completed_levels.clear()
@@ -479,7 +464,6 @@ func reset_progress() -> void:
 	total_falls = 0
 	total_falling_holds = 0
 	save_game()
-	print("GameState: Progress reset")
 
 func get_save_data() -> Dictionary:
 	return {

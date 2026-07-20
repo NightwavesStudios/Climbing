@@ -33,11 +33,8 @@ func _ready() -> void:
 	# Detect whether the Steam singleton exists and the Steam client is running.
 	# In GodotSteam GDExtension, the Steam singleton is always present but
 	# steam_init() returns false when no Steam client is detected.
-	if not _try_init_steam():
-		print("SteamManager: Steam not available — achievements disabled")
-	else:
+	if _try_init_steam():
 		_steam_available = true
-		print("SteamManager: Steam initialized successfully")
 
 
 func _try_init_steam() -> bool:
@@ -47,14 +44,12 @@ func _try_init_steam() -> bool:
 
 	# Double-check the Steam client is actually running.
 	if not Steam.isSteamRunning():
-		print("SteamManager: Steam client is not running")
 		return false
 
 	# Initialize the Steam API. On GodotSteam GDExtension, this may already be
 	# auto-initialized; calling it again is safe and returns true.
 	var result = Steam.steamInit()
 	if not result:
-		print("SteamManager: steam_init() returned false")
 		return false
 
 	_steam_initialized = true
@@ -78,7 +73,6 @@ func unlock_achievement(api_name: String) -> void:
 
 	Steam.setAchievement(api_name)
 	Steam.storeStats()
-	print("SteamManager: ✅ Achievement unlocked: ", api_name)
 
 
 ## Set a Steam stat value (int). Used for progressive achievements.

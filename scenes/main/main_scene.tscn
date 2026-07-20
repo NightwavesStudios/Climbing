@@ -134,4 +134,9 @@ z_index = -10
 script = ExtResource("8_0jrka")
 use_polygon_mode = true
 
+[node name="@Node2D@31802" type="Node2D" parent="."]
+z_index = -10
+script = ExtResource("8_0jrka")
+use_polygon_mode = true
+
 [connection signal="pressed" from="Instructions/HideInstructions" to="." method="_on_hide_instructions_pressed"]

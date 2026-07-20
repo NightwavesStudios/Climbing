@@ -27,16 +27,13 @@ func _process(delta):
 			is_running = false
 			update_display()
 			time_expired.emit()
-			print("SpeedTimer: TIME EXPIRED!")
 			return
 
 		var prev_time = time_remaining + delta
 		if prev_time > 10.0 and time_remaining <= 10.0:
 			time_warning.emit(10.0)
-			print("SpeedTimer: 10 seconds warning")
 		elif prev_time > 5.0 and time_remaining <= 5.0:
 			time_warning.emit(5.0)
-			print("SpeedTimer: 5 seconds warning!")
 
 		update_display()
 
@@ -80,7 +77,6 @@ func setup_ui():
 func set_time_limit(seconds: float):
 	time_limit     = seconds
 	time_remaining = seconds
-	print("SpeedTimer: Time limit set to ", seconds, " seconds")
 	update_display()
 
 func start_timer():
@@ -88,27 +84,22 @@ func start_timer():
 		is_running     = true
 		timer_started  = true
 		timer_started_signal.emit()
-		print("SpeedTimer: STARTED — ", time_limit, " seconds")
 
 func pause_timer():
 	is_running = false
-	print("SpeedTimer: PAUSED at ", format_time(time_remaining))
 
 func resume_timer():
 	if timer_started:
 		is_running = true
-		print("SpeedTimer: RESUMED")
 
 func stop_timer():
 	is_running    = false
 	timer_started = false
 	time_remaining = time_limit
-	print("SpeedTimer: STOPPED and RESET")
 	update_display()
 
 func add_time(seconds: float):
 	time_remaining = min(time_remaining + seconds, time_limit * 1.5)
-	print("SpeedTimer: Added ", seconds, " seconds")
 	update_display()
 
 func update_display():
@@ -142,12 +133,9 @@ func is_time_expired() -> bool:
 
 func show_timer():
 	visible = true
-	print("SpeedTimer: Shown")
 
 func hide_timer():
 	visible = false
-	print("SpeedTimer: Hidden")
 
 func cleanup():
-	print("SpeedTimer: Cleaning up")
 	queue_free()

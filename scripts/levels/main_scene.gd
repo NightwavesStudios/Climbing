@@ -234,7 +234,7 @@ func _check_paths() -> void:
 		"res://data/levels/granite_crag/granite_crag_01.json",
 	]
 	for path in paths:
-		print("EXISTS ", path, ": ", FileAccess.file_exists(path) or ResourceLoader.exists(path))
+		pass
 
 # =============================================================================
 #  READY
@@ -243,7 +243,6 @@ func _check_paths() -> void:
 func _ready():
 	if Engine.is_editor_hint():
 		# Editor preview: load level data so holds/wall are visible in the editor
-		print("=== MAIN SCENE [EDITOR PREVIEW] ===")
 		
 		# Trigger editor preview on the LevelLoader after a short delay
 		# to ensure containers are ready
@@ -252,7 +251,7 @@ func _ready():
 		
 		return
 	
-	print("=== MAIN SCENE READY ===")
+	
 
 	# Hide the menu background — it's persistent at root level and
 	# wastes CPU on _process / _draw even when invisible.
@@ -281,7 +280,7 @@ func _ready():
 		transition_manager.transition_finished.connect(_on_transition_finished)
 
 	var initial_level = _get_initial_level()
-	print("Initial level to load: ", initial_level)
+	
 
 	await _load_initial_level(initial_level)
 
@@ -290,7 +289,7 @@ func _ready():
 
 	_loading_complete = true
 	ready_to_show.emit()
-	print("=== MAIN SCENE READY COMPLETE ===")
+	
 
 # =============================================================================
 #  TRANSITION READY HOOK
@@ -421,10 +420,10 @@ func _load_initial_level(level_path: String) -> void:
 		json_path = level_path.replace("res://scenes/levels/", "res://data/levels/").replace(".tscn", ".json")
 	_current_level_path = json_path
 
-	print("  Loading level: ", json_path)
+	
 	var success = await level_loader.load_level(json_path)
 	if not success:
-		print("  ERROR: Failed to load level: ", json_path)
+		# Failed to load level
 		return
 
 	await get_tree().process_frame
@@ -434,9 +433,9 @@ func _load_initial_level(level_path: String) -> void:
 
 	var validation = level_loader.validate_level()
 	if not validation.valid:
-		print("  WARNING: Level validation failed")
+		# Level validation failed
 		for error in validation.errors:
-			print("    - " + error)
+			push_warning(error)
 
 	await setup_discipline_systems()
 
@@ -451,7 +450,7 @@ func _load_initial_level(level_path: String) -> void:
 	start_route_preview()
 	# ─────────────────────────────────────────────────────────────────────────
 
-	print("  ✓ Level ready: ", json_path)
+	
 
 # =============================================================================
 #  DISCIPLINE SYSTEM SETUP
@@ -464,8 +463,8 @@ func setup_discipline_systems():
 	var discipline_str = level_loader.get_discipline()
 	current_discipline = ClimbingDiscipline.from_string(discipline_str)
 
-	print("\n═══ DISCIPLINE SETUP ═══")
-	print("Discipline: " + ClimbingDiscipline.get_display_name(current_discipline))
+	
+	
 
 	if not player:
 		return
@@ -481,13 +480,13 @@ func setup_discipline_systems():
 		ClimbingDiscipline.Type.SPEED:
 			setup_speed_climbing(level_loader, player)
 
-	print("═══════════════════════\n")
+	
 
 func setup_bouldering():
-	print("  Mode: Standard bouldering")
+	pass
 
 func setup_roped_climbing(loader, plyr):
-	print("  Mode: Roped climbing")
+	
 
 	var belayer_pos = loader.get_belayer_position()
 
@@ -508,7 +507,7 @@ func setup_roped_climbing(loader, plyr):
 
 	var RopeSystemScript = load("res://scripts/player/rope_system.gd")
 	if not RopeSystemScript:
-		print("  ERROR: Could not load rope_system.gd!")
+		push_error("Could not load rope_system.gd!")
 		return
 
 	rope_system = RopeSystemScript.new()
@@ -522,16 +521,16 @@ func setup_roped_climbing(loader, plyr):
 	if plyr.has_method("set_rope_system"):
 		plyr.set_rope_system(rope_system)
 
-	print("  ✓ Rope system ready at: ", belayer_pos)
+	
 
 func setup_speed_climbing(loader, plyr):
-	print("  Mode: Speed climbing")
+	
 
 	var time_limit = loader.get_speed_time_limit()
 
 	var SpeedTimerScript = load("res://scripts/levels/speed_timer.gd")
 	if not SpeedTimerScript:
-		print("  ERROR: Could not load speed_timer.gd!")
+		push_error("Could not load speed_timer.gd!")
 		return
 
 	speed_timer = SpeedTimerScript.new()
@@ -556,7 +555,7 @@ func setup_speed_climbing(loader, plyr):
 	if speed_timer.has_method("show_timer"):
 		speed_timer.show_timer()
 
-	print("  ✓ Speed timer ready: ", time_limit, "s")
+	
 
 # =============================================================================
 #  SPEED CALLBACKS
@@ -572,7 +571,7 @@ func _on_speed_time_warning(seconds: float):
 		show_message(str(int(seconds)) + "!", Color.ORANGE)
 
 func _on_speed_timer_started():
-	print("🏃 Speed climb started!")
+	pass
 
 # =============================================================================
 #  PLAYER SPAWN
@@ -585,7 +584,7 @@ func position_player_at_spawn():
 	var spawn_pos = level_loader.get_player_spawn_position()
 
 	if spawn_pos == Vector2.ZERO:
-		print("WARNING: spawn position is zero — check START holds or custom_spawn flag")
+		push_warning("Spawn position is zero — check START holds or custom_spawn flag")
 		return
 
 	player.global_position = spawn_pos
@@ -594,7 +593,7 @@ func position_player_at_spawn():
 	if player.has_method("set_spawn_position"):
 		player.set_spawn_position(spawn_pos)
 
-	print("Player spawned at: ", spawn_pos)
+	
 
 # =============================================================================
 #  CAMERA
@@ -635,7 +634,7 @@ func set_current_level_path(path: String) -> void:
 # =============================================================================
 
 func on_level_complete():
-	print("=== LEVEL COMPLETE ===")
+	
 
 	if _current_level_path == "":
 		push_error("_current_level_path is empty!")
@@ -716,7 +715,7 @@ func _do_player_reset():
 			speed_timer.stop_timer()
 
 func on_climb_start():
-	print("🎬 Climb started!")
+	
 
 	# If the player grabs before the auto-preview finishes, abort it cleanly
 	# Only abort preview if enough time has passed (ignore the spawn grab)
@@ -757,7 +756,7 @@ func reset_level():
 # =============================================================================
 
 func _on_next_level_requested(next_level_path: String) -> void:
-	print("Next level: ", next_level_path)
+	
 
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(false)
@@ -796,7 +795,7 @@ func _on_level_complete_menu_requested() -> void:
 	Transition.to("res://scenes/menus/collections_select.tscn")
 
 func _on_level_complete_restart_requested() -> void:
-	print("Restarting: ", _current_level_path)
+	
 
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(false)
@@ -840,7 +839,7 @@ func _setup_demo_finished_overlay() -> void:
 
 func _on_demo_finished() -> void:
 	"""Called when the level_completed overlay emits demo_finished (end of demo)."""
-	print("=== DEMO FINISHED ===")
+	
 
 	if demo_finished_overlay:
 		demo_finished_overlay.show_overlay()

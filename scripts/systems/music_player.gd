@@ -144,7 +144,7 @@ func _begin_crossfade() -> void:
 	new_player.volume_db = -80.0
 	new_player.play()
 
-	print("[MusicPlayer] Crossfading → track %d: %s" % [index + 1, TRACKS[index].get_file()])
+	
 
 	# Kill any previous crossfade tween
 	if _crossfade_tween and _crossfade_tween.is_valid():
@@ -177,7 +177,7 @@ func _begin_crossfade() -> void:
 
 
 func _on_track_finished() -> void:
-	print("[MusicPlayer] Track finished — scheduling next")
+	
 	_schedule_next_track()
 
 

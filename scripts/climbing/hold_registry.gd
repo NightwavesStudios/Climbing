@@ -198,13 +198,9 @@ func _register_all_holds() -> void:
 				"display_name": config.get("display_name", _format_display_name(hold_type)),
 				"config": config
 			}
-			print("✓ Registered hold: ", hold_type, " -> ", hold_path.get_file())
 		else:
 			push_error("Hold scene not found: " + hold_path)
 	
-	print("\n═══════════════════════════════════════")
-	print("HoldRegistry: ", hold_scenes.size(), " holds registered")
-	print("═══════════════════════════════════════\n")
 
 # =============================================================================
 # TYPE EXTRACTION

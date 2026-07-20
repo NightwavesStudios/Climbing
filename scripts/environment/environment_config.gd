@@ -69,11 +69,10 @@ const ENVIRONMENTS = {
 }
 
 func _ready() -> void:
-	print("EnvironmentConfig initialized with environment: " + get_current_environment_name())
+	pass
 
 func set_environment(env_type: EnvironmentType) -> void:
 	current_environment = env_type
-	print("Environment set to: " + get_current_environment_name())
 	# Notify groups — use call_group which safely skips non-existent groups
 	get_tree().call_group("holds", "_update_sprite_for_environment")
 	get_tree().call_group("environment_walls", "update_environment_settings")
