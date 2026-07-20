@@ -2,7 +2,9 @@ extends Node2D
 ## Main game scene with dynamic wall integration and climbing disciplines
 
 @export var default_level_path: String = "res://data/levels/tutorial/tutorial_01.json"
+signal ready_to_show
 var camera_owned_by_main: bool = false
+var _loading_complete := false
 var _preview_complete: bool = false
 @onready var level_loader: LevelLoader = $LevelLoader
 @onready var player: CharacterBody2D = $Character
@@ -273,7 +275,23 @@ func _ready():
 
 	await get_tree().process_frame
 	_show_popup_for_level(initial_level)
+
+	_loading_complete = true
+	ready_to_show.emit()
 	print("=== MAIN SCENE READY COMPLETE ===")
+
+# =============================================================================
+#  TRANSITION READY HOOK
+# =============================================================================
+
+## Called by Transition autoload after the scene has been added to the tree
+## but before the fade-in.  Returns as soon as the level is fully loaded,
+## so the reveal shows everything at once.
+func _on_before_show() -> void:
+	if _loading_complete:
+		return
+	await ready_to_show
+
 
 # =============================================================================
 #  POPUP ENTRY POINT
