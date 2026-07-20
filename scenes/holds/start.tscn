@@ -1,22 +1,27 @@
-[gd_scene load_steps=10 format=3 uid="uid://nqivo6mrpyc7"]
+[gd_scene load_steps=11 format=3 uid="uid://nqivo6mrpyc7"]
 
 [ext_resource type="Script" uid="uid://wat73xxgv5wh" path="res://scripts/climbing/holds.gd" id="1_sbnaa"]
 [ext_resource type="Shader" uid="uid://enh1b6eeldm" path="res://scripts/shaders/holds-texture.gdshader" id="1_yvwuy"]
 [ext_resource type="Texture2D" uid="uid://be76uy6nhb8lq" path="res://assets/images/holds/gym/start_hold.png" id="2_4vhrv"]
+[ext_resource type="Texture2D" uid="uid://dmoxns0txx7np" path="res://assets/textures/grunge-mask.jpg" id="2_xyj0e"]
 [ext_resource type="Texture2D" uid="uid://bfn1dt2gdxa5r" path="res://assets/images/holds/granite/granite-jug.png" id="5_xyj0e"]
 [ext_resource type="Texture2D" uid="uid://jatnxtbee7os" path="res://assets/images/holds/sandstone/sandstone-jug.png" id="6_nlhhe"]
 [ext_resource type="Texture2D" uid="uid://dfn787wu1sb44" path="res://assets/images/holds/ice/ice-jug.png" id="7_i7q76"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_nlhhe"]
 shader = ExtResource("1_yvwuy")
+shader_parameter/grunge_mask = ExtResource("2_xyj0e")
 shader_parameter/wear_strength = 0.30000001425
+shader_parameter/grunge_scale = 1.00000004424012
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_e3qun"]
 radius = 96.17692
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_xyj0e"]
 shader = ExtResource("1_yvwuy")
+shader_parameter/grunge_mask = ExtResource("2_xyj0e")
 shader_parameter/wear_strength = 0.30000001425
+shader_parameter/grunge_scale = 1.00000004424012
 
 [node name="Start" type="Node2D"]
 material = SubResource("ShaderMaterial_nlhhe")

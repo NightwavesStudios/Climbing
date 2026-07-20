@@ -96,13 +96,6 @@ func _change_scene(path: String) -> void:
 		_finish_transition()
 		return
 	await _replace_scene(new_scene)
-
-	# Allow the incoming scene to finish its own loading (e.g. spawning
-	# holds / wall) while the screen is still black, so nothing pops in
-	# mid-fade.
-	if new_scene.has_method("_on_before_show"):
-		await new_scene._on_before_show()
-
 	await _start_fade_in()
 	_finish_transition()
 

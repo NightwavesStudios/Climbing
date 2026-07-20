@@ -27,18 +27,18 @@ const COLLECTIONS = {
 		"description": "Learn the basics of climbing",
 		"unlock_requirement": {"type": "always"},
 		"levels": [
-			"res://scenes/levels/tutorial/tutorial_01.tscn",
-			"res://scenes/levels/tutorial/tutorial_02.tscn",
-			"res://scenes/levels/tutorial/tutorial_03.tscn",
-			"res://scenes/levels/tutorial/tutorial_04.tscn",
-			"res://scenes/levels/tutorial/tutorial_05.tscn",
-			"res://scenes/levels/tutorial/tutorial_06.tscn",
-			"res://scenes/levels/tutorial/tutorial_07.tscn",
-			"res://scenes/levels/tutorial/tutorial_08.tscn",
-			"res://scenes/levels/tutorial/tutorial_09.tscn",
-			"res://scenes/levels/tutorial/tutorial_10.tscn",
-			"res://scenes/levels/tutorial/tutorial_11.tscn",
-			"res://scenes/levels/tutorial/tutorial_12.tscn",
+			"res://data/levels/tutorial/tutorial_01.json",
+			"res://data/levels/tutorial/tutorial_02.json",
+			"res://data/levels/tutorial/tutorial_03.json",
+			"res://data/levels/tutorial/tutorial_04.json",
+			"res://data/levels/tutorial/tutorial_05.json",
+			"res://data/levels/tutorial/tutorial_06.json",
+			"res://data/levels/tutorial/tutorial_07.json",
+			"res://data/levels/tutorial/tutorial_08.json",
+			"res://data/levels/tutorial/tutorial_09.json",
+			"res://data/levels/tutorial/tutorial_10.json",
+			"res://data/levels/tutorial/tutorial_11.json",
+			"res://data/levels/tutorial/tutorial_12.json",
 		]
 	},
 	"granite-crag": {
@@ -49,16 +49,16 @@ const COLLECTIONS = {
 			"collection": "intro-gym"
 		},
 		"levels": [
-			"res://scenes/levels/granite_crag/granite_crag_01.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_02.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_03.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_04.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_05.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_06.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_07.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_08.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_09.tscn",
-			"res://scenes/levels/granite_crag/granite_crag_10.tscn",
+			"res://data/levels/granite_crag/granite_crag_01.json",
+			"res://data/levels/granite_crag/granite_crag_02.json",
+			"res://data/levels/granite_crag/granite_crag_03.json",
+			"res://data/levels/granite_crag/granite_crag_04.json",
+			"res://data/levels/granite_crag/granite_crag_05.json",
+			"res://data/levels/granite_crag/granite_crag_06.json",
+			"res://data/levels/granite_crag/granite_crag_07.json",
+			"res://data/levels/granite_crag/granite_crag_08.json",
+			"res://data/levels/granite_crag/granite_crag_09.json",
+			"res://data/levels/granite_crag/granite_crag_10.json",
 		]
 	},
 	"sandstone": {
@@ -66,11 +66,12 @@ const COLLECTIONS = {
 	"description": "",
 	"unlock_requirement": {
 		"type": "collection_complete",
-		"collection": "intro-gym"
+		"collection": "intro-gym"  # or whatever should gate it
 	},
 	"levels": [
-		"res://scenes/levels/sandstone/sandstone_01.tscn",
-		"res://scenes/levels/sandstone/sandstone_02.tscn",
+		"res://data/levels/sandstone/sandstone_01.json",
+		"res://data/levels/sandstone/sandstone_02.json",
+		# etc.
 	]
 },
 	"building": {
@@ -81,8 +82,8 @@ const COLLECTIONS = {
 			"collection": "sandstone"
 		},
 		"levels": [
-			"res://scenes/levels/building/building_01.tscn",
-			"res://scenes/levels/building/building_02.tscn"
+			"res://data/levels/building/building_01.json",
+			"res://data/levels/building/building_02.json"
 		]
 	},
 	"deep-water-solo": {
@@ -93,8 +94,8 @@ const COLLECTIONS = {
 		"collection": "intro-gym"
 	},
 	"levels": [
-		"res://scenes/levels/dws/dws_01.tscn",
-		"res://scenes/levels/dws/dws_02.tscn",
+		"res://data/levels/dws/dws_01.json",
+		"res://data/levels/dws/dws_02.json",
 	]
 	},
 	"ice": {
@@ -105,8 +106,8 @@ const COLLECTIONS = {
 			"collection": "intro-gym"
 		},
 		"levels": [
-			"res://scenes/levels/ice/ice_01.tscn",
-			"res://scenes/levels/ice/ice_02.tscn",
+			"res://data/levels/ice/ice_01.json",
+			"res://data/levels/ice/ice_02.json",
 		]
 	},
 }
@@ -492,40 +493,10 @@ func get_save_data() -> Dictionary:
 		"total_falling_holds": total_falling_holds,
 	}
 
-# =============================================================================
-# PATH CONVERSION HELPERS
-# =============================================================================
-
-## Convert a level .tscn path to the corresponding .json data path.
-## E.g. "res://scenes/levels/tutorial/tutorial_01.tscn" → "res://data/levels/tutorial/tutorial_01.json"
-static func level_path_to_json_path(path: String) -> String:
-	if path.ends_with(".tscn"):
-		return path.replace("res://scenes/levels/", "res://data/levels/").replace(".tscn", ".json")
-	return path
-
-static func level_path_is_tscn(path: String) -> bool:
-	return path.ends_with(".tscn")
-
 func load_save_data(data: Dictionary) -> void:
-	# Migrate old .json save keys to new .tscn keys
-	var raw_completed = data.get("completed_levels", {})
-	completed_levels = {}
-	for level_path in raw_completed:
-		var new_path = level_path.replace(".json", ".tscn").replace("res://data/levels/", "res://scenes/levels/")
-		if new_path == level_path:
-			new_path = level_path  # already .tscn or other format
-		completed_levels[new_path] = raw_completed[level_path]
-	
-	# Migrate climb_metadata keys too
-	var raw_metadata = data.get("climb_metadata", {})
-	climb_metadata = {}
-	for level_path in raw_metadata:
-		var new_path = level_path.replace(".json", ".tscn").replace("res://data/levels/", "res://scenes/levels/")
-		if new_path == level_path:
-			new_path = level_path
-		climb_metadata[new_path] = raw_metadata[level_path]
-	
+	completed_levels = data.get("completed_levels", {})
 	completed_collections.assign(data.get("completed_collections", []))
+	climb_metadata = data.get("climb_metadata", {})
 	current_level = data.get("current_level", "")
 	current_collection = data.get("current_collection", "")
 	total_falls = data.get("total_falls", 0)

@@ -72,14 +72,9 @@ func _populate_levels() -> void:
 		})
 
 func _load_json(level_path: String) -> Dictionary:
-	# Level paths are .tscn paths — convert to .json for reading level data
-	var json_path := level_path
-	if level_path.ends_with(".tscn"):
-		json_path = level_path.replace("res://scenes/levels/", "res://data/levels/").replace(".tscn", ".json")
-	
-	if not FileAccess.file_exists(json_path):
+	if not FileAccess.file_exists(level_path):
 		return {}
-	var file := FileAccess.open(json_path, FileAccess.READ)
+	var file := FileAccess.open(level_path, FileAccess.READ)
 	if not file:
 		return {}
 	var json := JSON.new()

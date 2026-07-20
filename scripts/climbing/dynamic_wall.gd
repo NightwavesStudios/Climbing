@@ -6,7 +6,6 @@
 ## The wall is rebuilt by calling  calculate_bounds_from_holds()  or
 ## set_polygon_data().  update_environment_settings()  re-reads EnvironmentConfig
 ## and triggers a redraw.
-@tool
 extends Node2D
 class_name DynamicWall
 
@@ -133,13 +132,6 @@ func _ready() -> void:
 	_init_clouds()
 	_init_weather()
 	_is_ready = true
-	
-	if Engine.is_editor_hint():
-		# Editor preview: apply env settings directly (no await needed)
-		update_environment_settings()
-		queue_redraw()
-		return
-	
 	await _wait_for_env_config()
 	update_environment_settings()
 

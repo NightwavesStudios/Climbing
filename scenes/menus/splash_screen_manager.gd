@@ -25,6 +25,4 @@ func fade() -> void:
 	tween.tween_interval(out_time)
 	await tween.finished
 	MusicPlayer.start()
-	# Use the project's Transition autoload for a smooth fade-to-black,
-	# scene swap, then fade-in — consistent with every other scene change.
-	Transition.to(load_scene.resource_path)
+	get_tree().change_scene_to_packed(load_scene)

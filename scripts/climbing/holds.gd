@@ -1,4 +1,3 @@
-@tool
 extends Area2D
 class_name ClimbingHold
 
@@ -10,6 +9,22 @@ enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET, WINDOW }
 @export var snap_to_point: bool = true
 @export var is_grabbable: bool = true
 @export var multi_area_enabled: bool = false
+@export var shadow_enabled: bool = false
+
+
+# =============================================================================
+#  SHADOW EXPORTS
+# =============================================================================
+@export_group("Shadow")
+## Overall shadow darkness multiplier.
+@export_range(0.5, 3.0, 0.05) var shadow_intensity: float = 2.2
+## How many pixels the shadow spreads beyond the sprite edge.
+@export var shadow_spread: float = 12.0
+## Number of stacked shadow passes — more = softer, denser gradient.
+@export_range(1, 5, 1) var shadow_passes: int = 4
+## How far the shadow is cast along the light direction.
+@export var shadow_offset_scale: float = 7.0
+@export_group("")
 
 const GRAB_SFX = preload("res://assets/audio/sfx/grab-hold.wav")
 
@@ -22,20 +37,6 @@ var _type_was_set_manually: bool = false
 var _max_limbs: int = 1
 
 func _ready():
-	if Engine.is_editor_hint():
-		# Editor preview: cache sprites and show Gym variant
-		_cache_sprite_nodes()
-		if "Gym" in sprite_nodes and sprite_nodes["Gym"]:
-			sprite_nodes["Gym"].visible = true
-		elif sprite_nodes.size() > 0:
-			# Fallback: show whatever sprite we have
-			for suffix in sprite_nodes:
-				if sprite_nodes[suffix]:
-					sprite_nodes[suffix].visible = true
-					break
-		add_to_group("holds")
-		return
-	
 	print("climbing_hold _ready fired on: ", name, " | has _process: ", has_method("_process"))
 	if not is_grabbable:
 		collision_layer = 0
@@ -89,7 +90,15 @@ func _process(delta: float) -> void:
 	for child in get_children():
 		if child.has_method("on_process"):
 			child.on_process(delta)
+	# Only redraw if shadow is enabled (otherwise the hold sprite handles itself).
+	# Throttle shadow redraws to ~10fps to avoid per-frame draw overhead.
+	if shadow_enabled:
+		_redraw_timer += delta
+		if _redraw_timer >= 0.1:
+			_redraw_timer = 0.0
+			queue_redraw()
 
+var _redraw_timer: float = 0.0
 
 func _setup_multi_areas():
 	grab_areas.clear()
@@ -362,10 +371,17 @@ func notify_climb_start():
 #  DRAW
 # =============================================================================
 
+func is_shadow_enabled() -> bool:
+	return shadow_enabled
+
 func _draw() -> void:
 	var spr := _get_active_sprite()
 	if spr == null or spr.texture == null:
 		return
+
+	if shadow_enabled:
+		HoldShadowDrawer.draw_hold_shadow(self, spr)
+
 
 func _get_active_sprite() -> Sprite2D:
 	for suffix in sprite_nodes:
@@ -373,3 +389,6 @@ func _get_active_sprite() -> Sprite2D:
 		if spr and spr.visible:
 			return spr
 	return null
+
+
+# ── Shadow drawing is delegated to HoldShadowDrawer (static utility) ────────
