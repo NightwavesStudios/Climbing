@@ -13,7 +13,7 @@ var last_completed_level: String = ""
 var completed_levels: Dictionary = {}  # level_path: completion_time
 var completed_collections: Array[String] = []
 
-# Stats for Steam achievements
+# Stats tracking
 var total_falls: int = 0
 var total_falling_holds: int = 0
 
@@ -121,6 +121,11 @@ func _ready():
 	current_collection = ""
 	load_game()
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		# Save game progress when the window is closed from anywhere
+		save_game()
+
 # =============================================================================
 # LEVEL MANAGEMENT
 # =============================================================================
@@ -145,12 +150,6 @@ func record_level_completion(level_path: String, completion_time: float) -> void
 	if is_first_completion:
 		completed_levels[level_path] = completion_time
 		print("GameState: Completed " + level_path + " in " + str(completion_time) + "s")
-
-		# ── Steam: FIRST_CLIMB ─────────────────────────────────────────────
-		if completed_levels.size() == 1:
-			var steam := get_node_or_null("/root/SteamManager")
-			if steam:
-				steam.unlock_achievement(steam.ACHIEVEMENTS.FIRST_CLIMB)
 
 		_check_collection_completion(level_path)
 		save_game()
@@ -287,16 +286,6 @@ func _check_collection_completion(level_path: String) -> void:
 			completed_collections.append(collection_id)
 			print("🎉 COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
 
-			# ── Steam: collection-based achievements ──────────────────────
-			var steam := get_node_or_null("/root/SteamManager")
-			if steam:
-				match collection_id:
-					"intro-gym":
-						steam.unlock_achievement(steam.ACHIEVEMENTS.GYM_RAT)
-					"granite-crag":
-						steam.unlock_achievement(steam.ACHIEVEMENTS.ON_REAL_ROCK)
-						steam.unlock_achievement(steam.ACHIEVEMENTS.DEMO_COMPLETE)
-
 func _update_current_collection_from_level(level_path: String) -> void:
 	"""Find and set which collection this level belongs to"""
 	for collection_id in COLLECTIONS:
@@ -407,22 +396,16 @@ func get_overall_completion_percentage() -> float:
 	return (float(completed_levels.size()) / float(total)) * 100.0
 
 # =============================================================================
-# STATS (for Steam achievements)
+# STATS
 # =============================================================================
 
 func record_fall() -> void:
 	total_falls += 1
-	var steam := get_node_or_null("/root/SteamManager")
-	if steam:
-		steam.increment_stat(steam.STAT_FALLS)
 	save_game()
 
 
 func record_falling_hold() -> void:
 	total_falling_holds += 1
-	var steam := get_node_or_null("/root/SteamManager")
-	if steam:
-		steam.increment_stat(steam.STAT_FALLING_HOLDS)
 	save_game()
 
 
@@ -439,17 +422,33 @@ func get_total_falling_holds() -> int:
 # =============================================================================
 
 const SAVE_PATH := "user://savegame.json"
+const SAVE_TEMP_PATH := "user://savegame.json.tmp"
 
 func save_game() -> void:
-	var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	# ── Atomic write: write to a temp file first, then rename ──
+	# This prevents corruption if the game crashes mid-write.
+	var file = FileAccess.open(SAVE_TEMP_PATH, FileAccess.WRITE)
 	if not file:
-		push_error("GameState: Could not open save file for writing: " + SAVE_PATH)
+		push_error("GameState: Could not open temp save file for writing: " + SAVE_TEMP_PATH)
 		return
 	file.store_string(JSON.stringify(get_save_data(), "\t"))
 	file.close()
+
+	# Rename temp → real (DirAccess.rename is atomic on most platforms)
+	var dir := DirAccess.open("user://")
+	if dir:
+		dir.remove(SAVE_PATH.trim_prefix("user://"))
+		dir.rename(SAVE_TEMP_PATH.trim_prefix("user://"), SAVE_PATH.trim_prefix("user://"))
 	print("GameState: Game saved to " + SAVE_PATH)
 
 func load_game() -> void:
+	# Clean up any leftover temp file from a previous crash during save
+	if FileAccess.file_exists(SAVE_TEMP_PATH):
+		var dir := DirAccess.open("user://")
+		if dir:
+			dir.remove(SAVE_TEMP_PATH.trim_prefix("user://"))
+			print("GameState: Cleaned up stale temp save file")
+
 	if not FileAccess.file_exists(SAVE_PATH):
 		print("GameState: No save file found — starting fresh")
 		return
@@ -459,12 +458,18 @@ func load_game() -> void:
 		push_error("GameState: Could not open save file for reading")
 		return
 
-	var json = JSON.new()
-	var err = json.parse(file.get_as_text())
+	var raw := file.get_as_text()
 	file.close()
 
+	var json = JSON.new()
+	var err = json.parse(raw)
+
 	if err != OK:
-		push_error("GameState: Save file JSON is corrupt — resetting progress")
+		# ── Delete the corrupt file so it doesn't cause repeated failures ──
+		push_error("GameState: Save file JSON is corrupt — deleting and starting fresh")
+		var dir := DirAccess.open("user://")
+		if dir:
+			dir.remove(SAVE_PATH.trim_prefix("user://"))
 		return
 
 	load_save_data(json.data)

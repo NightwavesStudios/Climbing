@@ -51,6 +51,11 @@ func _ready() -> void:
 	load_settings()
 	# Already connected in the scene file
 
+func _exit_tree() -> void:
+	# Safety net: auto-save settings if the scene is destroyed
+	# (e.g. window closed, abrupt scene change) without going through Back.
+	_on_save_pressed()
+
 # ─────────────────────────────────────────────
 #  KEYBIND UI
 # ─────────────────────────────────────────────
@@ -248,6 +253,8 @@ func _on_fps_cap_item_selected(index: int) -> void:
 	_apply_fps_cap(index)
 
 func _on_back_pressed() -> void:
+	# Auto-save before leaving — the user expects changes to stick
+	_on_save_pressed()
 	Transition.to("res://scenes/menus/main_menu.tscn")
 
 # ─────────────────────────────────────────────

@@ -80,6 +80,9 @@ func _on_settings_pressed() -> void:
 	Transition.to("res://scenes/menus/settings.tscn")
 
 func _on_quit_pressed() -> void:
+	# Save game state before quitting
+	if has_node("/root/GameState"):
+		get_node("/root/GameState").save_game()
 	await get_tree().create_timer(0.1).timeout
 	get_tree().quit()
 

@@ -39,16 +39,20 @@ size_flags_horizontal = 4
 size_flags_vertical = 4
 texture = ExtResource("1_ldeih")
 
-[node name="VersionLabel" type="Label" parent="."]
+[node name="CenterContainer2" type="CenterContainer" parent="."]
 layout_mode = 1
-anchors_preset = 2
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_top = -50.0
-offset_bottom = -20.0
+anchors_preset = 14
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_top = 333.0
+offset_bottom = 349.0
 grow_horizontal = 2
-grow_vertical = 0
-theme_override_colors/font_color = Color(0.5, 0.5, 0.5, 1)
+grow_vertical = 2
+
+[node name="VersionLabel" type="Label" parent="CenterContainer2"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8367553, 0.8367553, 0.8367551, 1)
 theme_override_font_sizes/font_size = 11
-text = "v0.1"
+text = "Demo v0.2.2"
 horizontal_alignment = 1
