@@ -635,8 +635,8 @@ func on_level_complete():
 			and speed_timer \
 			and is_instance_valid(speed_timer) \
 			and get_node_or_null("/root/Achievements"):
-		var time_remaining := speed_timer.get_time_remaining()
-		var time_limit     := speed_timer.time_limit
+		var time_remaining = speed_timer.get_time_remaining()
+		var time_limit     = speed_timer.time_limit
 		Achievements.check_speed_demon(time_remaining, time_limit)
 		Achievements.check_photo_finish(time_remaining)
 

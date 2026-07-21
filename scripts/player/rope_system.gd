@@ -449,12 +449,17 @@ func _update_pose() -> void:
 	_b_near_hip = Vector2(belayer_position.x - 8, _b_hips.y)
 	_b_far_hip  = Vector2(belayer_position.x + 8, _b_hips.y)
 
+	# ── Arms (clamp forearm length so it doesn't visually stretch) ───────────
 	var guide_raise := lerpf(0.0, -24.0, _guide_elbow_raise + _rope_tension * 0.4)
-	_b_guide_elbow = _b_near_sh + Vector2(-20, 16)
-	_b_guide_hand  = _b_near_sh + Vector2(-22, guide_raise + anim_guide_pull)
+	_b_guide_elbow  = _b_near_sh + Vector2(-20, 16)
+	_b_guide_hand   = _b_near_sh + Vector2(-22, guide_raise + anim_guide_pull)
+	if _b_guide_hand.distance_to(_b_guide_elbow) > ARM_LOWER:
+		_b_guide_hand = _b_guide_elbow + (_b_guide_hand - _b_guide_elbow).normalized() * ARM_LOWER
 
-	_b_brake_elbow = _b_far_sh + Vector2( 20, 16)
-	_b_brake_hand  = _b_far_sh + Vector2( 16, 28 + _brake_tension_pull)
+	_b_brake_elbow  = _b_far_sh + Vector2( 20, 16)
+	_b_brake_hand   = _b_far_sh + Vector2( 16, 28 + _brake_tension_pull)
+	if _b_brake_hand.distance_to(_b_brake_elbow) > ARM_LOWER:
+		_b_brake_hand = _b_brake_elbow + (_b_brake_hand - _b_brake_elbow).normalized() * ARM_LOWER
 
 	var spread := lerpf(8.0, 14.0, _foot_brace_lerp)
 	_b_near_knee = _b_near_hip + Vector2(-2, LEG_UPPER - 6)

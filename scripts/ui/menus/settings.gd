@@ -125,7 +125,11 @@ func _on_rebind_button_pressed(action: String, btn: Button) -> void:
 	call_deferred("set_process_input", true)
 
 func _input(event: InputEvent) -> void:
-	if _listening_action == "" or not event.pressed:
+	if _listening_action == "":
+		return
+
+	# Ignore events that don't have a pressed state (mouse motion, etc.)
+	if not "pressed" in event or not event.pressed:
 		return
 
 	# ── Keyboard ─────────────────────────────────────────────────────────
