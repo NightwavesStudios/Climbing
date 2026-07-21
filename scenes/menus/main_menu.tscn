@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3 uid="uid://cmudrme1ntc3v"]
+[gd_scene load_steps=6 format=3 uid="uid://cmudrme1ntc3v"]
 
 [ext_resource type="Script" uid="uid://cih6ocoqb46qx" path="res://scripts/ui/menus/main_menu.gd" id="1_xqga4"]
 [ext_resource type="Texture2D" uid="uid://dusadgoemwud7" path="res://assets/textures/discord.png" id="4_ng0o5"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="5_imvie"]
 [ext_resource type="Texture2D" uid="uid://cxjxb5bobileg" path="res://assets/textures/CLIMBING (14).svg" id="6_ng0o5"]
+[ext_resource type="PackedScene" uid="uid://dc2v5h72unm3e" path="res://scenes/menus/quit_confirmation.tscn" id="7_4endb"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -129,6 +130,8 @@ size_flags_horizontal = 4
 size_flags_vertical = 8
 theme_override_font_sizes/font_size = 14
 text = "Got it"
+
+[node name="QuitConfirmation" parent="." instance=ExtResource("7_4endb")]
 
 [connection signal="pressed" from="CanvasLayer/Buttons/Story" to="." method="_on_play_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]

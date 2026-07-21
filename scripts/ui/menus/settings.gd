@@ -13,6 +13,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"select_right",
 	"select_left_foot",
 	"select_right_foot",
+	"restart",
 ]
 
 # Maps OptionButton index → Engine.max_fps value (0 = unlimited)
@@ -80,9 +81,33 @@ func _build_keybind_ui() -> void:
 
 func _get_action_key_label(action: String) -> String:
 	for e in InputMap.action_get_events(action):
-		if e is InputEventKey:
-			return e.as_text_physical_keycode()
+		return _get_event_label(e)
 	return "(none)"
+
+func _get_event_label(event: InputEvent) -> String:
+	if event is InputEventKey:
+		return event.as_text_physical_keycode()
+	elif event is InputEventMouseButton:
+		match event.button_index:
+			MOUSE_BUTTON_LEFT:            return "Mouse Left"
+			MOUSE_BUTTON_RIGHT:           return "Mouse Right"
+			MOUSE_BUTTON_MIDDLE:          return "Mouse Middle"
+			MOUSE_BUTTON_WHEEL_UP:        return "Mouse Wheel Up"
+			MOUSE_BUTTON_WHEEL_DOWN:      return "Mouse Wheel Down"
+			MOUSE_BUTTON_WHEEL_LEFT:      return "Mouse Wheel Left"
+			MOUSE_BUTTON_WHEEL_RIGHT:     return "Mouse Wheel Right"
+			_:                             return "Mouse Button %d" % event.button_index
+	elif event is InputEventJoypadButton:
+		# e.g. "Joypad Button 0 (PS Cross)" — keep it compact
+		var raw := event.as_text()
+		# Strip the "Joypad " prefix Godot adds so it reads "Button 0 (PS Cross)"
+		if raw.begins_with("Joypad "):
+			return raw.trim_prefix("Joypad ")
+		return raw
+	elif event is InputEventJoypadMotion:
+		var dir := "+" if event.axis_value > 0 else "-"
+		return "Axis %d %s" % [event.axis, dir]
+	return "(unknown)"
 
 # ─────────────────────────────────────────────
 #  REBIND LOGIC
@@ -96,30 +121,64 @@ func _on_rebind_button_pressed(action: String, btn: Button) -> void:
 
 	_listening_action = action
 	btn.text = "Press a key…"
-	set_process_unhandled_key_input(true)
+	# Defer so the mouse click that triggered this button isn't captured as the new bind
+	call_deferred("set_process_input", true)
 
-func _unhandled_key_input(event: InputEvent) -> void:
-	if _listening_action == "" or not event is InputEventKey or not event.pressed:
+func _input(event: InputEvent) -> void:
+	if _listening_action == "" or not event.pressed:
 		return
 
-	if event.physical_keycode == KEY_ESCAPE:
-		_action_buttons[_listening_action].text = _get_action_key_label(_listening_action)
+	# ── Keyboard ─────────────────────────────────────────────────────────
+	if event is InputEventKey:
+
+		if event.physical_keycode == KEY_ESCAPE:
+			_action_buttons[_listening_action].text = _get_action_key_label(_listening_action)
+			_stop_listening()
+			get_viewport().set_input_as_handled()
+			return
+
+		# Ignore modifier-only presses (Shift, Ctrl, Alt, Meta held alone)
+		if event.physical_keycode in [KEY_SHIFT, KEY_CTRL, KEY_ALT, KEY_META]:
+			return
+
+		var new_event := InputEventKey.new()
+		new_event.physical_keycode = event.physical_keycode
+		InputMap.action_erase_events(_listening_action)
+		InputMap.action_add_event(_listening_action, new_event)
+		_action_buttons[_listening_action].text = _get_event_label(new_event)
 		_stop_listening()
 		get_viewport().set_input_as_handled()
-		return
 
-	var new_event := InputEventKey.new()
-	new_event.physical_keycode = event.physical_keycode
-	InputMap.action_erase_events(_listening_action)
-	InputMap.action_add_event(_listening_action, new_event)
-	_action_buttons[_listening_action].text = new_event.as_text_physical_keycode()
+	# ── Mouse button ─────────────────────────────────────────────────────
+	elif event is InputEventMouseButton:
+		# Ignore wheel events (not useful as action triggers)
+		if event.button_index in [
+			MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN,
+			MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT,
+		]:
+			return
 
-	_stop_listening()
-	get_viewport().set_input_as_handled()
+		var new_event := InputEventMouseButton.new()
+		new_event.button_index = event.button_index
+		InputMap.action_erase_events(_listening_action)
+		InputMap.action_add_event(_listening_action, new_event)
+		_action_buttons[_listening_action].text = _get_event_label(new_event)
+		_stop_listening()
+		get_viewport().set_input_as_handled()
+
+	# ── Joypad button ────────────────────────────────────────────────────
+	elif event is InputEventJoypadButton:
+		var new_event := InputEventJoypadButton.new()
+		new_event.button_index = event.button_index
+		InputMap.action_erase_events(_listening_action)
+		InputMap.action_add_event(_listening_action, new_event)
+		_action_buttons[_listening_action].text = _get_event_label(new_event)
+		_stop_listening()
+		get_viewport().set_input_as_handled()
 
 func _stop_listening() -> void:
 	_listening_action = ""
-	set_process_unhandled_key_input(false)
+	set_process_input(false)
 
 # ─────────────────────────────────────────────
 #  SAVE / LOAD
@@ -135,9 +194,8 @@ func _on_save_pressed() -> void:
 
 	for action in REBINDABLE_ACTIONS:
 		for e in InputMap.action_get_events(action):
-			if e is InputEventKey:
-				cfg.set_value("keybinds", action, e.physical_keycode)
-				break
+			cfg.set_value("keybinds", action, var_to_str(e))
+			break
 
 	if cfg.save(SETTINGS_PATH) != OK:
 		push_error("Settings save failed: %s" % SETTINGS_PATH)
@@ -189,11 +247,18 @@ func load_settings() -> void:
 	# --- Keybinds ---
 	for action in REBINDABLE_ACTIONS:
 		if cfg.has_section_key("keybinds", action):
-			var kc: int = cfg.get_value("keybinds", action)
-			var ev := InputEventKey.new()
-			ev.physical_keycode = kc as Key
-			InputMap.action_erase_events(action)
-			InputMap.action_add_event(action, ev)
+			var val = cfg.get_value("keybinds", action)
+			var ev: InputEvent
+			if val is int:
+				# Backward compat: old format stored physical_keycode as int
+				ev = InputEventKey.new()
+				ev.physical_keycode = val as Key
+			elif val is String:
+				ev = str_to_var(val) as InputEvent
+
+			if ev:
+				InputMap.action_erase_events(action)
+				InputMap.action_add_event(action, ev)
 
 		var btn: Button = _action_buttons.get(action)
 		if btn:

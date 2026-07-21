@@ -241,7 +241,7 @@ var _rf_hover_jitter: Vector2 = Vector2.ZERO
 
 # -- Input gate (set by main.gd during route preview) -------------------------
 var _input_enabled: bool = true
-var _r_was_pressed: bool = false
+
 
 # =============================================================================
 #  INIT
@@ -340,15 +340,13 @@ func handle_input() -> void:
 	if not _input_enabled:
 		return
 
-	var r_pressed := Input.is_key_pressed(KEY_R)
-	if Input.is_action_just_pressed("ui_cancel") or (r_pressed and not _r_was_pressed):
+	if Input.is_action_just_pressed("ui_cancel") or Input.is_action_just_pressed("restart"):
 		var main = get_tree().current_scene
 		if main and main.has_method("on_player_reset"):
 			main.on_player_reset()
 		else:
 			reset_climb()
 		return
-	_r_was_pressed = r_pressed
 
 	building_momentum = false
 	var shift_held = Input.is_key_pressed(KEY_SHIFT)

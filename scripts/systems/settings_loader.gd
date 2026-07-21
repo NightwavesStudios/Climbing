@@ -11,6 +11,7 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"select_right",
 	"select_left_foot",
 	"select_right_foot",
+	"restart",
 ]
 
 const FPS_CAP_VALUES: Array[int] = [0, 30, 60, 120, 144]
@@ -59,10 +60,17 @@ func _load_and_apply() -> void:
 	# ── Keybinds ───────────────────────────────────────────────────────────
 	for action in REBINDABLE_ACTIONS:
 		if cfg.has_section_key("keybinds", action):
-			var kc: int = cfg.get_value("keybinds", action)
-			var ev := InputEventKey.new()
-			ev.physical_keycode = kc as Key
-			InputMap.action_erase_events(action)
-			InputMap.action_add_event(action, ev)
+			var val = cfg.get_value("keybinds", action)
+			var ev: InputEvent
+			if val is int:
+				# Backward compat: old format stored physical_keycode as int
+				ev = InputEventKey.new()
+				ev.physical_keycode = val as Key
+			elif val is String:
+				ev = str_to_var(val) as InputEvent
+
+			if ev:
+				InputMap.action_erase_events(action)
+				InputMap.action_add_event(action, ev)
 
 	print("SettingsLoader: Applied saved settings from ", SETTINGS_PATH)

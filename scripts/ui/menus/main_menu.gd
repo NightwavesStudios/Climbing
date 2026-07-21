@@ -80,11 +80,10 @@ func _on_settings_pressed() -> void:
 	Transition.to("res://scenes/menus/settings.tscn")
 
 func _on_quit_pressed() -> void:
-	# Save game state before quitting
-	if has_node("/root/GameState"):
-		get_node("/root/GameState").save_game()
-	await get_tree().create_timer(0.1).timeout
-	get_tree().quit()
+	# Show the quit confirmation popup instead of quitting directly
+	var popup := $QuitConfirmation as QuitConfirmation
+	if popup:
+		popup.show_popup()
 
 func _on_button_pressed() -> void:
 	var url = "https://docs.google.com/document/d/1N6-leO-syXynmaG4eIWHm48-PhJm5FvxIoEAVukUTqs/edit?usp=sharing"
