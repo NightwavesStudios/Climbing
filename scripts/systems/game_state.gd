@@ -151,6 +151,11 @@ func record_level_completion(level_path: String, completion_time: float) -> void
 		completed_levels[level_path] = completion_time
 		print("GameState: Completed " + level_path + " in " + str(completion_time) + "s")
 
+		# ── Achievement: first-ever climb ──────────────────────────────────
+		if completed_levels.size() == 1:
+			if get_node_or_null("/root/Achievements") and Achievements.has_method("check_first_climb"):
+				Achievements.check_first_climb()
+
 		_check_collection_completion(level_path)
 		save_game()
 	else:
@@ -286,6 +291,14 @@ func _check_collection_completion(level_path: String) -> void:
 			completed_collections.append(collection_id)
 			print("🎉 COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
 
+			# ── Achievement: collection-based checks ───────────────────────
+			if get_node_or_null("/root/Achievements"):
+				match collection_id:
+					"intro-gym":
+						Achievements.check_gym_rat()
+					"granite-crag":
+						Achievements.check_on_real_rock()
+
 func _update_current_collection_from_level(level_path: String) -> void:
 	"""Find and set which collection this level belongs to"""
 	for collection_id in COLLECTIONS:
@@ -403,10 +416,18 @@ func record_fall() -> void:
 	total_falls += 1
 	save_game()
 
+	# ── Achievement: gravity check ────────────────────────────────────────
+	if get_node_or_null("/root/Achievements"):
+		Achievements.check_gravity_check()
+
 
 func record_falling_hold() -> void:
 	total_falling_holds += 1
 	save_game()
+
+	# ── Achievement: loose rock ───────────────────────────────────────────
+	if get_node_or_null("/root/Achievements"):
+		Achievements.check_loose_rock()
 
 
 func get_total_falls() -> int:

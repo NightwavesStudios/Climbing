@@ -41,6 +41,7 @@ MusicPlayer="*res://scripts/systems/music_player.gd"
 CustomCursor="*res://scripts/systems/custom_cursor.gd"
 MenuBackgroundManager="*res://scripts/environment/menu_background_manager.gd"
 SettingsLoader="*res://scripts/systems/settings_loader.gd"
+Achievements="*res://scripts/systems/achievements.gd"
 
 [boot_splash]
 

@@ -630,6 +630,21 @@ func on_level_complete():
 	if game_state and game_state.has_method("record_level_completion"):
 		game_state.record_level_completion(_current_level_path, completion_time)
 
+	# ── Achievement: speed-climb checks (SPEED_DEMON / PHOTO_FINISH) ────
+	if current_discipline == ClimbingDiscipline.Type.SPEED \
+			and speed_timer \
+			and is_instance_valid(speed_timer) \
+			and get_node_or_null("/root/Achievements"):
+		var time_remaining := speed_timer.get_time_remaining()
+		var time_limit     := speed_timer.time_limit
+		Achievements.check_speed_demon(time_remaining, time_limit)
+		Achievements.check_photo_finish(time_remaining)
+
+	# ── Achievement: roped climb (ROPE_GUN) ─────────────────────────────
+	if current_discipline == ClimbingDiscipline.Type.ROPED \
+			and get_node_or_null("/root/Achievements"):
+		Achievements.check_rope_gun()
+
 	if player and player.has_method("set_input_enabled"):
 		player.set_input_enabled(false)
 
@@ -792,6 +807,10 @@ func _setup_demo_finished_overlay() -> void:
 func _on_demo_finished() -> void:
 	"""Called when the level_completed overlay emits demo_finished (end of demo)."""
 	print("=== DEMO FINISHED ===")
+
+	# ── Achievement: demo complete ───────────────────────────────────────
+	if get_node_or_null("/root/Achievements"):
+		Achievements.check_demo_complete()
 
 	if demo_finished_overlay:
 		demo_finished_overlay.show_overlay()
