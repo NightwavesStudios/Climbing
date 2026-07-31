@@ -14,7 +14,6 @@ var fall_delay:       float = 2.2
 var reset_delay:      float = 4.0
 var fall_gravity:     float = 1800.0
 var auto_reset:       bool  = false
-var calm_if_released: bool  = true
 
 var shake_max_amp:    float = 1.8
 var shake_frequency:  float = 22.0
@@ -107,13 +106,8 @@ func on_grab(limb_node: Node2D) -> void:
 
 func on_release(limb_node: Node2D) -> void:
 	_claimed_limbs.erase(limb_node)
-
-	var calm_window = max(fall_delay * 0.5, 0.3)
-	if calm_if_released \
-			and _state == _State.SHAKING \
-			and _claimed_limbs.is_empty() \
-			and _shake_timer < calm_window:
-		_enter_idle_calm()
+	# Once the hold has been activated (touched a limb), it keeps shaking and
+	# will fall regardless — releasing early no longer cancels the shake.
 
 # ── State ticks ───────────────────────────────────────────────────────────
 
@@ -166,12 +160,6 @@ func _enter_falling() -> void:
 	if game_state and game_state.has_method("record_falling_hold"):
 		game_state.record_falling_hold()
 
-func _enter_idle_calm() -> void:
-	_state                             = _State.IDLE
-	_shake_timer                       = 0.0
-	_shake_lerp                        = 0.0
-	_get_visual_root().global_position = _origin
-
 func _enter_resetting() -> void:
 	_state       = _State.RESETTING
 	_reset_timer = 0.0
@@ -217,7 +205,6 @@ func serialize() -> Dictionary:
 		"reset_delay":      reset_delay,
 		"fall_gravity":     fall_gravity,
 		"auto_reset":       auto_reset,
-		"calm_if_released": calm_if_released,
 		"shake_max_amp":    shake_max_amp,
 		"shake_frequency":  shake_frequency,
 		"shake_ramp_speed": shake_ramp_speed,
@@ -228,10 +215,51 @@ func deserialize(data: Dictionary) -> void:
 	reset_delay      = float(data.get("reset_delay",      reset_delay))
 	fall_gravity     = float(data.get("fall_gravity",     fall_gravity))
 	auto_reset       = bool( data.get("auto_reset",       auto_reset))
-	calm_if_released = bool( data.get("calm_if_released", calm_if_released))
 	shake_max_amp    = float(data.get("shake_max_amp",    shake_max_amp))
 	shake_frequency  = float(data.get("shake_frequency",  shake_frequency))
 	shake_ramp_speed = float(data.get("shake_ramp_speed", shake_ramp_speed))
+
+func on_caught_reset() -> void:
+	"""Called when the rope catches the player — reset the hold with a pop-in animation 
+	regardless of where it is in its state machine cycle."""
+	if _state == _State.IDLE:
+		return  # Already in good state
+	
+	_do_reset_with_pop()
+
+func _do_reset_with_pop() -> void:
+	"""Reset the hold to origin with a pop-in animation tween."""
+	var visual_root = _get_visual_root()
+	
+	# Reset state immediately
+	_state                             = _State.IDLE
+	_shake_timer                       = 0.0
+	_shake_lerp                        = 0.0
+	_fall_timer                        = 0.0
+	_fall_velocity                     = 0.0
+	_reset_timer                       = 0.0
+	_claimed_limbs.clear()
+	
+	# Snap to origin first (for a clean pop)
+	visual_root.global_position = _origin
+	_set_collision_enabled(true)
+	
+	# — Pop-in tween: shrink then bounce back to natural scale —
+	# Save the original scale
+	var original_scale: Vector2 = visual_root.scale
+	
+	# Start tiny
+	visual_root.scale = Vector2.ZERO
+	
+	# Animate to original scale with a bounce
+	var tween: Tween = visual_root.create_tween().set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(visual_root, "scale", original_scale, 0.35)
+	
+	# Also add a tiny overshoot flicker — quick flash brighter then back to normal
+	var original_modulate: Color = visual_root.modulate
+	visual_root.modulate = Color(1.5, 1.5, 1.5, 1.0)  # Brighter flash
+	var flash_tween: Tween = visual_root.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	flash_tween.tween_property(visual_root, "modulate", original_modulate, 0.25)
 
 func get_display_name() -> String:
 	return "Falling (%.1fs)" % fall_delay

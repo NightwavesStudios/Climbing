@@ -2,7 +2,10 @@
 extends Control
 
 const PREFS_PATH        := "user://prefs.cfg"
+const SETTINGS_PATH     := "user://settings.cfg"
 const DEMO_NOTICE_KEY   := "demo_notice_seen"
+
+const FPS_CAP_VALUES: Array[int] = [0, 30, 60, 120, 144]
 
 const ENTRY_DURATION    := 0.45  # duration of each element's tween
 
@@ -27,6 +30,16 @@ func _ready() -> void:
 
 	# Show demo notice popup only once
 	_show_demo_notice_if_needed()
+
+	# Auto-focus the first button so controller D-pad navigation starts immediately
+	call_deferred(&"_focus_first_button")
+
+func _focus_first_button() -> void:
+	var btns := buttons.get_children()
+	for btn in btns:
+		if btn is Button and not btn.disabled and btn.visible:
+			btn.grab_focus()
+			return
 
 # ── Entry animation ──────────────────────────────────────────────────────────
 
@@ -68,10 +81,42 @@ func _play_entry_animation() -> void:
 	d.tween_property(discord_btn, "modulate:a", 1.0, ENTRY_DURATION * 0.8)
 	d.tween_property(discord_btn, "position:y", discord_pos.y, ENTRY_DURATION * 0.8)
 
+	# Restore the saved FPS cap after the animation finishes, so the cap
+	# isn't stuck at 0 (unlimited) when the player enters the game.
+	tween.finished.connect(_restore_fps_cap, CONNECT_ONE_SHOT)
+
+
+# ── FPS cap ───────────────────────────────────────────────────────────────────
+
+## Reads saved FPS cap from settings and applies it.
+## The menu starts with Engine.max_fps = 0 to avoid animation stutter,
+## but after the animation finishes we re-apply the user's chosen cap.
+func _restore_fps_cap() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) != OK:
+		return  # no saved settings — leave unlimited
+
+	var vsync_on: bool = cfg.get_value("video", "vsync_enabled", true)
+	if vsync_on:
+		# VSync handles timing; no software cap needed
+		return
+
+	var fps_idx: int = cfg.get_value("performance", "fps_cap_index", 0)
+	if fps_idx >= 0 and fps_idx < FPS_CAP_VALUES.size():
+		Engine.max_fps = FPS_CAP_VALUES[fps_idx]
+
 
 # ── Button callbacks ─────────────────────────────────────────────────────────
 func _on_play_pressed() -> void:
 	Transition.to("res://scenes/menus/collections_select.tscn")
+
+func _on_weekly_pressed() -> void:
+	var level_path := WeeklyRotation.get_current_weekly_level_path()
+	if level_path.is_empty():
+		push_error("main_menu: No weekly level available!")
+		return
+	GameState.set_current_level(level_path)
+	Transition.to("res://scenes/main/main_scene.tscn")
 
 func _on_level_maker_pressed() -> void:
 	Transition.to("res://scenes/editor/level_editor.tscn")

@@ -55,6 +55,21 @@ func show_pause_menu() -> void:
 			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	await tween.finished
 	_is_animating = false
+	# Focus the first button for controller navigation
+	call_deferred(&"_focus_pause_button")
+
+func _focus_pause_button() -> void:
+	for child in get_children():
+		if child is Button and not child.disabled and child.visible:
+			child.grab_focus()
+			return
+	# Also check inside VBoxContainer
+	var vbox := $VBoxContainer as VBoxContainer
+	if vbox:
+		for child in vbox.get_children():
+			if child is Button and not child.disabled and child.visible:
+				child.grab_focus()
+				return
 
 func hide_pause_menu() -> void:
 	if _is_animating:

@@ -62,10 +62,17 @@ var crashpad_button: Button
 var weather_dropdown: OptionButton
 var weather_intensity_slider: HSlider
 var weather_intensity_label: Label
+var time_of_day_dropdown: OptionButton
 var drawer_panel: ColorRect
 var drawer_container: MarginContainer
 var fold_button: Button
 var ui_panel_collapsed: bool = true
+
+# Top‑bar file‑operation UI (set in _build_top_bar)
+var _file_label: Label
+var _btn_new: Button
+var _btn_open: Button
+var _btn_save: Button
 
 # State
 var selected_hold_type: String = ""
@@ -95,6 +102,8 @@ var speed_time_limit: float = 60.0
 var belayer_position: Vector2 = Vector2.ZERO
 var current_weather: int = 0
 var current_weather_intensity: float = 1.0
+var current_time_of_day: int = -1  # -1=random, 0=day, 1=dusk, 2=night
+const TIME_OF_DAY_NAMES := ["Random", "Day", "Dusk", "Night"]
 
 # FIX 4: track current environment for hold palette filtering
 var current_environment: String = "gym"
@@ -103,14 +112,20 @@ var grid_enabled: bool = true
 var grid_size: float = 32.0
 var undo_stack: Array = []
 
+# ── File persistence ──────────────────────────────────────────────────────────
+var current_file_path: String = ""       # "user://levels/<name>.climb"
+var current_file_name: String = ""       # display name (without path)
+var is_dirty: bool = false               # true when unsaved changes exist
+var _suppress_dirty: bool = false        # prevent re‑entrant dirty signals
+
 var _hold_modifiers: Dictionary = {}
 
 # ── Constants ──────────────────────────────────────────────────────────────
 const WEATHER_NAMES := ["None", "Rain", "Night", "Snow", "Lightning", "Fog", "Hail", "Sandstorm"]
-const V_GRADES   = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
-const YDS_GRADES = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
+const V_GRADES: Array[String] = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
+const YDS_GRADES: Array[String] = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
 					"5.11a","5.11b","5.11c","5.11d","5.12a","5.12b","5.12c","5.12d","5.13a","5.13b"]
-var HOLD_TYPES  = ["START","TOP","JUG","CRIMP","SLOPER","POCKET","FOOT","WINDOW","LEDGE"]
+var HOLD_TYPES  = ["START","TOP","JUG","CRIMP","SLOPER","POCKET","FOOT","UNDERCLING","WINDOW","LEDGE"]
 var HOLD_SCENES = {
 	"START":  "res://scenes/holds/start.tscn",
 	"TOP":    "res://scenes/holds/top_out.tscn",
@@ -119,6 +134,7 @@ var HOLD_SCENES = {
 	"SLOPER": "res://scenes/holds/sloper.tscn",
 	"POCKET": "res://scenes/holds/pocket.tscn",
 	"FOOT":   "res://scenes/holds/foothold.tscn",
+	"UNDERCLING": "res://scenes/holds/undercling.tscn",
 	"WINDOW": "res://scenes/holds/window.tscn",
 	"LEDGE":  "res://scenes/holds/ledge.tscn",
 }
@@ -196,6 +212,7 @@ var HOLD_COLORS := {
 	"SLOPER": Color(1.00, 0.78, 0.20),
 	"POCKET": Color(0.80, 0.40, 1.00),
 	"FOOT":   Color(0.50, 0.80, 0.60),
+	"UNDERCLING": Color(0.95, 0.55, 0.70),
 	"WINDOW": Color(0.40, 0.85, 0.95),
 	"LEDGE":  Color(0.90, 0.70, 0.50),
 }
@@ -254,6 +271,8 @@ func _ready():
 
 	_build_ui()
 	update_wall_bounds()
+	# Set initial window title
+	_update_title_bar()
 
 func _get_or_create_node2d(n: String) -> Node2D:
 	if has_node(n): return get_node(n)
@@ -371,6 +390,24 @@ func _build_top_bar():
 	logo.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hbox.add_child(logo)
 
+	# ── File operations ────────────────────────────────────────────────────
+	_btn_new  = _make_action_button("New",  C_MUTED,   _on_new_level)
+	_btn_open = _make_action_button("Open", C_MUTED,   _on_open_level_browser)
+	_btn_save = _make_action_button("Save", C_SUCCESS, _on_save)
+	hbox.add_child(_btn_new)
+	hbox.add_child(_btn_open)
+	hbox.add_child(_btn_save)
+
+	_bar_sep(hbox)
+
+	# ── Filename ───────────────────────────────────────────────────────────
+	_file_label = _label("New Route", 10, C_TEXT)
+	_file_label.vertical_alignment     = VERTICAL_ALIGNMENT_CENTER
+	_file_label.custom_minimum_size    = Vector2(140, 0)
+	_file_label.mouse_filter           = Control.MOUSE_FILTER_STOP
+	_file_label.add_theme_color_override("font_color", C_MUTED)
+	hbox.add_child(_file_label)
+
 	_bar_sep(hbox)
 
 	climb_name_input = LineEdit.new()
@@ -400,7 +437,7 @@ func _build_top_bar():
 	hold_type_dropdown.custom_minimum_size = Vector2(110, 32)
 	_style_option_button(hold_type_dropdown)
 	hold_type_dropdown.add_item("-- Hold Type --")
-	for ht in ["START", "TOP", "JUG", "CRIMP", "SLOPER", "POCKET", "FOOT", "WINDOW", "LEDGE"]:
+	for ht in ["START", "TOP", "JUG", "CRIMP", "SLOPER", "POCKET", "FOOT", "UNDERCLING", "WINDOW", "LEDGE"]:
 		hold_type_dropdown.add_item(ht.capitalize())
 		hold_type_dropdown.set_item_metadata(hold_type_dropdown.get_item_count() - 1, ht)
 	hold_type_dropdown.item_selected.connect(func(idx):
@@ -447,8 +484,8 @@ func _build_top_bar():
 
 	_bar_sep(hbox)
 
-	hbox.add_child(_make_action_button("Copy JSON", C_MUTED,   func(): _on_copy_json()))
-	hbox.add_child(_make_action_button("Paste JSON", C_MUTED,  func(): _on_paste_json()))
+	hbox.add_child(_make_action_button("Export", C_MUTED,   func(): _on_copy_json()))
+	hbox.add_child(_make_action_button("Import", C_MUTED,  func(): _on_paste_json()))
 
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -525,6 +562,15 @@ func _build_drawer():
 	int_row.visible = false
 	weather_intensity_slider.set_meta("int_row", int_row)
 
+	var tod_row = _drawer_row(env_col, "Time of Day")
+	time_of_day_dropdown = OptionButton.new()
+	time_of_day_dropdown.custom_minimum_size = Vector2(120, 26)
+	_style_option_button(time_of_day_dropdown)
+	for n in TIME_OF_DAY_NAMES: time_of_day_dropdown.add_item(n)
+	time_of_day_dropdown.select(0)  # "Random"
+	time_of_day_dropdown.item_selected.connect(_on_time_of_day_changed)
+	tod_row.add_child(time_of_day_dropdown)
+
 	_drawer_vsep(hbox)
 
 	var ed_col = _drawer_col(hbox, "EDITOR TOOLS")
@@ -549,6 +595,11 @@ func _build_drawer():
 	clear_btn.add_theme_color_override("font_color", C_WARN)
 	clear_btn.pressed.connect(_on_clear)
 	row2.add_child(clear_btn)
+
+	var save_as_btn = _make_flat_button("Save As", Vector2(80, 26))
+	save_as_btn.add_theme_color_override("font_color", C_SUCCESS)
+	save_as_btn.pressed.connect(_on_save_as)
+	row2.add_child(save_as_btn)
 
 	var back_btn = _make_flat_button("← Back", Vector2(80, 26))
 	back_btn.add_theme_color_override("font_color", C_WARN)
@@ -1252,6 +1303,20 @@ func clear_preview():
 	if preview_crashpad and is_instance_valid(preview_crashpad): preview_crashpad.queue_free()
 	preview_hold = null; preview_crashpad = null
 
+# ── Dirty tracking ───────────────────────────────────────────────────────────
+func _mark_dirty():
+	if _suppress_dirty: return
+	is_dirty = true
+	_update_title_bar()
+
+func _update_title_bar():
+	"""Update the editor title / window text to show dirty state."""
+	var tag = ("* " if is_dirty else "") + (current_file_name if current_file_name else "New Route")
+	DisplayServer.window_set_title("Climbing Simplified – Level Editor: " + tag)
+	# Also update the top‑bar filename label if it exists
+	if is_instance_valid(_file_label):
+		_file_label.text = tag
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  INFO BAR
@@ -1420,6 +1485,19 @@ func _on_weather_intensity_changed(v: float):
 	weather_intensity_label.text = "%d%%" % int(v * 100)
 	if wall and wall.has_method("set_weather"): wall.set_weather(current_weather, v)
 
+func _on_time_of_day_changed(index: int):
+	# index 0 = Random (-1), 1 = Day (0), 2 = Dusk (1), 3 = Night (2)
+	current_time_of_day = index - 1
+	# If no wall yet (e.g. during _on_level_open before wall is ready), defer
+	if wall and wall.has_method("set_time_of_day"):
+		wall.set_time_of_day(current_time_of_day)
+	elif is_inside_tree():
+		# Try finding a DynamicWall child
+		var found_wall = get_node_or_null("Wall")
+		if found_wall and found_wall.has_method("set_time_of_day"):
+			found_wall.set_time_of_day(current_time_of_day)
+	_notify("Time of day: " + TIME_OF_DAY_NAMES[index])
+
 func _on_toggle_wall_edit():
 	if not wall: _notify("No wall found", true); return
 	if not wall.has_method("enable_edit_mode"): _notify("Wall doesn't support editing", true); return
@@ -1548,6 +1626,7 @@ func _on_copy_json():
 		"grade": climb_grade, "environment": env_name,
 		"discipline": current_discipline, "weather": current_weather,
 		"weather_intensity": current_weather_intensity,
+		"time_of_day": current_time_of_day,
 		"speed_time_limit": speed_time_limit, "holds": [], "crashpads": []
 	}
 	if current_discipline == "roped" and belayer_position != Vector2.ZERO:
@@ -1583,17 +1662,19 @@ func _on_paste_json():
 			"roped":      discipline_dropdown.select(1)
 			"speed":      discipline_dropdown.select(2)
 		_on_discipline_changed(discipline_dropdown.selected)
-	var saved_grade = data.get("grade","VB")
+	var saved_grade: String = data.get("grade","VB")
 	if grade_dropdown:
-		var grades = V_GRADES if current_discipline == "bouldering" else YDS_GRADES
-		var idx = grades.find(saved_grade); if idx >= 0: grade_dropdown.select(idx); _on_grade_changed(idx)
+		var grades: Array[String] = V_GRADES if current_discipline == "bouldering" else YDS_GRADES
+		var idx: int = grades.find(saved_grade); if idx >= 0: grade_dropdown.select(idx); _on_grade_changed(idx)
 	if speed_time_input: speed_time_input.value = speed_time_limit
 	if "belayer_position" in data and data["belayer_position"]:
-		var bd = data["belayer_position"]
+		var bd: Dictionary = data["belayer_position"]
 		_create_belayer_marker(Vector2(bd.get("x",0), bd.get("y",0)))
-	var env = get_node_or_null("/root/EnvironmentConfig")
-	if env:
-		var en = data.get("environment","gym"); var types = env.get_all_environment_types(); var matched = false
+	var env: Node = get_node_or_null("/root/EnvironmentConfig")
+	if is_instance_valid(env):
+		var en: String = data.get("environment","gym")
+		var types: Array = env.get_all_environment_types()
+		var matched: bool = false
 		for i in range(types.size()):
 			if env.get_environment_name(types[i]).to_lower() == en.to_lower():
 				env.set_environment(types[i])
@@ -1604,14 +1685,22 @@ func _on_paste_json():
 			current_environment = env.get_environment_name(types[0]).to_lower()
 		_refresh_hold_palette_for_environment()
 		update_wall_bounds()
-	var lw = int(data.get("weather",0)); var li = float(data.get("weather_intensity",1.0))
+	var lw: int = int(data.get("weather",0)); var li: float = float(data.get("weather_intensity",1.0))
 	current_weather = lw; current_weather_intensity = li
 	if weather_dropdown: weather_dropdown.select(clamp(lw,0,weather_dropdown.get_item_count()-1)); _on_weather_changed(lw)
 	if weather_intensity_slider: weather_intensity_slider.value = li
+
+	# ── Time of day ──────────────────────────────────────────────────────────
+	var tod: int = int(data.get("time_of_day", -1))
+	current_time_of_day = tod
+	if time_of_day_dropdown:
+		time_of_day_dropdown.select(tod + 1)
+	_on_time_of_day_changed(tod + 1)
+
 	for hd in data["holds"]:
-		var tn = hd.get("type","JUG")
+		var tn: String = hd.get("type","JUG")
 		if tn not in loaded_scenes: continue
-		var hold = loaded_scenes[tn].instantiate()
+		var hold: Node2D = loaded_scenes[tn].instantiate()
 		if hold.has_method("set_hold_type_from_string"): hold.set_hold_type_from_string(tn)
 		hold.global_position = Vector2(hd.get("x",0), hd.get("y",0))
 		holds_container.add_child(hold); hold.add_to_group("holds"); hold.set_meta("editor_type", tn)
@@ -1623,12 +1712,608 @@ func _on_paste_json():
 			hold.modulate = Color(0.4, 1.0, 0.5)
 	if "crashpads" in data and crashpad_scene:
 		for cpd in data["crashpads"]:
-			var cp = crashpad_scene.instantiate()
+			var cp: Node2D = crashpad_scene.instantiate()
 			cp.global_position = Vector2(cpd.get("x",0), cpd.get("y",0))
 			crashpads_container.add_child(cp); cp.add_to_group("crashpads")
 	if "wall_polygon" in data and wall and wall.has_method("set_polygon_data"):
 		wall.set_polygon_data(data["wall_polygon"])
 	update_wall_bounds(); _sfx(1.25); _notify("Route loaded: " + climb_name)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  SAVE / LOAD / NEW
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _on_new_level():
+	"""Start a fresh empty level — with unsaved‑changes guard."""
+	if is_dirty:
+		_show_confirm_dialog("Discard unsaved changes and start a new level?", _do_new_level)
+	else:
+		_do_new_level()
+
+func _do_new_level():
+	_on_clear()
+	current_file_path = ""
+	current_file_name = ""
+	is_dirty = false
+	_update_title_bar()
+	_notify("New level — ready to create!")
+
+func _on_save():
+	"""Save.  If never saved, prompt for a name."""
+	if current_file_path and not current_file_path.is_empty():
+		_save_to_path(current_file_path)
+	else:
+		_show_save_dialog()
+
+func _on_save_as():
+	_show_save_dialog()
+
+func _save_to_path(path: String):
+	var data = _build_save_data()
+	var file = FileAccess.open(path, FileAccess.WRITE)
+	if not file:
+		_notify("Failed to save level — check permissions", true)
+		return
+	file.store_string(JSON.stringify(data, "\t"))
+	file.close()
+	current_file_path = path
+	current_file_name = path.get_file().get_basename()
+	is_dirty = false
+	_update_title_bar()
+	# Refresh level list so the new file appears immediately
+	var lm := get_node_or_null("/root/LevelManager")
+	if lm: lm.refresh_levels()
+	_sfx(1.2)
+	_notify("Saved: " + current_file_name)
+
+func _build_save_data() -> Dictionary:
+	"""Build the full level dictionary for saving (same structure as clipboard export)."""
+	var env_name := "gym"
+	var env := get_node_or_null("/root/EnvironmentConfig")
+	if env:
+		env_name = env.get_current_environment_name().to_lower()
+	var data := {
+		"name":              climb_name if climb_name != "" else "Unnamed Route",
+		"grade":             climb_grade,
+		"environment":       env_name,
+		"discipline":        current_discipline,
+		"weather":           current_weather,
+		"weather_intensity": current_weather_intensity,
+		"time_of_day":       current_time_of_day,
+		"speed_time_limit":  speed_time_limit,
+		"holds":             [],
+		"crashpads":         [],
+		"metadata":          {
+			"editor_version": "2.0",
+			"creator":        "Level Editor",
+		},
+	}
+	if current_discipline == "roped" and belayer_position != Vector2.ZERO:
+		data["belayer_position"] = {"x": belayer_position.x, "y": belayer_position.y}
+	if wall and wall.has_method("get_polygon_data"):
+		var pd = wall.get_polygon_data()
+		if pd: data["wall_polygon"] = pd
+	for h in holds_container.get_children():
+		var e := {
+			"type": get_hold_type(h),
+			"x": h.global_position.x,
+			"y": h.global_position.y,
+		}
+		var mods: Array = _hold_modifiers.get(h, [])
+		if not mods.is_empty():
+			e["modifiers"] = mods.duplicate(true)
+		if is_instance_valid(custom_spawn_hold) and h == custom_spawn_hold:
+			e["custom_spawn"] = true
+		data["holds"].append(e)
+	for cp in crashpads_container.get_children():
+		data["crashpads"].append({"x": cp.global_position.x, "y": cp.global_position.y})
+	return data
+
+func _show_save_dialog():
+	"""A small inline dialog that asks for a level name, then saves."""
+	_close_level_browser()
+	var dim := ColorRect.new()
+	dim.name = "SaveDialogDim"
+	dim.color = Color(0, 0, 0, 0.50)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed:
+			_close_dialog("SaveDialogDim")
+	)
+	ui_layer.add_child(dim)
+
+	var panel := PanelContainer.new()
+	panel.name = "SaveDialogPanel"
+	panel.custom_minimum_size = Vector2(360, 200)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(-180, -100)
+	var sty := StyleBoxFlat.new()
+	sty.bg_color = Color(0.10, 0.10, 0.12, 0.98)
+	sty.set_border_width_all(1); sty.border_color = C_BORDER
+	sty.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", sty)
+	ui_layer.add_child(panel)
+
+	var margin := MarginContainer.new()
+	for s in ["margin_left","margin_right","margin_top","margin_bottom"]:
+		margin.add_theme_constant_override(s, 18)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	margin.add_child(vbox)
+
+	vbox.add_child(_label("SAVE LEVEL", 14, C_ACCENT))
+	vbox.add_child(_label("Give your route a name:", 11, C_MUTED))
+
+	var name_input := LineEdit.new()
+	_style_line_edit(name_input)
+	name_input.placeholder_text = "My Awesome Route"
+	name_input.text = climb_name if climb_name != "" else ""
+	name_input.custom_minimum_size.y = 32
+	vbox.add_child(name_input)
+
+	# Overwrite warning
+	var warn_label := _label("", 10, C_WARN)
+	warn_label.visible = false
+	vbox.add_child(warn_label)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	btn_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	vbox.add_child(btn_row)
+
+	var cancel_btn := _make_flat_button("Cancel", Vector2(90, 30))
+	btn_row.add_child(cancel_btn)
+
+	var save_btn := _make_action_button("Save", C_SUCCESS, func(): pass)
+	btn_row.add_child(save_btn)
+
+	cancel_btn.pressed.connect(func(): _close_dialog("SaveDialogDim"); _close_dialog("SaveDialogPanel"))
+
+	save_btn.pressed.connect(func():
+		var raw := name_input.text.strip_edges()
+		if raw.is_empty():
+			warn_label.text = "Please enter a name"
+			warn_label.visible = true
+			return
+		# Sanitise filename: keep only safe characters
+		var safe_name := ""
+		for ch in raw:
+			safe_name += ch if ch in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-" else "_"
+		safe_name = safe_name.strip_edges()
+		if safe_name.is_empty():
+			safe_name = "Unnamed"
+		var path := "user://levels/" + safe_name + ".climb"
+
+		# Check overwrite
+		if FileAccess.file_exists(path) and path != current_file_path:
+			warn_label.text = "Level \"" + safe_name + "\" already exists!\nPress Save again to overwrite it."
+			warn_label.visible = true
+			# On second press, force overwrite
+			save_btn.pressed.connect(func():
+				_close_dialog("SaveDialogDim"); _close_dialog("SaveDialogPanel")
+				_save_to_path(path)
+			, CONNECT_ONE_SHOT)
+			return
+
+		_close_dialog("SaveDialogDim"); _close_dialog("SaveDialogPanel")
+		_save_to_path(path)
+	)
+
+	name_input.focus()
+	# Focus the input
+	await get_tree().process_frame
+	name_input.grab_focus()
+
+
+func _on_open_level_browser():
+	"""Open the level‑browser popup — with unsaved‑changes guard."""
+	if is_dirty:
+		_show_confirm_dialog("Discard unsaved changes and open a different level?", _open_level_browser_inner)
+	else:
+		_open_level_browser_inner()
+
+func _open_level_browser_inner():
+	_build_level_browser()
+
+
+# ── Level‑browser popup ──────────────────────────────────────────────────────
+
+var _browser_nodes: Array[Node] = []
+
+func _build_level_browser():
+	"""Build a modal level‑browser overlay listing both user and built‑in levels."""
+	_close_level_browser()
+
+	var dim := ColorRect.new()
+	dim.name = "LbDim"
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed:
+			_close_level_browser()
+	)
+	ui_layer.add_child(dim)
+	_browser_nodes.append(dim)
+
+	var panel := PanelContainer.new()
+	panel.name = "LbPanel"
+	panel.custom_minimum_size = Vector2(560, 420)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(-280, -210)
+	var sty := StyleBoxFlat.new()
+	sty.bg_color = Color(0.10, 0.10, 0.12, 0.98)
+	sty.set_border_width_all(1); sty.border_color = C_BORDER
+	sty.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", sty)
+	ui_layer.add_child(panel)
+	_browser_nodes.append(panel)
+
+	var margin := MarginContainer.new()
+	for s in ["margin_left","margin_right","margin_top","margin_bottom"]:
+		margin.add_theme_constant_override(s, 18)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	margin.add_child(vbox)
+
+	# ── Header ──────────────────────────────────────────────────────────────
+	var hdr := HBoxContainer.new()
+	vbox.add_child(hdr)
+	var title := _label("OPEN LEVEL", 14, C_ACCENT)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr.add_child(title)
+	var close_btn := _make_flat_button("X", Vector2(28, 28))
+	close_btn.pressed.connect(_close_level_browser)
+	hdr.add_child(close_btn)
+
+	# ── Tab bar ─────────────────────────────────────────────────────────────
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 6)
+	vbox.add_child(tabs)
+
+	var user_tab := _make_flat_button("My Levels",  Vector2(120, 28))
+	var builtin_tab := _make_flat_button("Built‑in", Vector2(120, 28))
+	tabs.add_child(user_tab)
+	tabs.add_child(builtin_tab)
+
+	# ── Scrollable list ─────────────────────────────────────────────────────
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(0, 280)
+	vbox.add_child(scroll)
+
+	var list_vbox := VBoxContainer.new()
+	list_vbox.add_theme_constant_override("separation", 4)
+	list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list_vbox)
+
+	# ── Populate helper ─────────────────────────────────────────────────────
+
+	var populate_callable := func(which: String):
+		for c in list_vbox.get_children(): c.queue_free()
+		var lm := get_node_or_null("/root/LevelManager")
+		if not lm:
+			list_vbox.add_child(_label("LevelManager not available", 11, C_WARN))
+			return
+		var levels: Array
+		if which == "user":
+			levels = lm.get_user_levels()
+		else:
+			levels = lm.get_builtin_levels()
+		if levels.is_empty():
+			var msg := "You haven't saved any levels yet!" if which == "user" else "No built‑in levels found"
+			list_vbox.add_child(_label(msg, 11, C_MUTED))
+			if which == "user":
+				var hint := _label("  Create a route, then press Save", 10, C_MUTED)
+				hint.add_theme_color_override("font_color", Color(C_MUTED.r, C_MUTED.g, C_MUTED.b, 0.6))
+				list_vbox.add_child(hint)
+			return
+		for lvl in levels:
+			var row := _build_level_row(lvl, which == "user")
+			list_vbox.add_child(row)
+
+	user_tab.pressed.connect(func():
+		user_tab.add_theme_color_override("font_color", C_ACCENT)
+		builtin_tab.add_theme_color_override("font_color", Color(1,1,1))
+		populate_callable.call("user")
+	)
+	builtin_tab.pressed.connect(func():
+		builtin_tab.add_theme_color_override("font_color", C_ACCENT)
+		user_tab.add_theme_color_override("font_color", Color(1,1,1))
+		populate_callable.call("builtin")
+	)
+
+	# Show user levels first
+	user_tab.add_theme_color_override("font_color", C_ACCENT)
+	populate_callable.call("user")
+
+
+func _build_level_row(lvl, is_user: bool) -> PanelContainer:
+	"""One row in the level browser list."""
+	var card := PanelContainer.new()
+	var csty := StyleBoxFlat.new()
+	csty.bg_color = Color(C_SURFACE.r, C_SURFACE.g, C_SURFACE.b, 0.40)
+	csty.set_border_width_all(1); csty.border_color = C_BORDER
+	csty.set_corner_radius_all(4)
+	card.add_theme_stylebox_override("panel", csty)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	var mrg := MarginContainer.new()
+	for s in ["margin_left","margin_right","margin_top","margin_bottom"]:
+		mrg.add_theme_constant_override(s, 8)
+	card.add_child(mrg)
+	mrg.add_child(hbox)
+
+	# Try loading metadata
+	var name_str: String = lvl.name
+	var grade_str: String = "—"
+	var disc_str: String = ""
+	var env_str: String = ""
+	if lvl.path and FileAccess.file_exists(lvl.path):
+		var file := FileAccess.open(lvl.path, FileAccess.READ)
+		if file:
+			var j := JSON.new()
+			if j.parse(file.get_as_text()) == OK:
+				var d: Dictionary = j.data
+				name_str = d.get("name", lvl.name) as String
+				grade_str = d.get("grade", "—") as String
+				disc_str = d.get("discipline", "") as String
+				env_str = d.get("environment", "") as String
+
+	# Info column
+	var info_vbox := VBoxContainer.new()
+	info_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(info_vbox)
+
+	var name_lbl := _label(name_str, 12, C_TEXT)
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info_vbox.add_child(name_lbl)
+
+	var meta_parts: Array[String] = []
+	meta_parts.append("Grade: " + grade_str)
+	if disc_str:  meta_parts.append(disc_str.capitalize())
+	if env_str:   meta_parts.append(env_str.capitalize())
+	meta_parts.append(str(lvl.hold_count) + " holds")
+	var meta_lbl := _label("   ·   ".join(meta_parts), 9, C_MUTED)
+	info_vbox.add_child(meta_lbl)
+
+	# Badge for user levels
+	if is_user:
+		var badge := _label("user", 8, Color(0.40, 0.70, 0.40, 0.70))
+		info_vbox.add_child(badge)
+
+	# Action buttons
+	var btn_vbox := VBoxContainer.new()
+	btn_vbox.add_theme_constant_override("separation", 4)
+	btn_vbox.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hbox.add_child(btn_vbox)
+
+	var open_btn := _make_flat_button("Open", Vector2(64, 24))
+	var path_copy = lvl.path
+	open_btn.pressed.connect(func():
+		_close_level_browser()
+		_load_level_from_file(path_copy)
+	)
+	btn_vbox.add_child(open_btn)
+
+	if is_user:
+		var del_btn := _make_flat_button("Del", Vector2(64, 24))
+		del_btn.add_theme_color_override("font_color", C_WARN)
+		del_btn.add_theme_color_override("font_hover_color", C_WARN)
+		var path_copy2 = lvl.path
+		del_btn.pressed.connect(func():
+			_close_level_browser()
+			_show_confirm_dialog("Delete \"" + name_str + "\"? This cannot be undone.", func():
+				var lm := get_node_or_null("/root/LevelManager")
+				if lm and lm.has_method("delete_user_level"):
+					var lvi = lm.get_level_by_path(path_copy2)
+					if lvi: lm.delete_user_level(lvi)
+					# If this was the current level, reset
+					if current_file_path == path_copy2:
+						current_file_path = ""
+						current_file_name = ""
+					_notify("Deleted: " + name_str)
+					_sfx(0.6)
+			)
+		)
+		btn_vbox.add_child(del_btn)
+
+	return card
+
+
+func _close_level_browser():
+	"""Remove level‑browser overlay nodes."""
+	for n in _browser_nodes:
+		if is_instance_valid(n): n.queue_free()
+	_browser_nodes.clear()
+
+
+func _load_level_from_file(path: String) -> bool:
+	"""Load a .climb file into the editor (reuses the paste‑logic)."""
+	if not FileAccess.file_exists(path):
+		_notify("File not found: " + path, true)
+		return false
+	var file := FileAccess.open(path, FileAccess.READ)
+	if not file:
+		_notify("Could not open file", true)
+		return false
+	var json := JSON.new()
+	if json.parse(file.get_as_text()) != OK:
+		_notify("Invalid level file", true)
+		return false
+	file.close()
+	var data: Dictionary = json.data
+	if not "holds" in data:
+		_notify("No holds in level file", true)
+		return false
+
+	# ── Clear and load ─────────────────────────────────────────────────────
+	_suppress_dirty = true   # prevent dirty spamming during load
+	_on_clear()
+
+	climb_name = data.get("name", "")
+	if climb_name_input: climb_name_input.text = climb_name
+
+	current_discipline = data.get("discipline", "bouldering")
+	speed_time_limit = float(data.get("speed_time_limit", 60.0))
+	if discipline_dropdown:
+		match current_discipline:
+			"bouldering": discipline_dropdown.select(0)
+			"roped":      discipline_dropdown.select(1)
+			"speed":      discipline_dropdown.select(2)
+		_on_discipline_changed(discipline_dropdown.selected)
+	var saved_grade: String = data.get("grade", "VB")
+	if grade_dropdown:
+		var grades: Array[String] = V_GRADES if current_discipline == "bouldering" else YDS_GRADES
+		var idx: int = grades.find(saved_grade)
+		if idx >= 0: grade_dropdown.select(idx); _on_grade_changed(idx)
+	if speed_time_input: speed_time_input.value = speed_time_limit
+
+	if "belayer_position" in data and data["belayer_position"]:
+		var bd: Dictionary = data["belayer_position"]
+		_create_belayer_marker(Vector2(bd.get("x",0), bd.get("y",0)))
+
+	var env: Node = get_node_or_null("/root/EnvironmentConfig")
+	if is_instance_valid(env):
+		var en: String = data.get("environment", "gym")
+		var types: Array = env.get_all_environment_types()
+		var matched: bool = false
+		for i in types.size():
+			if env.get_environment_name(types[i]).to_lower() == en.to_lower():
+				env.set_environment(types[i])
+				current_environment = en
+				matched = true; break
+		if not matched and not types.is_empty():
+			env.set_environment(types[0])
+			current_environment = env.get_environment_name(types[0]).to_lower()
+		_refresh_hold_palette_for_environment()
+		update_wall_bounds()
+
+	var lw: int = int(data.get("weather", 0))
+	var li: float = float(data.get("weather_intensity", 1.0))
+	current_weather = lw; current_weather_intensity = li
+	if weather_dropdown:
+		weather_dropdown.select(clamp(lw, 0, weather_dropdown.get_item_count() - 1))
+		_on_weather_changed(lw)
+	if weather_intensity_slider: weather_intensity_slider.value = li
+
+	# ── Time of day ──────────────────────────────────────────────────────────
+	var tod: int = int(data.get("time_of_day", -1))
+	current_time_of_day = tod
+	if time_of_day_dropdown:
+		time_of_day_dropdown.select(tod + 1)
+	_on_time_of_day_changed(tod + 1)
+
+	for hd in data["holds"]:
+		var tn: String = hd.get("type", "JUG")
+		if tn not in loaded_scenes: continue
+		var hold: Node2D = loaded_scenes[tn].instantiate()
+		if hold.has_method("set_hold_type_from_string"):
+			hold.set_hold_type_from_string(tn)
+		hold.global_position = Vector2(hd.get("x",0), hd.get("y",0))
+		holds_container.add_child(hold)
+		hold.add_to_group("holds")
+		hold.set_meta("editor_type", tn)
+		if "modifiers" in hd and not (hd["modifiers"] as Array).is_empty():
+			_hold_modifiers[hold] = (hd["modifiers"] as Array).duplicate(true)
+			_refresh_hold_tint(hold)
+		if hd.get("custom_spawn", false):
+			custom_spawn_hold = hold
+			hold.modulate = Color(0.4, 1.0, 0.5)
+
+	if "crashpads" in data and crashpad_scene:
+		for cpd in data["crashpads"]:
+			var cp: Node2D = crashpad_scene.instantiate()
+			cp.global_position = Vector2(cpd.get("x",0), cpd.get("y",0))
+			crashpads_container.add_child(cp)
+			cp.add_to_group("crashpads")
+
+	if "wall_polygon" in data and wall and wall.has_method("set_polygon_data"):
+		wall.set_polygon_data(data["wall_polygon"])
+
+	current_file_path = path
+	current_file_name = path.get_file().get_basename()
+	_suppress_dirty = false
+	is_dirty = false
+	update_wall_bounds()
+	_update_title_bar()
+	_sfx(1.25)
+	_notify("Loaded: " + current_file_name)
+	return true
+
+
+# ── Confirmation dialog ──────────────────────────────────────────────────────
+
+func _show_confirm_dialog(msg: String, on_confirm: Callable):
+	"""A simple yes/no confirmation overlay."""
+	_close_confirm_dialog()
+
+	var dim := ColorRect.new()
+	dim.name = "ConfirmDim"
+	dim.color = Color(0, 0, 0, 0.50)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	ui_layer.add_child(dim)
+
+	var panel := PanelContainer.new()
+	panel.name = "ConfirmPanel"
+	panel.custom_minimum_size = Vector2(380, 160)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(-190, -80)
+	var sty := StyleBoxFlat.new()
+	sty.bg_color = Color(0.10, 0.10, 0.12, 0.98)
+	sty.set_border_width_all(1); sty.border_color = C_BORDER
+	sty.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", sty)
+	ui_layer.add_child(panel)
+
+	var margin := MarginContainer.new()
+	for s in ["margin_left","margin_right","margin_top","margin_bottom"]:
+		margin.add_theme_constant_override(s, 20)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 16)
+	margin.add_child(vbox)
+
+	var msg_lbl := _label(msg, 11, C_TEXT)
+	msg_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(msg_lbl)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 10)
+	btn_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	vbox.add_child(btn_row)
+
+	var cancel_btn := _make_flat_button("Cancel", Vector2(100, 30))
+	btn_row.add_child(cancel_btn)
+
+	var confirm_btn := _make_action_button("Confirm", C_WARN, func():
+		_close_confirm_dialog()
+		on_confirm.call()
+	)
+	btn_row.add_child(confirm_btn)
+
+	cancel_btn.pressed.connect(_close_confirm_dialog)
+
+
+func _close_confirm_dialog():
+	for name in ["ConfirmDim", "ConfirmPanel"]:
+		var n := ui_layer.get_node_or_null(name)
+		if n and is_instance_valid(n): n.queue_free()
+
+
+func _close_dialog(name: String):
+	var n := ui_layer.get_node_or_null(name)
+	if n and is_instance_valid(n): n.queue_free()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1651,9 +2336,20 @@ func _on_clear():
 	if weather_dropdown: weather_dropdown.select(0); _on_weather_changed(0)
 	if weather_intensity_slider: weather_intensity_slider.value = 1.0
 	update_wall_bounds(); undo_stack.clear(); _sfx(0.6); _notify("Editor cleared")
+	_mark_dirty()
+	is_dirty = false    # clean — brand new or just cleared
+	_update_title_bar()
 
 func _on_back_pressed():
-	_stop_testing(); _close_props_panel()
+	if is_dirty:
+		_show_confirm_dialog("Discard unsaved changes and go back?", func():
+			_do_go_back()
+		)
+	else:
+		_do_go_back()
+
+func _do_go_back():
+	_stop_testing(); _close_props_panel(); _close_level_browser(); _close_confirm_dialog()
 	selected_hold_type = ""; placing_crashpad = false; placing_belayer = false
 	_deselect_all_palette(); clear_preview()
 	Transition.to("res://scenes/menus/main_menu.tscn")
@@ -1682,6 +2378,7 @@ func save_undo_state():
 	if wall and wall.has_method("get_polygon_data"): state.wall_polygon = wall.get_polygon_data()
 	undo_stack.append(state)
 	if undo_stack.size() > MAX_UNDO: undo_stack.pop_front()
+	_mark_dirty()
 
 func undo_last_action():
 	if undo_stack.is_empty(): _notify("Nothing to undo"); return

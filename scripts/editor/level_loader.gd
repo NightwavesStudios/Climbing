@@ -215,10 +215,10 @@ func load_level(path: String) -> bool:
 			await get_tree().process_frame
 			dynamic_wall.set_polygon_data(level_data.wall_polygon)
 			has_custom_polygon = true
-			print("  ✓ Loaded wall polygon with ",
+			print("  Loaded wall polygon with ",
 				  level_data.wall_polygon.get("points", []).size(), " points")
 			if "top_edge_indices" in level_data.wall_polygon:
-				print("  ✓ Polygon has top edge indices: ",
+				print("  Polygon has top edge indices: ",
 					  level_data.wall_polygon.top_edge_indices)
 
 	update_wall_bounds()
@@ -235,10 +235,19 @@ func load_level(path: String) -> bool:
 					top_hold_count += 1
 					print("    - Created top hold at: ", child.global_position)
 			if top_hold_count > 0:
-				print("  ✓ Created ", top_hold_count, " top edge holds")
+				print("  Created ", top_hold_count, " top edge holds")
 			elif "top_edge_indices" in dynamic_wall and not dynamic_wall.top_edge_indices.is_empty():
-				print("  ⚠ WARNING: top_edge_indices exist but no holds created!")
+				print("  WARNING: top_edge_indices exist but no holds created!")
 				print("    Indices: ", dynamic_wall.top_edge_indices)
+
+	# ── Time of day ───────────────────────────────────────────────────────────
+	var time_of_day := int(level_data.get("time_of_day", -1))
+	if dynamic_wall and dynamic_wall.has_method("set_time_of_day"):
+		dynamic_wall.set_time_of_day(time_of_day)
+		if time_of_day >= 0:
+			print("  Time-of-day override: variant=", time_of_day)
+		else:
+			print("  Time-of-day: random (seed-based)")
 
 	# ── Weather ───────────────────────────────────────────────────────────────
 	var weather_type      := int(level_data.get("weather",           0))
@@ -246,13 +255,13 @@ func load_level(path: String) -> bool:
 	if dynamic_wall and dynamic_wall.has_method("set_weather"):
 		dynamic_wall.set_weather(weather_type, weather_intensity)
 		if weather_type > 0:
-			print("  ✓ Weather set: type=", weather_type,
+			print("  Weather set: type=", weather_type,
 				  " intensity=", weather_intensity)
 		else:
 			print("  Weather: none")
 
 	print("\n═══════════════════════════════════════")
-	print("✓ LEVEL LOADED: " + path)
+	print("LEVEL LOADED: " + path)
 	if current_level_name != "":
 		print("  Name: " + current_level_name + " (" + current_level_grade + ")")
 	print("  Environment: " + current_level_environment)
@@ -268,6 +277,11 @@ func load_level(path: String) -> bool:
 		print("  Wall: Custom polygon shape")
 		if "top_edge_indices" in level_data.wall_polygon:
 			print("  Top edges: " + str(level_data.wall_polygon.top_edge_indices))
+	if time_of_day >= 0:
+		var tod_names := ["Day", "Dusk", "Night"]
+		print("  Time of day: ", tod_names[time_of_day] if time_of_day < tod_names.size() else str(time_of_day))
+	else:
+		print("  Time of day: random")
 	if weather_type > 0:
 		print("  Weather: type=", weather_type, " intensity=", weather_intensity)
 	if is_instance_valid(custom_spawn_hold):
@@ -362,6 +376,12 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 
 	holds_container.add_child(hold)
 	hold.add_to_group("holds")
+	# Also add the Area2D child to the "holds" group so _find_start_holds() can find it
+	for child in hold.get_children():
+		if child is Area2D:
+			child.add_to_group("holds")
+			print("  Added Area2D child '", child.name, "' to 'holds' group (type=", hold_data.get("type", "?"), ")")
+			break
 
 	# ── Custom spawn flag ─────────────────────────────────────────────────────
 	if hold_data.get("custom_spawn", false):
@@ -426,7 +446,7 @@ func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 		if modifier.has_method("on_hold_ready"):
 			modifier.on_hold_ready()
 
-		print("  ✓ Attached '%s' to '%s' | is_processing=%s" % [
+		print("  Attached '%s' to '%s' | is_processing=%s" % [
 			type_key, target.name, target.is_processing()
 		])
 
@@ -500,7 +520,7 @@ func get_player_spawn_position() -> Vector2:
 	print("  No custom spawn — checking START holds. Found: %d" % starts.size())
 
 	if starts.size() == 0:
-		print("⚠️  WARNING: No START holds found and no valid custom spawn!")
+		print("WARNING: No START holds found and no valid custom spawn!")
 		if holds_container:
 			for i in min(10, holds_container.get_child_count()):
 				var hold       = holds_container.get_child(i)

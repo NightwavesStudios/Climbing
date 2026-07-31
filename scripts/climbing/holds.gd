@@ -1,7 +1,7 @@
 extends Area2D
 class_name ClimbingHold
 
-enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET, WINDOW }
+enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET, UNDERCLING, WINDOW }
 
 @export var hold_type: HoldType = HoldType.JUG
 @export var difficulty: float = 0.0
@@ -27,6 +27,7 @@ enum HoldType { JUG, START, TOP_OUT, CRIMP, SLOPER, FOOTHOLD, POCKET, WINDOW }
 @export_group("")
 
 const GRAB_SFX = preload("res://assets/audio/sfx/grab-hold.wav")
+const GRAB_PARTICLES = preload("res://scenes/effects/grab_particles.tscn")
 
 var _audio_player: AudioStreamPlayer
 var occupied_by: Node2D = null
@@ -66,6 +67,12 @@ func _ready():
 		_max_limbs = registry.get_config_value(type_key, "max_limbs", 1)
 		print("Hold: ", name, " | type: ", type_key, " | _max_limbs: ", _max_limbs)
 
+	# Underclings need the feet-dependent behavior modifier attached.
+	if hold_type == HoldType.UNDERCLING and not get_node_or_null("UnderclingModifier"):
+		var modifier: Node = UnderclingModifier.new()
+		modifier.name = "UnderclingModifier"
+		add_child(modifier)
+
 	add_to_group("holds")
 
 	if multi_area_enabled:
@@ -78,7 +85,7 @@ func _ready():
 	_audio_player = AudioStreamPlayer.new()
 	add_child(_audio_player)
 	_audio_player.stream = GRAB_SFX
-	_audio_player.volume_db = 12.0
+	_audio_player.volume_db = 18.0
 
 func _wait_for_env_config() -> void:
 	var timeout := 0
@@ -175,6 +182,8 @@ func _auto_detect_type_from_name():
 		hold_type = HoldType.POCKET
 	elif "foot" in filename:
 		hold_type = HoldType.FOOTHOLD
+	elif "undercling" in filename:
+		hold_type = HoldType.UNDERCLING
 	elif "window" in filename:
 		hold_type = HoldType.WINDOW
 
@@ -194,6 +203,8 @@ func _configure_hold_properties():
 			difficulty = 1.0; rest_value = 0.0
 		HoldType.POCKET:
 			difficulty = 1.2; rest_value = 0.0
+		HoldType.UNDERCLING:
+			difficulty = 0.0; rest_value = 0.0
 		HoldType.WINDOW:
 			difficulty = 1.5; rest_value = 5.0
 
@@ -207,6 +218,7 @@ func set_hold_type_from_string(type_str: String):
 		"SLOPER": hold_type = HoldType.SLOPER
 		"FOOT":   hold_type = HoldType.FOOTHOLD
 		"POCKET": hold_type = HoldType.POCKET
+		"UNDERCLING": hold_type = HoldType.UNDERCLING
 		"WINDOW": hold_type = HoldType.WINDOW
 	_configure_hold_properties()
 
@@ -215,6 +227,7 @@ func is_top_out()    -> bool: return hold_type == HoldType.TOP_OUT
 func is_jug()        -> bool: return hold_type == HoldType.JUG
 func is_crimp()      -> bool: return hold_type == HoldType.CRIMP
 func is_sloper()     -> bool: return hold_type == HoldType.SLOPER
+func is_undercling() -> bool: return hold_type == HoldType.UNDERCLING
 func is_foothold()   -> bool: return hold_type == HoldType.FOOTHOLD
 func is_pocket()     -> bool: return hold_type == HoldType.POCKET
 func is_window()     -> bool: return hold_type == HoldType.WINDOW
@@ -269,6 +282,8 @@ func try_claim(limb: Node2D, is_foot: bool, grab_position: Vector2) -> bool:
 
 	_audio_player.pitch_scale = randf_range(0.8, 1.3)
 	_audio_player.play()
+
+	_spawn_grab_particles(limb, local_grab)
 
 	for child in get_children():
 		if child.has_method("on_grab"):
@@ -366,6 +381,24 @@ func notify_climb_start():
 	for child in get_children():
 		if child.has_method("on_climb_reset"):
 			child.on_climb_reset()
+
+func notify_caught_reset():
+	"""Called when the rope catches the player mid-fall.
+	Resets falling holds with a pop animation, without a full climb reset."""
+	for child in get_children():
+		if child.has_method("on_caught_reset"):
+			child.on_caught_reset()
+
+# =============================================================================
+#  GRAB FEEDBACK
+# =============================================================================
+
+func _spawn_grab_particles(_limb: Node2D, local_grab: Vector2) -> void:
+	var particles: GPUParticles2D = GRAB_PARTICLES.instantiate()
+	particles.global_position = to_global(local_grab)
+	get_tree().current_scene.add_child(particles)
+	particles.emitting = true
+
 
 # =============================================================================
 #  DRAW

@@ -122,9 +122,6 @@ const P2_SHAKE_LERP_OUT = 1.2
 const P2_PULSE_ONSET    = 0.65
 const P2_PULSE_AMP      = 1.8
 const P2_PULSE_FREQ     = 3.0
-const P2_DARK_ONSET     = 0.35
-const P2_DARK_COLOR     = Color(0.18, 0.12, 0.12, 1.0)
-const P2_DARK_MAX_BLEND = 0.55
 const SHAKE_LERP_SPEED  = 2.0
 
 # -- Failure / P3 -------------------------------------------------------------
@@ -228,6 +225,12 @@ var speed_climb_active: bool   = false
 var _weather_modifier:  Node   = null
 var _spotlight:         Node   = null
 
+# -- Project mode (practice mode) ---------------------------------------------
+var project_mode: bool = false
+var last_touched_hold: Area2D = null
+var last_touched_hold_position: Vector2 = Vector2.ZERO
+var _safe_respawn_hold: Area2D = null  # Hold player respawned on — no stamina/fall-off until they move
+
 # -- Draw scale & hover jitter ------------------------------------------------
 var _lh_draw_scale:   float   = 1.0
 var _rh_draw_scale:   float   = 1.0
@@ -241,6 +244,16 @@ var _rf_hover_jitter: Vector2 = Vector2.ZERO
 
 # -- Input gate (set by main.gd during route preview) -------------------------
 var _input_enabled: bool = true
+
+# -- Per-limb-type input gates (used by tutorial) -----------------------------
+var _hands_enabled: bool = true
+var _feet_enabled: bool = true
+
+# -- Controller support -------------------------------------------------------
+var _controller_aim_pos: Vector2 = Vector2.ZERO
+var _is_using_controller: bool = false
+const CONTROLLER_AIM_SPEED: float = 800.0
+var _frame_delta: float = 0.0
 
 
 # =============================================================================
@@ -261,6 +274,7 @@ func _ready() -> void:
 	_spotlight        = get_node_or_null("SpotLight2D")
 	await get_tree().process_frame
 	call_deferred("initial_grab")
+	# Input method tracking is handled locally via _input()
 
 
 func _build_limbs() -> void:
@@ -288,6 +302,13 @@ func _set_default_local_positions() -> void:
 #  INPUT GATE (called by main.gd during route preview)
 # =============================================================================
 
+func set_project_mode(enabled: bool) -> void:
+	project_mode = enabled
+	if not enabled:
+		last_touched_hold = null
+		last_touched_hold_position = Vector2.ZERO
+		_safe_respawn_hold = null
+
 func set_input_enabled(enabled: bool) -> void:
 	_input_enabled = enabled
 	if not enabled:
@@ -295,11 +316,66 @@ func set_input_enabled(enabled: bool) -> void:
 		selected_limbs.clear()
 		use_mouse_aim = false
 
+func set_hands_enabled(enabled: bool) -> void:
+	_hands_enabled = enabled
+	if not enabled:
+		# Release any selected hands
+		for s in _hands:
+			if s in selected_limbs:
+				release_limb(s)
+				s.is_grabbing = false
+		selected_limbs.clear()
+		use_mouse_aim = false
+
+func set_feet_enabled(enabled: bool) -> void:
+	_feet_enabled = enabled
+	if not enabled:
+		# Release any selected feet
+		for s in _feet:
+			if s in selected_limbs:
+				release_limb(s)
+				s.is_grabbing = false
+		selected_limbs.clear()
+		use_mouse_aim = false
+
+func are_hands_enabled() -> bool:
+	return _hands_enabled
+
+func are_feet_enabled() -> bool:
+	return _feet_enabled
+
+# =============================================================================
+#  CONTROLLER / MOUSE DETECTION
+# =============================================================================
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventJoypadButton or event is InputEventJoypadMotion:
+		_is_using_controller = true
+	elif event is InputEventMouseMotion:
+		_is_using_controller = false
+
+# Input method is tracked locally via _input() — see CONTROLLER / MOUSE DETECTION above.
+
+
+func _get_aim_target() -> Vector2:
+	"""Return the effective aim position: controller virtual cursor or mouse."""
+	if _is_using_controller:
+		# Clamp controller aim to a reasonable radius around the player
+		var dist := _controller_aim_pos.distance_to(global_position)
+		var max_dist := (ARM_UPPER_LENGTH + ARM_LOWER_LENGTH) * 2.5
+		if dist > max_dist:
+			var dir := (_controller_aim_pos - global_position).normalized()
+			_controller_aim_pos = global_position + dir * max_dist
+		return _controller_aim_pos
+	return get_global_mouse_position()
+
+
 # =============================================================================
 #  MAIN LOOP
 # =============================================================================
 
 func _process(delta: float) -> void:
+	_frame_delta = delta
 	if not _grab_initialized:
 		queue_redraw()
 		if _shadow_node and is_instance_valid(_shadow_node):
@@ -349,33 +425,48 @@ func handle_input() -> void:
 		return
 
 	building_momentum = false
-	var shift_held = Input.is_key_pressed(KEY_SHIFT)
 
-	rest_mode_active = (shift_held
-		and selected_limbs.is_empty()
-		and (lh.hold != null or rh.hold != null))
+	# ── Rest mode: automatic when a hand is on a restable hold (jug, start, top) ──
+	var lh_restable: bool = lh.hold != null and "rest_value" in lh.hold and lh.hold.rest_value > 0.0
+	var rh_restable: bool = rh.hold != null and "rest_value" in rh.hold and rh.hold.rest_value > 0.0
+	rest_mode_active = selected_limbs.is_empty() and (lh_restable or rh_restable)
 
-	_sel_press("select_left",       lh, shift_held, false)
-	_sel_press("select_right",      rh, shift_held, false)
-	_sel_press("select_left_foot",  lf, shift_held, true)
-	_sel_press("select_right_foot", rf, shift_held, true)
+	# ── Controller left-stick aiming ────────────────────────────────────────
+	var joypads := Input.get_connected_joypads()
+	if not joypads.is_empty():
+		var device := joypads[0]
+		var lx := Input.get_joy_axis(device, JOY_AXIS_LEFT_X)
+		var ly := Input.get_joy_axis(device, JOY_AXIS_LEFT_Y)
+		var stick := Vector2(lx, ly)
+		if stick.length() > 0.2:
+			_controller_aim_pos += stick * CONTROLLER_AIM_SPEED * _frame_delta
+			_is_using_controller = true
+
+	if _hands_enabled:
+		_sel_press("select_left",       lh, false)
+		_sel_press("select_right",      rh, false)
+	if _feet_enabled:
+		_sel_press("select_left_foot",  lf, true)
+		_sel_press("select_right_foot", rf, true)
 
 	if MOUSE_CONTROL_ENABLED and not selected_limbs.is_empty():
-		var mouse_global = get_global_mouse_position()
+		var aim_target := _get_aim_target()
 		var centroid     = _selected_centroid()
-		if centroid.distance_to(mouse_global) > MOUSE_DEADZONE:
+		if centroid.distance_to(aim_target) > MOUSE_DEADZONE:
 			use_mouse_aim      = true
-			mouse_aim_position = mouse_global
+			mouse_aim_position = aim_target
 			building_momentum  = true
 		elif not use_mouse_aim:
 			use_mouse_aim = true
 	else:
 		use_mouse_aim = false
 
-	_sel_release("select_left",       lh, shift_held, false)
-	_sel_release("select_right",      rh, shift_held, false)
-	_sel_release("select_left_foot",  lf, shift_held, true)
-	_sel_release("select_right_foot", rf, shift_held, true)
+	if _hands_enabled:
+		_sel_release("select_left",       lh, false)
+		_sel_release("select_right",      rh, false)
+	if _feet_enabled:
+		_sel_release("select_left_foot",  lf, true)
+		_sel_release("select_right_foot", rf, true)
 
 func _set_press_time(s: LimbState, t: float) -> void:
 	if   s == lh: _lh_press_time = t
@@ -390,52 +481,48 @@ func _get_press_time(s: LimbState) -> float:
 	elif s == rf: return _rf_press_time
 	return 0.0
 
-func _sel_press(action: String, s: LimbState, shift_held: bool, is_foot: bool) -> void:
+func _sel_press(action: String, s: LimbState, is_foot: bool) -> void:
 	if not Input.is_action_just_pressed(action):
 		return
 	_set_press_time(s, Time.get_ticks_msec() * 0.001)
+	selected_limbs.clear()
+	selected_limbs.append(s)
 	if is_foot:
-		if shift_held:
-			_toggle_sel(s)
-		else:
-			if not (lh in selected_limbs) and not (rh in selected_limbs):
-				selected_limbs.clear()
-			if s not in selected_limbs:
-				selected_limbs.append(s)
 		(s as FootState).user_override = true
-	else:
-		if shift_held:
-			_toggle_sel(s)
-		else:
-			selected_limbs.clear()
-			selected_limbs.append(s)
 	s.ghost      = s.node.global_position
 	s.ghost_init = true
 	if s.hold != null and s in selected_limbs:
+		# ── Prevent releasing the last hand when the other hand is off ──
+		if s.is_hand():
+			var other: LimbState = rh if s == lh else lh
+			if other.hold == null and not other.is_grabbing:
+				return  # Can't release the last hand — would cause a fall
 		release_limb(s)
 		s.is_grabbing = false
 
 
-func _sel_release(action: String, s: LimbState, shift_held: bool, is_foot: bool) -> void:
+func _sel_release(action: String, s: LimbState, is_foot: bool) -> void:
 	if not Input.is_action_just_released(action):
 		return
 	if s in selected_limbs:
 		var held_secs: float = Time.get_ticks_msec() * 0.001 - _get_press_time(s)
 		if held_secs < QUICK_TAP_THRESHOLD:
-			release_limb(s)
-			s.is_grabbing = false
+			# ── Prevent releasing the last hand when the other hand is off ──
+			var can_release := true
+			if s.is_hand() and s.hold != null:
+				var other: LimbState = rh if s == lh else lh
+				if other.hold == null and not other.is_grabbing:
+					can_release = false
+			if can_release:
+				release_limb(s)
+				s.is_grabbing = false
 		else:
 			if s.is_hand():
 				_fire_dyno_impulse()
 			attempt_grab(s)
 			if is_foot:
 				(s as FootState).manual = true
-	if not shift_held:
-		if is_foot:
-			if not (lh in selected_limbs) and not (rh in selected_limbs):
-				selected_limbs.clear()
-		else:
-			selected_limbs.clear()
+	selected_limbs.clear()
 	use_mouse_aim = false
 	if is_foot:
 		var fs = s as FootState
@@ -444,11 +531,7 @@ func _sel_release(action: String, s: LimbState, shift_held: bool, is_foot: bool)
 			fs.manual = false
 
 
-func _toggle_sel(s: LimbState) -> void:
-	if s in selected_limbs: selected_limbs.erase(s)
-	else: selected_limbs.append(s)
-
-
+ 
 func _selected_centroid() -> Vector2:
 	if selected_limbs.is_empty():
 		return global_position
@@ -480,6 +563,15 @@ func _update_limb_grip(s: LimbState, delta: float) -> void:
 		hs.fail_stage = FailureStage.NONE
 		hs.struggle_timer = 0.0
 		hs.pressure = 0.0
+		return
+
+	# Safe respawn hold in project mode: skip all pressure/failure processing
+	if _safe_respawn_hold and s.hold == _safe_respawn_hold:
+		s.grip = GripState.RELAXED
+		if s.is_hand():
+			(s as HandState).fail_stage = FailureStage.NONE
+			(s as HandState).struggle_timer = 0.0
+		s.pressure = 0.0
 		return
 
 	if s.hold != null:
@@ -684,11 +776,8 @@ func _get_pulse_offset(pressure: float, phase: float) -> Vector2:
 	return Vector2(p * 0.25, p)
 
 
-func _get_limb_color(pressure: float) -> Color:
-	var t = pressure / PRESSURE_FAIL
-	if t < P2_DARK_ONSET: return Color.BLACK
-	var blend = minf((t - P2_DARK_ONSET) / (1.0 - P2_DARK_ONSET), 1.0) * P2_DARK_MAX_BLEND
-	return Color.BLACK.lerp(P2_DARK_COLOR, blend)
+func _get_limb_pump_factor(pressure: float) -> float:
+	return clampf(pressure / PRESSURE_FAIL, 0.0, 1.0)
 
 # =============================================================================
 #  DRAW SCALE & HOVER JITTER
@@ -696,11 +785,11 @@ func _get_limb_color(pressure: float) -> Color:
 
 func _update_draw_scales(delta: float) -> void:
 	var t_now    = Time.get_ticks_msec() * 0.001
-	var mouse_gp = get_global_mouse_position()
-	_update_one_draw_scale(lh, delta, t_now, mouse_gp, 0.0)
-	_update_one_draw_scale(rh, delta, t_now, mouse_gp, 1.1)
-	_update_one_draw_scale(lf, delta, t_now, mouse_gp, 2.2)
-	_update_one_draw_scale(rf, delta, t_now, mouse_gp, 3.3)
+	var aim_tgt  = _get_aim_target()
+	_update_one_draw_scale(lh, delta, t_now, aim_tgt, 0.0)
+	_update_one_draw_scale(rh, delta, t_now, aim_tgt, 1.1)
+	_update_one_draw_scale(lf, delta, t_now, aim_tgt, 2.2)
+	_update_one_draw_scale(rf, delta, t_now, aim_tgt, 3.3)
 
 
 func _update_one_draw_scale(s: LimbState, delta: float, t_now: float,
@@ -811,15 +900,15 @@ func simulate_physics(delta: float) -> void:
 	_update_grab_animations()
 	_pin_held_limbs()
 
-	com_velocity *= 0.88 if in_water else BODY_DRAG
-	_apply_limb_drag()
+	com_velocity *= pow(0.88 if in_water else BODY_DRAG, delta * 60.0)
+	_apply_limb_drag(delta)
 
 
 func _apply_hip_shift(delta: float, held_hand_count: int, held_foot_count: int) -> void:
 	if held_hand_count == 0:
 		_hip_shift_offset = _hip_shift_offset.lerp(Vector2.ZERO, 3.0 * delta)
 		_commit_hip_shift_bias(); return
-	var mouse_global = get_global_mouse_position()
+	var mouse_global = _get_aim_target()
 	var to_mouse     = mouse_global - global_position
 	var dist         = to_mouse.length()
 	if not selected_limbs.is_empty():
@@ -858,11 +947,12 @@ func _apply_limb_velocities(delta: float) -> void:
 			s.joint.global_position += s.joint_velocity * delta
 
 
-func _apply_limb_drag() -> void:
+func _apply_limb_drag(delta: float) -> void:
+	var scaled_drag = pow(LIMB_DRAG, delta * 60.0)
 	for s in _limbs:
 		if s.hold == null and s in selected_limbs:
-			s.velocity       *= LIMB_DRAG
-			s.joint_velocity *= LIMB_DRAG
+			s.velocity       *= scaled_drag
+			s.joint_velocity *= scaled_drag
 
 
 func _pin_held_limbs() -> void:
@@ -1162,6 +1252,15 @@ func attempt_grab(s: LimbState) -> void:
 	var grab_pos = _calculate_grab_position(s, best, bp) if best.get("snap_to_point") else s.node.global_position
 	if not best.try_claim(s.node, is_foot, grab_pos): return
 
+	# ── Track last hold for project mode (practice mode) ──────────────
+	if project_mode:
+		last_touched_hold = best
+		var hp := best.get_node_or_null("HoldPoint") as Marker2D
+		last_touched_hold_position = hp.global_position if hp else best.global_position
+		# Clear safe hold once player moves a limb to a different hold
+		if _safe_respawn_hold and best != _safe_respawn_hold:
+			_safe_respawn_hold = null
+
 	var resolved  = best.get_limb_anchor(s.node)
 	s.hold        = best; s.grab_target = resolved; s.pin = resolved
 	s.is_grabbing = true; s.reset_velocity()
@@ -1300,7 +1399,9 @@ func initial_grab() -> void:
 			if nearest == null:
 				# Widen search
 				nearest = _find_nearest_hold_radius(com_position, 400.0)
-			if nearest and nearest != other.hold and nearest.can_grab(s.node, false):
+			# NOTE: nearest != other.hold check removed — both hands must be able to grab the
+			# same hold. can_grab() handles _max_limbs checks internally.
+			if nearest and nearest.can_grab(s.node, false):
 				var hp = nearest.get_node_or_null("HoldPoint")
 				var sn = nearest.get_node_or_null("CollisionShape2D")
 				var grab_pos: Vector2
@@ -1424,7 +1525,9 @@ func reset_climb() -> void:
 			var nearest := _find_nearest_hold(com_position)
 			if nearest == null:
 				nearest = _find_nearest_hold_radius(com_position, 400.0)
-			if nearest and nearest != other.hold and nearest.can_grab(s.node, false):
+			# NOTE: nearest != other.hold check removed — both hands must be able to grab the
+			# same hold. can_grab() handles _max_limbs checks internally.
+			if nearest and nearest.can_grab(s.node, false):
 				var hp := nearest.get_node_or_null("HoldPoint")
 				var sn := nearest.get_node_or_null("CollisionShape2D")
 				var grab_pos: Vector2
@@ -1448,6 +1551,69 @@ func reset_climb() -> void:
 	_pin_held_limbs(); _zero_all(); _reset_ghost_targets()
 	for hold in get_tree().get_nodes_in_group("holds"):
 		if hold.has_method("notify_climb_start"): hold.notify_climb_start()
+	_grab_initialized = true
+
+
+func project_mode_reset() -> void:
+	"""Reset the player to the last hold they grabbed in project mode.
+	If no last hold is tracked, falls back to normal reset_climb()."""
+	if not last_touched_hold or not is_instance_valid(last_touched_hold):
+		reset_climb()
+		return
+
+	# Reset all state
+	_grab_initialized = false
+	com_velocity = Vector2.ZERO; body_velocity = Vector2.ZERO
+	_hip_shift_offset = Vector2.ZERO; last_held_limbs = 0
+	fall_timer = 0.0; _ragdoll_active = false; _ragdoll_elapsed = 0.0
+	climb_started = false; climb_completed = false
+	rest_mode_active = false; _leg_bonus_smooth = 1.0
+	_load = [0.0, 0.0, 0.0, 0.0]; selected_limbs.clear(); use_mouse_aim = false
+	_lh_draw_scale = 1.0; _rh_draw_scale = 1.0
+	_lf_draw_scale = 1.0; _rf_draw_scale = 1.0
+	_lh_hover_jitter = Vector2.ZERO; _rh_hover_jitter = Vector2.ZERO
+	_lf_hover_jitter = Vector2.ZERO; _rf_hover_jitter = Vector2.ZERO
+	_lh_press_time = 0.0; _rh_press_time = 0.0
+	_lf_press_time = 0.0; _rf_press_time = 0.0
+	_input_enabled = true
+
+	# Release all limbs
+	for s in _limbs:
+		if s.hold: s.hold.release(s.node)
+		s.reset_all()
+	_set_default_local_positions(); _reset_ghost_targets()
+
+	# Position player at the last hold
+	var hold := last_touched_hold
+	var hp := hold.get_node_or_null("HoldPoint") as Marker2D
+	var hold_pos := hp.global_position if hp else hold.global_position
+	global_position = Vector2(hold_pos.x, hold_pos.y + 80)
+	com_position = global_position + Vector2(0, COM_OFFSET_Y)
+	spawn_position = global_position
+
+	# Auto-grab the last hold with both hands
+	if is_instance_valid(hold):
+		var offsets: Array[Vector2] = [Vector2(-SHARED_HOLD_HAND_OFFSET, 0), Vector2(SHARED_HOLD_HAND_OFFSET, 0)]
+		var hand_idx := 0
+		for s in _hands:
+			if hold.can_grab(s.node, false):
+				var grab_pos: Vector2 = hold_pos + offsets[hand_idx] if hand_idx < offsets.size() else hold_pos
+				if hold.try_claim(s.node, false, grab_pos):
+					s.hold = hold
+					s.node.global_position = hold.get_limb_anchor(s.node)
+					s.anchor = s.node.global_position
+					s.pin = s.node.global_position
+			hand_idx += 1
+
+	# Mark this hold as the safe respawn hold
+	_safe_respawn_hold = hold
+
+	com_position = global_position + Vector2(0, COM_OFFSET_Y)
+	_snap_feet_on_spawn()
+	for _i in range(15): _apply_joint_constraints()
+	_pin_held_limbs(); _zero_all(); _reset_ghost_targets()
+	for hold_obj in get_tree().get_nodes_in_group("holds"):
+		if hold_obj.has_method("notify_climb_start"): hold_obj.notify_climb_start()
 	_grab_initialized = true
 
 
@@ -1475,6 +1641,12 @@ func _find_start_holds() -> Array[Area2D]:
 	for hold in get_tree().get_nodes_in_group("holds"):
 		if hold is Area2D and hold.has_method("is_start_hold") and hold.is_start_hold():
 			out.append(hold)
+	# Fallback: if no START holds found, look for JUG holds (handles cases where
+	# the hold type wasn't properly detected by the level loader)
+	if out.is_empty():
+		for hold in get_tree().get_nodes_in_group("holds"):
+			if hold is Area2D and hold.has_method("is_jug") and hold.is_jug():
+				out.append(hold)
 	return out
 
 
@@ -1594,6 +1766,11 @@ func get_highest_hand_y() -> float:
 # =============================================================================
 
 func check_fall_detection(delta: float) -> void:
+	# Don't allow falling while on the safe respawn hold in project mode
+	if _safe_respawn_hold and _limbs.any(func(s): return s.hold == _safe_respawn_hold):
+		fall_timer = 0.0
+		return
+
 	var in_water = _query_water(com_position, com_velocity)["in_water"] as bool
 	if _count_held_limbs() == 0 and com_velocity.y > FALL_VELOCITY_THRESHOLD and not in_water:
 		fall_timer += delta
@@ -1619,6 +1796,12 @@ func check_climb_completion() -> void:
 	if lh.hold and rh.hold \
 			and lh.hold.has_method("is_top_out") and lh.hold.is_top_out() \
 			and rh.hold.has_method("is_top_out") and rh.hold.is_top_out():
+		if project_mode:
+			# In project mode, don't complete the climb — show a prompt instead
+			climb_completed = true
+			var gs = get_tree().get_current_scene()
+			if gs and gs.has_method("on_project_mode_top_out"): gs.on_project_mode_top_out()
+			return
 		climb_completed = true
 		if current_discipline == 2 and speed_timer and speed_timer.has_method("pause_timer"):
 			speed_timer.pause_timer()
@@ -1710,8 +1893,17 @@ func _draw_stick_figure() -> void:
 	var shoe_color    = Color("d89418ff")
 	var harness_color = Color("#E8A020")
 
-	var lh_skin = skin_color
-	var rh_skin = skin_color
+	var pump_flush = Color(0.85, 0.35, 0.3)
+	var lh_pump    = _get_limb_pump_factor(lh.pressure)
+	var rh_pump    = _get_limb_pump_factor(rh.pressure)
+	var lf_pump    = _get_limb_pump_factor(lf.pressure)
+	var rf_pump    = _get_limb_pump_factor(rf.pressure)
+	var lh_skin    = skin_color.lerp(pump_flush, lh_pump)
+	var rh_skin    = skin_color.lerp(pump_flush, rh_pump)
+	var lf_shoe    = shoe_color.lerp(pump_flush, lf_pump)
+	var rf_shoe    = shoe_color.lerp(pump_flush, rf_pump)
+	var lf_pants   = pants_color.lerp(pump_flush, lf_pump)
+	var rf_pants   = pants_color.lerp(pump_flush, rf_pump)
 
 	var lh_scale = _lh_draw_scale
 	var rh_scale = _rh_draw_scale
@@ -1741,15 +1933,21 @@ func _draw_stick_figure() -> void:
 		var oc_shirt   = _outline_color(shirt_color)
 		var oc_harness = _outline_color(harness_color)
 		var oc_skin    = _outline_color(skin_color)
+		var oc_lf_pants = _outline_color(lf_pants)
+		var oc_rf_pants = _outline_color(rf_pants)
+		var oc_lf_shoe  = _outline_color(lf_shoe)
+		var oc_rf_shoe  = _outline_color(rf_shoe)
+		var oc_lh_skin  = _outline_color(lh_skin)
+		var oc_rh_skin  = _outline_color(rh_skin)
 
-		draw_line(left_hip,  _lf_joint.position, oc_pants, (12.0 + ow) * lf_scale)
-		draw_circle(_lf_joint.position, (5.0 + ow * 0.5) * lf_scale, oc_pants)
-		draw_line(_lf_joint.position, lfd, oc_pants, (11.0 + ow) * lf_scale)
-		draw_circle(lfd, (9.0 + ow * 0.5) * lf_scale, oc_shoe)
-		draw_line(right_hip, _rf_joint.position, oc_pants, (12.0 + ow) * rf_scale)
-		draw_circle(_rf_joint.position, (5.0 + ow * 0.5) * rf_scale, oc_pants)
-		draw_line(_rf_joint.position, rfd, oc_pants, (11.0 + ow) * rf_scale)
-		draw_circle(rfd, (9.0 + ow * 0.5) * rf_scale, oc_shoe)
+		draw_line(left_hip,  _lf_joint.position, oc_lf_pants, (12.0 + ow) * lf_scale)
+		draw_circle(_lf_joint.position, (5.0 + ow * 0.5) * lf_scale, oc_lf_pants)
+		draw_line(_lf_joint.position, lfd, oc_lf_pants, (11.0 + ow) * lf_scale)
+		draw_circle(lfd, (9.0 + ow * 0.5) * lf_scale, oc_lf_shoe)
+		draw_line(right_hip, _rf_joint.position, oc_rf_pants, (12.0 + ow) * rf_scale)
+		draw_circle(_rf_joint.position, (5.0 + ow * 0.5) * rf_scale, oc_rf_pants)
+		draw_line(_rf_joint.position, rfd, oc_rf_pants, (11.0 + ow) * rf_scale)
+		draw_circle(rfd, (9.0 + ow * 0.5) * rf_scale, oc_rf_shoe)
 		draw_line(left_hip,  right_hip,        oc_pants,    17.0 + ow)
 		draw_line(left_hip,  right_hip,        oc_harness,   4.0 + ow * 0.5)
 		draw_line(hip_pos,   Vector2.ZERO,     oc_shirt,    19.0 + ow)
@@ -1757,48 +1955,46 @@ func _draw_stick_figure() -> void:
 		for pt in [left_sh, right_sh, _lh_joint.position, _rh_joint.position]:
 			draw_circle(pt, 5.0 + ow * 0.5, oc_shirt)
 		draw_line(left_sh,   left_sl,            oc_shirt, (12.0 + ow) * lh_scale)
-		draw_line(left_sl,   _lh_joint.position, oc_skin,  (12.0 + ow) * lh_scale)
-		draw_circle(_lh_joint.position, (5.0 + ow * 0.5) * lh_scale, oc_skin)
-		draw_line(_lh_joint.position, lhd, oc_skin, (10.0 + ow) * lh_scale)
+		draw_line(left_sl,   _lh_joint.position, oc_lh_skin,  (12.0 + ow) * lh_scale)
+		draw_circle(_lh_joint.position, (5.0 + ow * 0.5) * lh_scale, oc_lh_skin)
+		draw_line(_lh_joint.position, lhd, oc_lh_skin, (10.0 + ow) * lh_scale)
 		draw_circle(lhd, (8.0 + ow * 0.5) * lh_scale, _outline_color(lh_skin))
 		draw_line(right_sh,  right_sl,           oc_shirt, (12.0 + ow) * rh_scale)
-		draw_line(right_sl,  _rh_joint.position, oc_skin,  (12.0 + ow) * rh_scale)
-		draw_circle(_rh_joint.position, (5.0 + ow * 0.5) * rh_scale, oc_skin)
-		draw_line(_rh_joint.position, rhd, oc_skin, (10.0 + ow) * rh_scale)
+		draw_line(right_sl,  _rh_joint.position, oc_rh_skin,  (12.0 + ow) * rh_scale)
+		draw_circle(_rh_joint.position, (5.0 + ow * 0.5) * rh_scale, oc_rh_skin)
+		draw_line(_rh_joint.position, rhd, oc_rh_skin, (10.0 + ow) * rh_scale)
 		draw_circle(rhd, (8.0 + ow * 0.5) * rh_scale, _outline_color(rh_skin))
 		draw_line(head_pos + Vector2(0, 14), head_pos + Vector2(0, 4), oc_skin, 10.0 + ow)
 		draw_circle(head_pos, 16.0 + ow * 0.5, oc_skin)
 
 	# ── FILL PASS ─────────────────────────────────────────────────────────────
-	draw_line(left_hip,  _lf_joint.position, pants_color, 12.0 * lf_scale)
-	draw_circle(_lf_joint.position, 5 * lf_scale, pants_color)
-	draw_line(_lf_joint.position, lfd, pants_color, 11.0 * lf_scale)
-	draw_circle(lfd, 9 * lf_scale, shoe_color)
-	draw_line(right_hip, _rf_joint.position, pants_color, 12.0 * rf_scale)
-	draw_circle(_rf_joint.position, 5 * rf_scale, pants_color)
-	draw_line(_rf_joint.position, rfd, pants_color, 11.0 * rf_scale)
-	draw_circle(rfd, 9 * rf_scale, shoe_color)
+	draw_line(left_hip,  _lf_joint.position, lf_pants, 12.0 * lf_scale)
+	draw_circle(_lf_joint.position, 5 * lf_scale, lf_pants)
+	draw_line(_lf_joint.position, lfd, lf_pants, 11.0 * lf_scale)
+	draw_circle(lfd, 9 * lf_scale, lf_shoe)
+	draw_line(right_hip, _rf_joint.position, rf_pants, 12.0 * rf_scale)
+	draw_circle(_rf_joint.position, 5 * rf_scale, rf_pants)
+	draw_line(_rf_joint.position, rfd, rf_pants, 11.0 * rf_scale)
+	draw_circle(rfd, 9 * rf_scale, rf_shoe)
 	draw_line(left_hip,  right_hip,        pants_color,   17.0)
 	draw_line(left_hip,  right_hip,        harness_color,  4.0)
 	draw_line(hip_pos,   Vector2.ZERO,     shirt_color,   19.0)
 	draw_line(Vector2.ZERO, head_pos + Vector2(0, 16), shirt_color, 17.0)
 	draw_circle(left_sh,  5, shirt_color)
 	draw_line(left_sh,   left_sl,            shirt_color, 12.0 * lh_scale)
-	draw_line(left_sl,   _lh_joint.position, skin_color,  12.0 * lh_scale)
-	draw_circle(_lh_joint.position, 5 * lh_scale, skin_color)
-	draw_line(_lh_joint.position, lhd, skin_color, 10.0 * lh_scale)
+	draw_line(left_sl,   _lh_joint.position, lh_skin,  12.0 * lh_scale)
+	draw_circle(_lh_joint.position, 5 * lh_scale, lh_skin)
+	draw_line(_lh_joint.position, lhd, lh_skin, 10.0 * lh_scale)
 	draw_circle(lhd, 8 * lh_scale, lh_skin)
 	draw_circle(right_sh, 5, shirt_color)
 	draw_line(right_sh,  right_sl,           shirt_color, 12.0 * rh_scale)
-	draw_line(right_sl,  _rh_joint.position, skin_color,  12.0 * rh_scale)
-	draw_circle(_rh_joint.position, 5 * rh_scale, skin_color)
-	draw_line(_rh_joint.position, rhd, skin_color, 10.0 * rh_scale)
+	draw_line(right_sl,  _rh_joint.position, rh_skin,  12.0 * rh_scale)
+	draw_circle(_rh_joint.position, 5 * rh_scale, rh_skin)
+	draw_line(_rh_joint.position, rhd, rh_skin, 10.0 * rh_scale)
 	draw_circle(rhd, 8 * rh_scale, rh_skin)
 	draw_line(head_pos + Vector2(0, 14), head_pos + Vector2(0, 4), skin_color, 10.0)
 	draw_circle(head_pos, 16, skin_color)
-	if rest_mode_active:
-		var alpha = 0.5 + sin(Time.get_ticks_msec() * 0.004) * 0.25
-		draw_circle(Vector2.ZERO, 10, Color(0.4, 0.8, 1.0, alpha))
+	# removed: pulsing blue circle at center of climber
 
 # =============================================================================
 #  ENVIRONMENT
@@ -1816,7 +2012,7 @@ func _update_spotlight() -> void:
 func _update_weather_modifier() -> void:
 	if _weather_modifier and _weather_modifier.has_method("update_player_data"):
 		_weather_modifier.update_player_data(
-			global_position + Vector2(0, HEAD_OFFSET), get_global_mouse_position())
+			global_position + Vector2(0, HEAD_OFFSET), _get_aim_target())
 
 
 func _query_water(pos: Vector2, vel: Vector2) -> Dictionary:

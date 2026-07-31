@@ -34,11 +34,16 @@ alignment = 1
 
 [node name="Story" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
-text = "Levels
-"
+text = "Levels"
+script = ExtResource("5_imvie")
+
+[node name="Weekly" type="Button" parent="CanvasLayer/Buttons"]
+layout_mode = 2
+text = "Weekly"
 script = ExtResource("5_imvie")
 
 [node name="Community" type="Button" parent="CanvasLayer/Buttons"]
+visible = false
 layout_mode = 2
 disabled = true
 text = "Community"
@@ -57,8 +62,7 @@ script = ExtResource("5_imvie")
 
 [node name="Quit" type="Button" parent="CanvasLayer/Buttons"]
 layout_mode = 2
-text = "Quit
-"
+text = "Quit"
 script = ExtResource("5_imvie")
 
 [node name="Discord" type="Button" parent="."]
@@ -134,6 +138,7 @@ text = "Got it"
 [node name="QuitConfirmation" parent="." instance=ExtResource("7_4endb")]
 
 [connection signal="pressed" from="CanvasLayer/Buttons/Story" to="." method="_on_play_pressed"]
+[connection signal="pressed" from="CanvasLayer/Buttons/Weekly" to="." method="_on_weekly_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/LevelEditor" to="." method="_on_level_maker_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/Settings" to="." method="_on_settings_pressed"]
 [connection signal="pressed" from="CanvasLayer/Buttons/Quit" to="." method="_on_quit_pressed"]

@@ -10,6 +10,7 @@ extends Node
 
 const MODIFIER_DISPLAY_NAMES: Dictionary = {
 	"falling": "Falling",
+	"undercling": "Undercling",
 }
 
 func get_all_modifier_types() -> Array:
@@ -23,6 +24,8 @@ func create_modifier(type_key: String) -> Node:
 	match type_key:
 		"falling":
 			return FallingHoldModifier.new()
+		"undercling":
+			return UnderclingModifier.new()
 		_:
 			return null
 

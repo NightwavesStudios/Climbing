@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3 uid="uid://b4f0q2tdwcm2c"]
+
+[ext_resource type="Script" uid="uid://bgblkkspakeai" path="res://scripts/ui/menus/project_mode_complete.gd" id="1_6q5bb"]
+[ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_yqcth"]
+
+[node name="ProjectModeComplete" type="CanvasLayer"]
+visible = false
+layer = 10
+script = ExtResource("1_6q5bb")
+
+[node name="CompleteButton" type="Button" parent="."]
+offset_left = 540.0
+offset_top = 640.0
+offset_right = 740.0
+offset_bottom = 680.0
+text = "Mark Complete"
+theme_override_font_sizes/font_size = 20
+script = ExtResource("2_yqcth")
+
+[connection signal="pressed" from="CompleteButton" to="." method="_on_complete_button_pressed"]

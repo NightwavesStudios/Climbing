@@ -88,6 +88,9 @@ var ground_color:   Color = Color(0.298, 0.298, 0.298, 1.0)
 var _env:          Dictionary = {}
 var _scenery_seed: int        = 0
 
+# Time-of-day override: -1 = random (default), 0 = day, 1 = dusk, 2 = night
+var time_of_day_override: int = -1
+
 # Clouds
 var _clouds:       Array[Dictionary] = []
 var _cloud_time:   float             = 0.0
@@ -188,6 +191,15 @@ func set_weather(weather_type: int, intensity: float = 1.0) -> void:
 	if weather_modifier:
 		weather_modifier.intensity = clampf(intensity, 0.0, 1.0)
 		weather_modifier.weather   = weather_type
+
+func set_time_of_day(tod: int) -> void:
+	"""Override the time-of-day variant. -1 = random (seed-based), 0=day, 1=dusk, 2=night."""
+	time_of_day_override = clamp(tod, -1, 2)
+	_apply_environment_theme()
+	var sky_hint: Color = _env.get("sky_horizon", Color(0.7, 0.85, 0.95))
+	current_wall_color = current_wall_color.lerp(sky_hint, 0.06)
+	_granite_cache_dirty = true
+	queue_redraw()
 
 func get_weather()          -> int:    return weather_modifier.weather if weather_modifier else 0
 func get_weather_modifier() -> Node2D: return weather_modifier
@@ -342,7 +354,7 @@ func update_environment_settings() -> void:
 # ─────────────────────────────────────────────────────────────────────────────
 
 func _apply_environment_theme() -> void:
-	_env = WallEnvironmentTheme.apply_for_environment(current_environment, _scenery_seed, _env)
+	_env = WallEnvironmentTheme.apply_for_environment(current_environment, _scenery_seed, _env, time_of_day_override)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # INPUT (editor only)

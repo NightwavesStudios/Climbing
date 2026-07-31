@@ -9,6 +9,7 @@ var _instructions: CanvasLayer
 var _instructions_root: ColorRect
 var _popup_sprite: Sprite2D
 var _active_popup_key: String = ""
+var _popup_queue: Array[Dictionary] = []
 
 var POPUP_CONFIGS: Array = []
 
@@ -27,15 +28,27 @@ func _build_popup_configs() -> void:
 			"priority":   0,
 		},
 		{
+			"image_path": "res://assets/images/popups/pockets.png",
+			"condition":  _popup_cond_tutorial_03_pockets,
+			"save_key":   "tutorial_03_pockets_popup",
+			"priority":   0,
+		},
+		{
 			"image_path": "res://assets/images/popups/stamina.png",
 			"condition":  _popup_cond_stamina,
 			"save_key":   "stamina_popup",
 			"priority":   0,
 		},
 		{
-			"image_path": "res://assets/images/popups/zoom.png",
+			"image_path": "res://assets/images/popups/crimps_slopers.png",
 			"condition":  _popup_cond_zoom,
 			"save_key":   "zoom_popup",
+			"priority":   0,
+		},
+		{
+			"image_path": "res://assets/images/popups/roped.png",
+			"condition":  _popup_cond_roped,
+			"save_key":   "roped_popup",
 			"priority":   0,
 		},
 		{
@@ -56,11 +69,26 @@ func _build_popup_configs() -> void:
 			"save_key":   "weather_popup",
 			"priority":   0,
 		},
+		{
+			"image_path": "res://assets/images/popups/pockets.png",
+			"condition":  _popup_cond_pockets,
+			"save_key":   "pockets_popup",
+			"priority":   0,
+		},
+		{
+			"image_path": "res://assets/images/popups/project.png",
+			"condition":  _popup_cond_project,
+			"save_key":   "project_popup",
+			"priority":   0,
+		},
 	]
 
 # ── Level-specific popup conditions ──────────────────────────────────────
 static func _popup_cond_controls(level_path: String) -> bool:
 	return level_path.ends_with("tutorial_01.json")
+
+static func _popup_cond_tutorial_03_pockets(level_path: String) -> bool:
+	return level_path.ends_with("tutorial_03.json")
 
 static func _popup_cond_stamina(level_path: String) -> bool:
 	return level_path.ends_with("tutorial_03.json")
@@ -68,8 +96,11 @@ static func _popup_cond_stamina(level_path: String) -> bool:
 static func _popup_cond_zoom(level_path: String) -> bool:
 	return level_path.ends_with("tutorial_04.json")
 
+static func _popup_cond_roped(level_path: String) -> bool:
+	return level_path.ends_with("tutorial_05.json")
+
 static func _popup_cond_falling_holds(level_path: String) -> bool:
-	return level_path.ends_with("tutorial_07.json")
+	return level_path.ends_with("tutorial_08.json")
 
 static func _popup_cond_granite_topping_out(level_path: String) -> bool:
 	return level_path.ends_with("granite_crag_01.json")
@@ -77,17 +108,28 @@ static func _popup_cond_granite_topping_out(level_path: String) -> bool:
 static func _popup_cond_weather(level_path: String) -> bool:
 	return level_path.ends_with("granite_crag_02.json")
 
+static func _popup_cond_pockets(level_path: String) -> bool:
+	return level_path.ends_with("granite_crag_03.json")
+
+static func _popup_cond_project(level_path: String) -> bool:
+	return level_path.ends_with("tutorial_11.json")
+
 # ── Public API ───────────────────────────────────────────────────────────
 
 func show_popup_for_level(level_path: String) -> void:
-	var entry = _resolve_popup(level_path)
-	if entry.is_empty():
+	_popup_queue = _resolve_all_popups(level_path)
+	if _popup_queue.is_empty():
 		print("  [Popup] No popup for this level/state")
 		return
+	_show_next_queued_popup()
 
+
+func _show_next_queued_popup() -> void:
+	if _popup_queue.is_empty():
+		return
+	var entry = _popup_queue.pop_front()
 	print("  [Popup] Showing: ", entry["image_path"], " (key: ", entry["save_key"], ")")
 	_show_popup_image(entry["image_path"])
-
 	_active_popup_key = entry["save_key"]
 
 func try_dismiss() -> void:
@@ -95,6 +137,12 @@ func try_dismiss() -> void:
 		_mark_popup_seen(_active_popup_key)
 		_active_popup_key = ""
 
+	# If there are more popups in the queue, show the next one
+	if not _popup_queue.is_empty():
+		_show_next_queued_popup()
+		return
+
+	# Otherwise hide the instructions
 	var cfg := ConfigFile.new()
 	cfg.load(INSTRUCTIONS_SAVE_PATH)
 	cfg.set_value("instructions", "shown", true)
@@ -123,19 +171,18 @@ func get_active_popup_key() -> String:
 
 # ── Internal helpers ─────────────────────────────────────────────────────
 
-func _resolve_popup(level_path: String) -> Dictionary:
+func _resolve_all_popups(level_path: String) -> Array[Dictionary]:
 	var cfg := ConfigFile.new()
 	cfg.load(INSTRUCTIONS_SAVE_PATH)
 
-	var best: Dictionary = {}
+	var result: Array[Dictionary] = []
 	for entry in POPUP_CONFIGS:
 		var key: String = entry["save_key"]
 		if cfg.get_value("popups", key, false):
 			continue
 		if entry["condition"].call(level_path):
-			if best.is_empty() or entry["priority"] > best["priority"]:
-				best = entry
-	return best
+			result.append(entry)
+	return result
 
 func _show_popup_image(image_path: String) -> void:
 	if not _instructions or not _instructions_root:

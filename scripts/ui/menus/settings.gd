@@ -14,6 +14,9 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"select_left_foot",
 	"select_right_foot",
 	"restart",
+	"project_mode",
+	"route_view",
+	"ui_cancel",
 ]
 
 # Maps OptionButton index → Engine.max_fps value (0 = unlimited)
@@ -51,6 +54,11 @@ func _ready() -> void:
 	_build_keybind_ui()
 	load_settings()
 	# Already connected in the scene file
+	call_deferred(&"_focus_first_setting")
+
+func _focus_first_setting() -> void:
+	if volume_slider:
+		volume_slider.grab_focus()
 
 func _exit_tree() -> void:
 	# Safety net: auto-save settings if the scene is destroyed
@@ -66,7 +74,7 @@ func _build_keybind_ui() -> void:
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 		var lbl := Label.new()
-		lbl.text = action.capitalize().replace("_", " ")
+		lbl.text = InputHelper.get_action_label(action)
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(lbl)
 
@@ -80,9 +88,8 @@ func _build_keybind_ui() -> void:
 		_action_buttons[action] = btn
 
 func _get_action_key_label(action: String) -> String:
-	for e in InputMap.action_get_events(action):
-		return _get_event_label(e)
-	return "(none)"
+	# Use InputHelper to get the best label for the current input method
+	return InputHelper.get_action_key_name(action)
 
 func _get_event_label(event: InputEvent) -> String:
 	if event is InputEventKey:
@@ -179,6 +186,11 @@ func _input(event: InputEvent) -> void:
 		_action_buttons[_listening_action].text = _get_event_label(new_event)
 		_stop_listening()
 		get_viewport().set_input_as_handled()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		_on_back_pressed()
 
 func _stop_listening() -> void:
 	_listening_action = ""
@@ -341,12 +353,18 @@ func _on_reset_data_dialog_confirmed() -> void:
 	var prefs := ConfigFile.new()
 	prefs.set_value("instructions", "shown",                    false)
 	prefs.set_value("popups",       "demo_notice_seen",          false)
-	prefs.set_value("popups",       "tutorial_popup",            false)
+	prefs.set_value("popups",       "controls_popup",            false)
+	prefs.set_value("popups",       "stamina_popup",             false)
+	prefs.set_value("popups",       "zoom_popup",                false)
+	prefs.set_value("popups",       "roped_popup",               false)
+	prefs.set_value("popups",       "falling_holds_popup",       false)
 	prefs.set_value("popups",       "granite_topping_out_popup", false)
+	prefs.set_value("popups",       "weather_popup",             false)
+	prefs.set_value("popups",       "pockets_popup",             false)
 	prefs.save(PREFS_PATH)
 
 	print("Settings: all progress data reset.")
-	reset_btn.text = "✓ Data Reset!"
+	reset_btn.text = "Data Reset!"
 	await get_tree().create_timer(2.0).timeout
 	if is_instance_valid(reset_btn):
 		reset_btn.text = "Reset Data"

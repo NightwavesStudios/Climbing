@@ -99,7 +99,8 @@ func _show_page(index: int) -> void:
 	var environment:       String = json.get("environment",       "gym")
 	var weather_int:       int    = int(json.get("weather",       0))
 	var weather_intensity: float  = float(json.get("weather_intensity", 1.0))
-	var time_of_day:       float  = float(json.get("time_of_day", 0.5))   # 0=midnight 1=midnight, 0.5=noon
+	var time_of_day_int:   int    = int(json.get("time_of_day", -1))      # -1=random, 0=day, 1=dusk, 2=night
+	var time_of_day:       float  = _tod_game_to_diagram(time_of_day_int)
 	var holds:             Array  = json.get("holds",             [])
 	var crashpads:         Array  = json.get("crashpads",         [])
 	var palette                   = _get_env_palette(environment)
@@ -116,13 +117,13 @@ func _show_page(index: int) -> void:
 	diagram_wrap.clip_contents = true
 	hbox.add_child(diagram_wrap)
 
-	var diagram: Control
-	if meta.unlocked:
-		diagram = _build_route_diagram(json, weather_int, weather_intensity, time_of_day, crashpads)
-	else:
-		diagram = _build_locked_diagram(palette, environment)
+	var diagram: Control = _build_route_diagram(json, weather_int, weather_intensity, time_of_day, crashpads)
 	diagram.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	diagram_wrap.add_child(diagram)
+
+	if not meta.unlocked:
+		_apply_locked_overlay(diagram_wrap)
+		_desaturate_diagram(diagram)
 
 	var divider := ColorRect.new()
 	divider.color = Color(1, 1, 1, 0.08)
@@ -278,10 +279,20 @@ func _show_page(index: int) -> void:
 
 	page_label.text = "%d / %d" % [index + 1, _levels.size()]
 	_update_nav()
+	call_deferred(&"_focus_climb_button")
 
 # =============================================================================
 # TIME-OF-DAY HELPERS
 # =============================================================================
+
+## Converts the game's time-of-day value (-1=random, 0=day, 1=dusk, 2=night)
+## to the diagram's float representation (0-1, 0.5 = noon).
+func _tod_game_to_diagram(tod: int) -> float:
+	match tod:
+		0: return 0.25   # day → noon
+		1: return 0.5    # dusk → sunset
+		2: return 0.75   # night
+		_: return 0.5    # random/default → noon
 
 ## Returns a human-readable label for a time_of_day value (0–1, 0.5 = noon).
 ## Returns "" when it's close enough to midday that no label is warranted.
@@ -341,52 +352,34 @@ func _add_stat(parent: VBoxContainer, label_text: String, value_text: String, va
 	parent.add_child(row)
 
 # =============================================================================
-# LOCKED DIAGRAM
+# GRAYSCALE DESATURATION  — makes the route diagram fully monotone
 # =============================================================================
 
-func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> Control:
-	var wrapper := Control.new()
-	wrapper.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	wrapper.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+func _desaturate_diagram(diagram_root: Control) -> void:
+	# The diagram wrapper has a SubViewportContainer as its first child.
+	# Apply the grayscale shader to the SubViewportContainer so every pixel
+	# (wall, holds, crashpads, weather) renders in pure grayscale.
+	var svc := diagram_root.get_child(0) as SubViewportContainer
+	if not svc:
+		return
+	var shader := preload("res://scripts/shaders/grayscale.gdshader")
+	if not shader:
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	svc.material = mat
 
-	const VP_W := 900
-	const VP_H := 600
-	var svc := SubViewportContainer.new()
-	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	svc.stretch = true
-	var svp := SubViewport.new()
-	svp.size = Vector2i(VP_W, VP_H)
-	svp.transparent_bg = false
-	svp.render_target_update_mode = SubViewport.UPDATE_ONCE
-	svc.add_child(svp)
-	wrapper.add_child(svc)
+# =============================================================================
+# LOCKED OVERLAY  — applied on top of the full route diagram for locked routes
+# =============================================================================
 
-	var wmin := Vector2(-400, -600)
-	var wmax := Vector2( 400,  0)
-	var cam := Camera2D.new()
-	cam.position = (wmin + wmax) * 0.5
-	cam.zoom = Vector2(0.75, 0.75)
-	svp.add_child(cam)
-
-	if ResourceLoader.exists("res://scripts/climbing/dynamic_wall.gd"):
-		var wall_script = load("res://scripts/climbing/dynamic_wall.gd")
-		var wall = wall_script.new()
-		wall.z_index = -10
-		wall.set("current_environment", environment.to_lower())
-		wall.set("current_wall_color", palette.wall)
-		wall.set("wall_min",   wmin)
-		wall.set("wall_max",   wmax)
-		wall.set("ground_y",   wmax.y)
-		wall.set("wall_valid", true)
-		svp.add_child(wall)
-		if wall.has_method("_apply_environment_theme"):
-			wall._apply_environment_theme()
-		wall.queue_redraw()
-
+func _apply_locked_overlay(parent: Control) -> void:
+	# ── Muted gray veil ────────────────────────────────────────────────────
 	var veil := ColorRect.new()
 	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	veil.color = Color(0, 0, 0, 0.55)
-	wrapper.add_child(veil)
+	veil.color = Color(0.25, 0.25, 0.25, 0.35)
+	veil.mouse_filter = Control.MOUSE_FILTER_PASS
+	parent.add_child(veil)
 
 	# ── Lock icon via res://assets/locked.png ─────────────────────────────────
 	var lock_tex = load("res://assets/locked.png")
@@ -398,7 +391,6 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 		tex_rect.size         = lock_tex.get_size()
 		var s := LOCK_SIZE / maxf(lock_tex.get_size().x, lock_tex.get_size().y)
 		tex_rect.scale        = Vector2(s, s)
-		# Anchor to center manually — no preset so layout won't fight us
 		tex_rect.anchor_left   = 0.5
 		tex_rect.anchor_top    = 0.5
 		tex_rect.anchor_right  = 0.5
@@ -407,33 +399,31 @@ func _build_locked_diagram(palette: Dictionary, environment: String = "gym") -> 
 		tex_rect.offset_top    = -LOCK_SIZE / 2.0
 		tex_rect.offset_right  =  LOCK_SIZE / 2.0
 		tex_rect.offset_bottom =  LOCK_SIZE / 2.0
-		tex_rect.modulate      = Color(1, 1, 1, 0.65)
-		wrapper.add_child(tex_rect)
+		tex_rect.modulate      = Color(1, 1, 1, 0.60)
+		parent.add_child(tex_rect)
 	else:
-		# Fallback: procedural drawn lock (original behaviour)
+		# Fallback: procedural drawn lock
 		var lock_canvas := Control.new()
 		lock_canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		lock_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		lock_canvas.draw.connect(func():
 			var cs := lock_canvas.size
 			var cx  := cs.x * 0.5
-			var cy  := cs.y * 0.48
+			var cy  := cs.y * 0.45
 			var _scale = clamp(min(cs.x, cs.y) / 220.0, 0.7, 1.6)
-			var body_w    = 44.0 * _scale
-			var body_h    = 34.0 * _scale
-			var shackle_r = 18.0 * _scale
-			var lc  := Color(1, 1, 1, 0.65)
-			var lc2 := Color(1, 1, 1, 0.12)
+			var body_w    = 40.0 * _scale
+			var body_h    = 30.0 * _scale
+			var shackle_r = 16.0 * _scale
+			var lc  := Color(1, 1, 1, 0.60)
+			var lc2 := Color(1, 1, 1, 0.10)
 			var shackle_cy = cy - body_h * 0.5
-			lock_canvas.draw_arc(Vector2(cx, shackle_cy), shackle_r, PI, TAU, 40, lc, 5.0 * _scale)
+			lock_canvas.draw_arc(Vector2(cx, shackle_cy), shackle_r, PI, TAU, 40, lc, 4.5 * _scale)
 			lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc)
 			lock_canvas.draw_rect(Rect2(cx - body_w*0.5, cy - body_h*0.5, body_w, body_h), lc2, true)
-			lock_canvas.draw_circle(Vector2(cx, cy - 2*_scale), 6.0*_scale, Color(0,0,0,0.5))
-			lock_canvas.draw_rect(Rect2(cx - 3*_scale, cy + 4*_scale, 6*_scale, 9*_scale), Color(0,0,0,0.5))
+			lock_canvas.draw_circle(Vector2(cx, cy - 2*_scale), 5.5*_scale, Color(0,0,0,0.4))
+			lock_canvas.draw_rect(Rect2(cx - 3*_scale, cy + 4*_scale, 6*_scale, 8*_scale), Color(0,0,0,0.4))
 		)
-		wrapper.add_child(lock_canvas)
-
-	return wrapper
+		parent.add_child(lock_canvas)
 
 # =============================================================================
 # ROUTE DIAGRAM
@@ -549,7 +539,11 @@ func _build_route_diagram(
 		if not wall_polygon.is_empty() and wall.has_method("set_polygon_data"):
 			wall.set_polygon_data(wall_polygon)
 
-		if wall.has_method("_apply_environment_theme"):
+		# ── Time-of-day override ───────────────────────────────────────────
+		var tod_int := int(json.get("time_of_day", -1))
+		if tod_int >= 0 and wall.has_method("set_time_of_day"):
+			wall.set_time_of_day(tod_int)
+		elif wall.has_method("_apply_environment_theme"):
 			wall._apply_environment_theme()
 
 		wall.queue_redraw()
@@ -649,9 +643,26 @@ func _flip_to(new_index: int, direction: int) -> void:
 		_update_nav()
 	)
 
+func _focus_climb_button() -> void:
+	# Focus the first interactive button in the page container for controller nav
+	for child in page_container.get_children():
+		var btns := child.find_children("*", "Button", true, false)
+		for btn in btns:
+			if btn is Button and not btn.disabled and btn.visible:
+				btn.grab_focus()
+				return
+	# Fallback: focus the Back button
+	if btn_back and not btn_back.disabled:
+		btn_back.grab_focus()
+
 func _on_level_selected(level_path: String) -> void:
 	GameState.set_current_level(level_path)
 	Transition.to("res://scenes/main/main_scene.tscn")
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		_on_back_pressed()
 
 func _on_back_pressed() -> void:
 	Transition.to("res://scenes/menus/collections_select.tscn")

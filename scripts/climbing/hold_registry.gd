@@ -123,7 +123,7 @@ const HOLD_CONFIGS = {
 		"max_limbs": 2, 
 	},
 	"UNDERCLING": {
-		"difficulty": 2.2,
+		"difficulty": 0.0,
 		"rest_value": 0.0,
 		"snap_to_point": true,
 		"is_pocket": false,
@@ -133,6 +133,7 @@ const HOLD_CONFIGS = {
 		"display_name": "Undercling",
 		"sloper_drain": false,
 		"wall_types": [],
+		"max_limbs": 2,
 	},
 	"WINDOW": {
 		"difficulty": 1.5,
@@ -183,6 +184,7 @@ func _register_all_holds() -> void:
 		"SLOPER": "res://scenes/holds/sloper.tscn",
 		"POCKET": "res://scenes/holds/pocket.tscn",
 		"FOOT":   "res://scenes/holds/foothold.tscn",
+		"UNDERCLING": "res://scenes/holds/undercling.tscn",
 		"WINDOW": "res://scenes/holds/window.tscn",
 		"LEDGE":  "res://scenes/holds/ledge.tscn",
 	}
@@ -198,7 +200,7 @@ func _register_all_holds() -> void:
 				"display_name": config.get("display_name", _format_display_name(hold_type)),
 				"config": config
 			}
-			print("✓ Registered hold: ", hold_type, " -> ", hold_path.get_file())
+			print("Registered hold: ", hold_type, " -> ", hold_path.get_file())
 		else:
 			push_error("Hold scene not found: " + hold_path)
 	

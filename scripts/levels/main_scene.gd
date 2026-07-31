@@ -19,12 +19,25 @@ var dynamic_wall: Node2D = null
 
 var rope_system: Node2D = null
 var speed_timer: CanvasLayer = null
+var weekly_timer: CanvasLayer = null
 var current_discipline: int = 0
 
 var level_complete_overlay: CanvasLayer = null
 var demo_finished_overlay: CanvasLayer = null
 
+const PROJECT_MODE_COMPLETE_SCENE := preload("res://scenes/menus/project_mode_complete.tscn")
+var _project_mode_complete_overlay: ProjectModeComplete = null
+
 var _popup_manager: PopupManager = null
+var _tutorial_guide: TutorialGuide = null
+var _zoom_tutorial_guide: ZoomTutorialGuide = null
+
+# =============================================================================
+#  PROJECT MODE (practice mode)
+# =============================================================================
+
+var project_mode_active: bool = false
+var _project_mode_button: Button = null
 
 # =============================================================================
 #  ROUTE PREVIEW CAMERA
@@ -45,6 +58,7 @@ const PREVIEW_ZOOM_MAX      := 0.55
 
 ## Auto-preview timings — starts zoomed out, holds, then zooms back in
 const PREVIEW_HOLD_TIME     := 0.1    # seconds to linger at the overview
+
 const PREVIEW_RETURN_TIME   := 3    # seconds to pan+zoom back to player
 const PREVIEW_ZOOM_TIME     := 2.5    # seconds for the initial zoom-out
 
@@ -155,6 +169,46 @@ func _finish_preview() -> void:
 		camera.position_smoothing_enabled = _smoothing_was_enabled
 		camera.reset_smoothing()
 
+	# Start the interactive tutorial for Route #1 (only if the popup is already dismissed)
+	if _current_level_path.ends_with("tutorial_01.json") and _popup_manager and not _popup_manager.has_active_popup():
+		_start_tutorial()
+
+	# Start the zoom tutorial for the first roped route if the popup was already seen
+	if _current_level_path.ends_with("tutorial_05.json") and _popup_manager and not _popup_manager.has_active_popup():
+		_start_zoom_tutorial()
+
+func _start_tutorial() -> void:
+	"""Start the interactive tutorial guide for Route #1."""
+	if _tutorial_guide:
+		return
+	_tutorial_guide = TutorialGuide.new()
+	_tutorial_guide.name = "TutorialGuide"
+	add_child(_tutorial_guide)
+	_tutorial_guide.setup(player)
+	_tutorial_guide.tutorial_completed.connect(_on_tutorial_completed)
+
+
+func _on_tutorial_completed() -> void:
+	_tutorial_guide = null
+
+
+func _start_zoom_tutorial() -> void:
+	"""Start the interactive zoom tutorial for the first roped route."""
+	if _zoom_tutorial_guide:
+		return
+	_zoom_tutorial_guide = ZoomTutorialGuide.new()
+	_zoom_tutorial_guide.name = "ZoomTutorialGuide"
+	add_child(_zoom_tutorial_guide)
+	_zoom_tutorial_guide.setup(player, self)
+	_zoom_tutorial_guide.tutorial_completed.connect(_on_zoom_tutorial_completed)
+
+
+func _on_zoom_tutorial_completed() -> void:
+	_zoom_tutorial_guide = null
+	# Re-enable player input in case it was locked
+	_set_player_input(true)
+
+
 func toggle_route_view() -> void:
 	if not camera:
 		return
@@ -209,6 +263,152 @@ func _build_popup_configs() -> void:
 	pass
 
 # =============================================================================
+#  PROJECT MODE
+# =============================================================================
+
+func _setup_project_mode_ui() -> void:
+	# Create a CanvasLayer for the project mode toggle button
+	var project_ui := CanvasLayer.new()
+	project_ui.name = "ProjectModeUI"
+	project_ui.layer = 128
+	add_child(project_ui)
+
+	var btn := Button.new()
+	btn.name = "ProjectModeButton"
+	btn.text = "Project: OFF"
+	btn.toggle_mode = true
+	btn.theme_type_variation = &"ProjectModeButton"
+	btn.size = Vector2(140, 32)
+	btn.position = Vector2(10, 10)
+	btn.add_theme_font_size_override("font_size", 14)
+	btn.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	btn.add_theme_color_override("font_pressed_color", Color(0.3, 0.9, 0.6))
+	btn.add_theme_color_override("button_pressed", Color(0.15, 0.35, 0.25))
+	btn.add_theme_stylebox_override("normal", _make_stylebox(Color(0.15, 0.15, 0.15, 0.7), 4))
+	btn.add_theme_stylebox_override("pressed", _make_stylebox(Color(0.1, 0.3, 0.2, 0.8), 4))
+	btn.add_theme_stylebox_override("hover", _make_stylebox(Color(0.2, 0.2, 0.2, 0.8), 4))
+	btn.pressed.connect(_on_project_mode_toggled.bind(btn))
+	project_ui.add_child(btn)
+	_project_mode_button = btn
+
+	# Hide and disable the project button by default.
+	# It will be shown/enabled after the player reaches tutorial_11.
+	_project_mode_button.visible = false
+	_project_mode_button.disabled = true
+
+
+func _make_stylebox(bg: Color, corner_radius: int) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.corner_radius_top_left = corner_radius
+	sb.corner_radius_top_right = corner_radius
+	sb.corner_radius_bottom_left = corner_radius
+	sb.corner_radius_bottom_right = corner_radius
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
+	return sb
+
+
+func _on_project_mode_toggled(btn: Button) -> void:
+	project_mode_active = btn.button_pressed
+	if player and player.has_method("set_project_mode"):
+		player.set_project_mode(project_mode_active)
+	
+	if project_mode_active:
+		btn.text = "Project: ON"
+		btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.6))
+		show_message("Project Mode ON — falls respawn at last hold", Color(0.3, 1.0, 0.6))
+	else:
+		btn.text = "Project: OFF"
+		btn.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+		show_message("Project Mode OFF", Color(0.7, 0.7, 0.7))
+		# Reset the climb when turning off project mode — no credit given
+		_do_player_reset()
+
+
+func _update_project_button_visibility(level_path: String) -> void:
+	"""Show and enable the project button only after the player reaches tutorial_11.
+	The button is hidden before that, and visible for all levels after."""
+	if not _project_mode_button:
+		return
+
+	var gs := get_node_or_null("/root/GameState") as GameState
+	if not gs:
+		# Fallback: show if no GameState available
+		_project_mode_button.visible = true
+		_project_mode_button.disabled = false
+		return
+
+	var should_show := false
+
+	# If the current collection is not the gym, the player has progressed past it
+	if gs.current_collection != "intro-gym":
+		should_show = true
+	else:
+		# Check if this level is tutorial_11 (index 10) or later
+		var gym_levels: Array = gs.get_collection_data("intro-gym").get("levels", [])
+		var level_index: int = gym_levels.find(level_path)
+		if level_index >= 10:
+			should_show = true
+		# Also check if tutorial_11 has been completed (player might be replaying early levels)
+		elif gym_levels.size() > 10 and gs.is_level_completed(gym_levels[10]):
+			should_show = true
+
+	_project_mode_button.visible = should_show
+	_project_mode_button.disabled = not should_show
+
+
+func is_project_mode_active() -> bool:
+	return project_mode_active
+
+
+# =============================================================================
+#  PROJECT MODE TOP-OUT PROMPT
+# =============================================================================
+
+func on_project_mode_top_out() -> void:
+	"""Called when the player reaches the top in project mode.
+	Shows a "Complete" button like the "Next Climb" button."""
+	# Disable player input while the prompt is shown
+	if player and player.has_method("set_input_enabled"):
+		player.set_input_enabled(false)
+	
+	# Instantiate the project mode complete scene
+	_project_mode_complete_overlay = PROJECT_MODE_COMPLETE_SCENE.instantiate()
+	_project_mode_complete_overlay.complete_requested.connect(_on_complete_climb_pressed)
+	add_child(_project_mode_complete_overlay)
+	_project_mode_complete_overlay.show_overlay()
+
+
+func _on_complete_climb_pressed() -> void:
+	"""Player clicked 'Complete' — turn off project mode and reset the climb."""
+	# Remove the overlay
+	if _project_mode_complete_overlay and is_instance_valid(_project_mode_complete_overlay):
+		_project_mode_complete_overlay.queue_free()
+		_project_mode_complete_overlay = null
+	
+	# Turn off project mode
+	project_mode_active = false
+	if player and player.has_method("set_project_mode"):
+		player.set_project_mode(false)
+	
+	# Update the project mode button to match
+	if _project_mode_button:
+		_project_mode_button.button_pressed = false
+		_project_mode_button.text = "Project: OFF"
+		_project_mode_button.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	
+	# Reset the climb — no fade, no completion recording, no continue
+	_do_player_reset()
+	
+	# Re-enable player input
+	if player and player.has_method("set_input_enabled"):
+		player.set_input_enabled(true)
+
+
+# =============================================================================
 #  PATH CHECK (dev helper)
 # =============================================================================
 
@@ -241,6 +441,9 @@ func _check_paths() -> void:
 
 func _ready():
 	print("=== MAIN SCENE READY ===")
+
+	# ── Project mode UI setup ──────────────────────────────────────────
+	_setup_project_mode_ui()
 
 	# Hide the menu background — it's persistent at root level and
 	# wastes CPU on _process / _draw even when invisible.
@@ -275,6 +478,10 @@ func _ready():
 
 	await get_tree().process_frame
 	_show_popup_for_level(initial_level)
+
+	# Start the interactive tutorial immediately (bypasses preview animation)
+	if initial_level.ends_with("tutorial_01.json"):
+		_finish_preview()
 
 	_loading_complete = true
 	ready_to_show.emit()
@@ -332,18 +539,23 @@ func _setup_pause_menu() -> void:
 	pause_menu.visible = false
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Tab → toggle route view (Option A).
-	# ui_focus_next is Tab by default; rename to "route_view" in Input Map if preferred.
-	if event.is_action_pressed("ui_focus_next"):
+	# Tab → toggle route view.
+	if event.is_action_pressed("route_view") or event.is_action_pressed("ui_focus_next"):
 		# Don't allow Tab-toggle during the auto-preview hold phase.
 		# The return phase and normal FOLLOW_PLAYER allow it.
-		if _preview_tween == null or not _preview_tween.is_valid():
+		if _preview_tween == null or not _preview_tween.is_running():
 			toggle_route_view()
 		return
 
 	if event.is_action_pressed("ui_cancel"):
 		if pause_menu and not pause_menu.visible:
 			_open_pause_menu()
+
+	# P key toggles project mode (only if the button is visible and enabled)
+	if event.is_action_pressed("project_mode"):
+		if _project_mode_button and _project_mode_button.visible and not _project_mode_button.disabled:
+			_project_mode_button.button_pressed = not _project_mode_button.button_pressed
+			_on_project_mode_toggled(_project_mode_button)
 
 func _open_pause_menu() -> void:
 	if not pause_menu:
@@ -421,7 +633,9 @@ func _load_initial_level(path: String) -> void:
 	start_route_preview()
 	# ─────────────────────────────────────────────────────────────────────────
 
-	print("  ✓ Level ready: ", path)
+	_update_project_button_visibility(path)
+
+	print("  Level ready: ", path)
 
 # =============================================================================
 #  DISCIPLINE SYSTEM SETUP
@@ -450,6 +664,9 @@ func setup_discipline_systems():
 			await setup_roped_climbing(level_loader, player)
 		ClimbingDiscipline.Type.SPEED:
 			setup_speed_climbing(level_loader, player)
+
+	# Set up count-up timer for weekly levels (always, regardless of discipline)
+	_setup_weekly_timer()
 
 	print("═══════════════════════\n")
 
@@ -489,10 +706,15 @@ func setup_roped_climbing(loader, plyr):
 	if rope_system.has_method("setup_rope"):
 		rope_system.setup_rope(belayer_pos, plyr)
 
+	# ── When the rope catches a falling player, refresh fallen holds ─────
+	if rope_system.player_caught.is_connected(_on_rope_caught):
+		rope_system.player_caught.disconnect(_on_rope_caught)
+	rope_system.player_caught.connect(_on_rope_caught)
+
 	if plyr.has_method("set_rope_system"):
 		plyr.set_rope_system(rope_system)
 
-	print("  ✓ Rope system ready at: ", belayer_pos)
+	print("  Rope system ready at: ", belayer_pos)
 
 func setup_speed_climbing(loader, plyr):
 	print("  Mode: Speed climbing")
@@ -526,7 +748,7 @@ func setup_speed_climbing(loader, plyr):
 	if speed_timer.has_method("show_timer"):
 		speed_timer.show_timer()
 
-	print("  ✓ Speed timer ready: ", time_limit, "s")
+	print("  Speed timer ready: ", time_limit, "s")
 
 # =============================================================================
 #  SPEED CALLBACKS
@@ -542,7 +764,40 @@ func _on_speed_time_warning(seconds: float):
 		show_message(str(int(seconds)) + "!", Color.ORANGE)
 
 func _on_speed_timer_started():
-	print("🏃 Speed climb started!")
+	print("Speed climb started!")
+
+# =============================================================================
+#  WEEKLY TIMER
+# =============================================================================
+
+func _setup_weekly_timer() -> void:
+	# Only show the count-up timer for weekly levels
+	if not _current_level_path.begins_with("res://data/levels/weekly/"):
+		return
+
+	var WeeklyTimerScript := load("res://scripts/levels/weekly_timer.gd")
+	if not WeeklyTimerScript:
+		push_error("Could not load weekly_timer.gd!")
+		return
+
+	# Clean up any previous instance
+	if weekly_timer and is_instance_valid(weekly_timer):
+		weekly_timer.queue_free()
+
+	weekly_timer = WeeklyTimerScript.new()
+	weekly_timer.name = "WeeklyTimer"
+	add_child(weekly_timer)
+	await get_tree().process_frame
+
+	print("  Weekly timer ready")
+
+
+func _get_weekly_elapsed_time() -> float:
+	if weekly_timer and is_instance_valid(weekly_timer):
+		if weekly_timer.has_method("get_elapsed_time"):
+			return weekly_timer.get_elapsed_time()
+	return 0.0
+
 
 # =============================================================================
 #  PLAYER SPAWN
@@ -626,6 +881,21 @@ func on_level_complete():
 		if speed_timer.has_method("get_time_remaining"):
 			completion_time = speed_timer.get_time_remaining()
 
+	var weekly_elapsed := 0.0
+	var is_weekly_level := _current_level_path.begins_with("res://data/levels/weekly/")
+	if is_weekly_level and weekly_timer and is_instance_valid(weekly_timer):
+		if weekly_timer.has_method("stop_timer"):
+			weekly_elapsed = weekly_timer.stop_timer()
+			# Record weekly best time
+			var gs := get_node_or_null("/root/GameState")
+			if gs and gs.has_method("record_weekly_best_time"):
+				gs.record_weekly_best_time(_current_level_path, weekly_elapsed)
+
+			# Upload time to Steam leaderboard for this week
+			var wl := get_node_or_null("/root/WeeklyLeaderboard")
+			if wl and wl.has_method("upload_score"):
+				wl.upload_score(weekly_elapsed)
+
 	var game_state = get_node_or_null("/root/GameState")
 	if game_state and game_state.has_method("record_level_completion"):
 		game_state.record_level_completion(_current_level_path, completion_time)
@@ -649,16 +919,22 @@ func on_level_complete():
 		player.set_input_enabled(false)
 
 	if level_complete_overlay:
-		level_complete_overlay.show_overlay(_current_level_path)
+		level_complete_overlay.show_overlay(_current_level_path, weekly_elapsed)
 	else:
 		Transition.to("res://scenes/menus/level_completed.tscn")
 
 func on_player_reset():
 	# Manual reset (Escape/R key) — does NOT count toward skip threshold
-	_do_player_reset()
+	if project_mode_active and player and player.has_method("project_mode_reset"):
+		_project_mode_reset_player()
+	else:
+		_do_player_reset()
 
 func on_player_fell():
-	_do_player_reset()
+	if project_mode_active and player and player.has_method("project_mode_reset"):
+		_project_mode_reset_player()
+	else:
+		_do_player_reset()
 
 func _do_player_reset():
 	if player and not player._grab_initialized:
@@ -677,12 +953,50 @@ func _do_player_reset():
 	if player and player.has_method("reset_climb"):
 		player.reset_climb()
 
+	# Reset the tutorial guide if active
+	if _tutorial_guide and is_instance_valid(_tutorial_guide):
+		_tutorial_guide.reset()
+
+	# Reset the zoom tutorial guide if active
+	if _zoom_tutorial_guide and is_instance_valid(_zoom_tutorial_guide):
+		_zoom_tutorial_guide.reset()
+
 	if current_discipline == ClimbingDiscipline.Type.SPEED and speed_timer:
 		if speed_timer.has_method("stop_timer"):
 			speed_timer.stop_timer()
 
+	# Reset weekly timer on fall/reset
+	if weekly_timer and is_instance_valid(weekly_timer):
+		if weekly_timer.has_method("reset_timer"):
+			weekly_timer.reset_timer()
+
+func _project_mode_reset_player() -> void:
+	"""Reset the player to the last hold they grabbed (project mode).
+	Keeps project mode active and doesn't show the level complete overlay."""
+	if player and not player._grab_initialized:
+		return
+
+	# Kill any active route preview tween so it doesn't fight the camera
+	if _preview_tween and _preview_tween.is_valid():
+		_preview_tween.kill()
+	if _return_tween and _return_tween.is_valid():
+		_return_tween.kill()
+	_cam_mode = CameraMode.FOLLOW_PLAYER
+
+	# Reset the player at the last hold
+	if player and player.has_method("project_mode_reset"):
+		player.project_mode_reset()
+		camera_owned_by_main = false
+		# Snap camera to player position
+		if is_instance_valid(camera):
+			camera.global_position = player.global_position
+			camera.reset_smoothing()
+
+	# Don't reset speed timer or weekly timer in project mode
+	# (they don't matter since climbs don't count)
+
 func on_climb_start():
-	print("🎬 Climb started!")
+	print("Climb started!")
 
 	# If the player grabs before the auto-preview finishes, abort it cleanly
 	# Only abort preview if enough time has passed (ignore the spawn grab)
@@ -709,9 +1023,26 @@ func on_climb_start():
 		if speed_timer and speed_timer.has_method("start_timer"):
 			speed_timer.start_timer()
 
+	# Start weekly count-up timer on first move (for weekly levels)
+	if weekly_timer and is_instance_valid(weekly_timer):
+		if weekly_timer.has_method("start_timer"):
+			weekly_timer.start_timer()
+
 	for hold in get_tree().get_nodes_in_group("holds"):
 		if hold.has_method("notify_climb_start"):
 			hold.notify_climb_start()
+
+# =============================================================================
+#  ROPE CATCH — reset falling holds without full reset
+# =============================================================================
+
+func _on_rope_caught() -> void:
+	"""When the rope catches a fall, reset any falling/dropped holds
+	back to their origin with a pop-in animation, without resetting
+	the entire climb or repositioning the player."""
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if is_instance_valid(hold) and hold.has_method("notify_caught_reset"):
+			hold.notify_caught_reset()
 
 func reset_level():
 	cleanup_discipline_systems()
@@ -747,6 +1078,7 @@ func _on_next_level_requested(next_level_path: String) -> void:
 		player.reset_climb()
 
 	_show_popup_for_level(next_level_path)
+	_update_project_button_visibility(next_level_path)
 
 	await get_tree().create_timer(0.1).timeout
 
@@ -759,7 +1091,11 @@ func _on_next_level_requested(next_level_path: String) -> void:
 
 func _on_level_complete_menu_requested() -> void:
 	cleanup_discipline_systems()
-	Transition.to("res://scenes/menus/collections_select.tscn")
+	# Weekly levels go back to main menu; other levels go to collections
+	if _current_level_path.begins_with("res://data/levels/weekly/"):
+		Transition.to("res://scenes/menus/main_menu.tscn")
+	else:
+		Transition.to("res://scenes/menus/collections_select.tscn")
 
 func _on_level_complete_restart_requested() -> void:
 	print("Restarting: ", _current_level_path)
@@ -853,6 +1189,19 @@ func cleanup_discipline_systems():
 			_force_free_node(speed_timer)
 		speed_timer = null
 
+	if weekly_timer != null:
+		if is_instance_valid(weekly_timer):
+			if weekly_timer.has_method("cleanup"):
+				weekly_timer.cleanup()
+			_force_free_node(weekly_timer)
+		weekly_timer = null
+
+	# Clean up the zoom tutorial guide if it's active
+	if _zoom_tutorial_guide != null:
+		if is_instance_valid(_zoom_tutorial_guide):
+			_force_free_node(_zoom_tutorial_guide)
+		_zoom_tutorial_guide = null
+
 	current_discipline = 0
 
 # =============================================================================
@@ -895,3 +1244,11 @@ func _on_transition_finished():
 func _on_hide_instructions_pressed() -> void:
 	if _popup_manager:
 		_popup_manager.try_dismiss()
+	# Start the interactive tutorial after dismissing the popup for Route #1.
+	# Wait for the route preview to finish first so the camera is in FOLLOW_PLAYER mode.
+	if _current_level_path.ends_with("tutorial_01.json") and _preview_complete:
+		_start_tutorial()
+	# Start zoom tutorial after dismissing the popup for the first roped route.
+	# Wait for the route preview to finish first so the camera is in FOLLOW_PLAYER mode.
+	if _current_level_path.ends_with("tutorial_05.json") and _preview_complete:
+		_start_zoom_tutorial()

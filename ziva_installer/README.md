@@ -10,7 +10,7 @@ This folder is an auto-installer and updater for [Ziva](https://ziva.sh/), the o
 
 ## Privacy
 
-Code and prompts sent to Ziva is 100% private by default. When changing settings and models, refer to the 🛡️ (zero data retention), 🔒 (no training) and ❓ (other/unknown) icons to make an informed decision.
+Code and prompts sent to Ziva is 100% private by default. When changing settings and models, refer to the shield (zero data retention), lock (no training) and question mark (other/unknown) icons to make an informed decision.
 
 
 ## What is Ziva?

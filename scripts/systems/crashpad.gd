@@ -86,6 +86,11 @@ func _do_landing(player: Node2D):
 		return
 	# ────────────────────────────────────────────────────────────────────────────
 
+	# ── Record the fall for achievement tracking ─────────────────────────
+	var game_state := get_node_or_null("/root/GameState")
+	if game_state and game_state.has_method("record_fall"):
+		game_state.record_fall()
+
 	var main = get_tree().current_scene
 	if main and main.has_method("on_player_fell"):
 		main.on_player_fell()

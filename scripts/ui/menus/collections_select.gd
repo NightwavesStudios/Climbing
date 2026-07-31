@@ -12,6 +12,9 @@ func _ready() -> void:
 	# Show the shared persistent menu background
 	MenuBackgroundManager.show()
 	
+	# Auto-focus first button for controller navigation
+	call_deferred(&"_focus_first_button")
+	
 	if not map_container:
 		push_error("collection_select: $HBoxContainer node not found!")
 		return
@@ -184,6 +187,19 @@ func _show_unlock_requirement(id: String) -> void:
 				% [req.count, GameState.completed_collections.size(), req.count]
 
 	print(msg)
+
+func _focus_first_button() -> void:
+	if not map_container:
+		return
+	for child in map_container.get_children():
+		if child is Button and not child.disabled and child.visible:
+			child.grab_focus()
+			return
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		_on_back_pressed()
 
 func _on_back_pressed() -> void:
 	Transition.to("res://scenes/menus/main_menu.tscn")

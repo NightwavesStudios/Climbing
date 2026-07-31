@@ -1,10 +1,10 @@
 extends CanvasLayer
-## Demo finished overlay shown after completing the final demo level (granite_crag_10).
+## Demo finished overlay shown after completing the final demo level (gym tutorial).
 ## Displays social buttons (Wishlist, Feedback, Discord) and a Back to Menu option.
 
 signal menu_requested
 
-const WISHLIST_URL  := "https://store.steampowered.com/app/4440890/Climbing_Simplified/"
+const WISHLIST_URL  := "https://store.steampowered.com/app/4484650/Climbing_Simplified/"
 const DISCORD_URL   := "https://discord.gg/5JyxqfsAbq"
 
 @onready var backdrop: ColorRect    = $Backdrop
@@ -54,6 +54,15 @@ func show_overlay() -> void:
 			ct.tween_interval(delay)
 			ct.tween_property(child, "modulate:a", 1.0, 0.3)
 			delay += 0.1
+
+	# Focus the first button for controller navigation
+	call_deferred(&"_focus_overlay_button")
+
+func _focus_overlay_button() -> void:
+	for btn in [wishlist_btn, feedback_btn, discord_btn, menu_btn]:
+		if btn and not btn.disabled and btn.visible:
+			btn.grab_focus()
+			return
 
 
 func _hide_and_emit() -> void:

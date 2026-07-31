@@ -6,7 +6,7 @@ class_name QuitConfirmation
 
 signal dismissed
 
-const WISHLIST_URL := "https://store.steampowered.com/app/4440890/Climbing_Simplified/"
+const WISHLIST_URL := "https://store.steampowered.com/app/4484650/Climbing_Simplified/"
 const DISCORD_URL  := "https://discord.gg/5JyxqfsAbq"
 
 @onready var backdrop: ColorRect       = $Backdrop
@@ -47,6 +47,15 @@ func show_popup() -> void:
 	for child in [title_label, wishlist_btn, discord_btn, exit_btn, cancel_btn]:
 		if child:
 			tween.tween_property(child, "modulate:a", 1.0, 0.18)
+
+	# Focus the Cancel button so controller navigation works immediately
+	call_deferred(&"_focus_popup_button")
+
+func _focus_popup_button() -> void:
+	if cancel_btn and not cancel_btn.disabled:
+		cancel_btn.grab_focus()
+	elif exit_btn and not exit_btn.disabled:
+		exit_btn.grab_focus()
 
 
 ## Dismiss the popup with a quick fade-out animation.

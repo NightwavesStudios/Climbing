@@ -7,21 +7,20 @@ extends Node
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 
-const CURSOR_SIZE        := 72
-const OUTER_RADIUS       := 13.0
-const OUTER_THICKNESS    := 2.5
+const CURSOR_SIZE         := 72
+const OUTER_RADIUS        := 13.0
+const OUTER_THICKNESS     := 2.5
 const INNER_RADIUS_NORMAL := 7.0
 const INNER_RADIUS_PRESSED := 4.0
-const ANIM_DURATION_PRESS   := 0.08
-const ANIM_DURATION_RELEASE := 0.14
-const SHADOW_OFFSET     := 1.5
+const SHADOW_OFFSET       := 1.5
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STATE
 # ─────────────────────────────────────────────────────────────────────────────
 
-var _inner_radius: float = INNER_RADIUS_NORMAL
-var _tween: Tween
+var _is_pressed: bool = false
+var _normal_texture: ImageTexture
+var _pressed_texture: ImageTexture
 var _image: Image
 var _cursor_layer: CanvasLayer
 var _cursor_sprite: TextureRect
@@ -52,8 +51,11 @@ func _ready() -> void:
 	_cursor_sprite.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 	_cursor_layer.add_child(_cursor_sprite)
 
+	# Pre-render both cursor states ONCE so we never regenerate textures at runtime.
 	_image = Image.create(CURSOR_SIZE, CURSOR_SIZE, false, Image.FORMAT_RGBA8)
-	_update_cursor()
+	_normal_texture = _generate_texture(INNER_RADIUS_NORMAL)
+	_pressed_texture = _generate_texture(INNER_RADIUS_PRESSED)
+	_cursor_sprite.texture = _normal_texture
 
 	var root := get_tree().root as Window
 	root.connect("focus_entered", _on_window_focus_entered)
@@ -134,26 +136,12 @@ func _generate_texture(inner_radius: float) -> ImageTexture:
 	return ImageTexture.create_from_image(_image)
 
 
-func _update_cursor() -> void:
-	var tex: ImageTexture = _generate_texture(_inner_radius)
+func _set_state(pressed: bool) -> void:
+	if pressed == _is_pressed:
+		return
+	_is_pressed = pressed
 	if _cursor_sprite:
-		_cursor_sprite.texture = tex
-
-
-func _animate_inner_radius(target_radius: float, duration: float) -> void:
-	if _tween and _tween.is_valid():
-		_tween.kill()
-
-	_tween = create_tween()
-	_tween.tween_method(_on_tween_update, _inner_radius, target_radius, duration) \
-		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_SINE)
-	_tween.finished.connect(func(): _inner_radius = target_radius, CONNECT_ONE_SHOT)
-
-
-func _on_tween_update(value: float) -> void:
-	var tex: ImageTexture = _generate_texture(value)
-	if _cursor_sprite:
-		_cursor_sprite.texture = tex
+		_cursor_sprite.texture = _pressed_texture if pressed else _normal_texture
 
 
 func _input(event: InputEvent) -> void:
@@ -161,12 +149,9 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion or event is InputEventMouseButton:
 		_update_cursor_position()
 
-	# Animate inner dot on click
+	# Swap between normal and pressed cursor instantly — no tween or texture regeneration
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed:
-			_animate_inner_radius(INNER_RADIUS_PRESSED, ANIM_DURATION_PRESS)
-		else:
-			_animate_inner_radius(INNER_RADIUS_NORMAL, ANIM_DURATION_RELEASE)
+		_set_state(event.pressed)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -176,8 +161,9 @@ func _input(event: InputEvent) -> void:
 func _on_window_focus_entered() -> void:
 	# Re-hide the OS cursor (macOS shows it when switching back to the window).
 	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
-	_inner_radius = INNER_RADIUS_NORMAL
-	_update_cursor()
+	_is_pressed = false
+	if _cursor_sprite:
+		_cursor_sprite.texture = _normal_texture
 
 
 func _on_window_focus_exited() -> void:

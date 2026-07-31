@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d184a7kbigqcf"
-path="res://.godot/imported/blue-gradient.png-56ff4cf37ea4483b9c0ed7e20b1f6453.ctex"
+uid="uid://cnpgg7qxr0cof"
+path="res://.godot/imported/crimps_slopers.png-d8a3087f117b7d6c51c0f75ba26f34b4.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/blue-gradient.png"
-dest_files=["res://.godot/imported/blue-gradient.png-56ff4cf37ea4483b9c0ed7e20b1f6453.ctex"]
+source_file="res://assets/images/popups/crimps_slopers.png"
+dest_files=["res://.godot/imported/crimps_slopers.png-d8a3087f117b7d6c51c0f75ba26f34b4.ctex"]
 
 [params]
 

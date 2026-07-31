@@ -2,6 +2,7 @@ class_name WallEnvironmentTheme
 extends RefCounted
 ## Provides environment-specific color palettes and theme data for the DynamicWall.
 ## All methods are static; they receive a seed for deterministic variation.
+## Use `time_of_day_override` (0/1/2, or -1 for random) to force a specific variant.
 
 static func tod(seed: int, seed_xor: int) -> int:
 	return (abs((seed ^ seed_xor) * 1664525 + 1013904223) >> 7) % 3
@@ -9,28 +10,29 @@ static func tod(seed: int, seed_xor: int) -> int:
 static func _hf(v: int) -> float:
 	return float(hash(v) % 10000) / 10000.0
 
-static func apply_for_environment(env_name: String, scenery_seed: int, _env: Dictionary) -> Dictionary:
+static func apply_for_environment(env_name: String, scenery_seed: int, _env: Dictionary, time_of_day_override: int = -1) -> Dictionary:
 	_env.clear()
 	match env_name:
 		"granite", "night":
-			return _apply_granite_theme(scenery_seed)
+			return _apply_granite_theme(scenery_seed, time_of_day_override)
 		"sandstone":
-			return _apply_sandstone_theme(scenery_seed)
+			return _apply_sandstone_theme(scenery_seed, time_of_day_override)
 		"ice":
-			return _apply_ice_theme(scenery_seed)
+			return _apply_ice_theme(scenery_seed, time_of_day_override)
 		"menu_sunset":
 			return _apply_menu_sunset_theme()
 		"gym":
-			return _apply_gym_theme(scenery_seed)
+			return _apply_gym_theme(scenery_seed, time_of_day_override)
 		"deep water solo":
 			return _apply_deep_water_theme()
 		"building":
-			return _apply_building_theme(scenery_seed)
+			return _apply_building_theme(scenery_seed, time_of_day_override)
 		_:
 			return _apply_default_theme()
 
-static func _apply_granite_theme(seed: int) -> Dictionary:
-	match tod(seed, 0x9E3779B9):
+static func _apply_granite_theme(seed: int, tod_override: int = -1) -> Dictionary:
+	var t: int = tod_override if tod_override >= 0 and tod_override <= 2 else tod(seed, 0x9E3779B9)
+	match t:
 		1: return {
 				"sky_top": Color(0.12,0.10,0.32), "sky_horizon": Color(1.0,0.62,0.22),
 				"cloud_color": Color(1.0,0.65,0.40,1.0), "cloud_shadow": Color(0.65,0.25,0.12),
@@ -57,8 +59,9 @@ static func _apply_granite_theme(seed: int) -> Dictionary:
 				"ground_detail": "rocks", "fog_color": Color(0.65,0.80,0.95,0.0),
 			}
 
-static func _apply_sandstone_theme(seed: int) -> Dictionary:
-	match tod(seed, 0x4E2A9F3B):
+static func _apply_sandstone_theme(seed: int, tod_override: int = -1) -> Dictionary:
+	var t: int = tod_override if tod_override >= 0 and tod_override <= 2 else tod(seed, 0x4E2A9F3B)
+	match t:
 		1: return {
 				"sky_top": Color(0.14,0.09,0.22), "sky_horizon": Color(0.96,0.46,0.12),
 				"cloud_color": Color(1.0,0.60,0.28,0.9), "cloud_shadow": Color(0.68,0.28,0.10),
@@ -83,8 +86,9 @@ static func _apply_sandstone_theme(seed: int) -> Dictionary:
 				"fog_color": Color(0.90,0.72,0.40,0.07), "has_sand_wind": true,
 			}
 
-static func _apply_ice_theme(seed: int) -> Dictionary:
-	match (abs((seed ^ 0xC7D3E1F2) * 22695477 + 1) >> 9) % 3:
+static func _apply_ice_theme(seed: int, tod_override: int = -1) -> Dictionary:
+	var t: int = tod_override if tod_override >= 0 and tod_override <= 2 else (abs((seed ^ 0xC7D3E1F2) * 22695477 + 1) >> 9) % 3
+	match t:
 		1: return {
 				"sky_top": Color(0.18,0.10,0.30), "sky_horizon": Color(0.94,0.44,0.52),
 				"cloud_color": Color(1.0,0.62,0.70,0.85), "cloud_shadow": Color(0.60,0.22,0.38),
@@ -123,8 +127,8 @@ static func _apply_menu_sunset_theme() -> Dictionary:
 		"ground_detail": "rocks",
 	}
 
-static func _apply_gym_theme(seed: int) -> Dictionary:
-	var tod_val: int = (abs((seed ^ 0x6B43FA1D) * 22695477 + 1) >> 9) % 3
+static func _apply_gym_theme(seed: int, tod_override: int = -1) -> Dictionary:
+	var tod_val: int = tod_override if tod_override >= 0 and tod_override <= 2 else (abs((seed ^ 0x6B43FA1D) * 22695477 + 1) >> 9) % 3
 	var base := {
 		"sky_top": Color(0.96,0.96,0.97), "sky_horizon": Color(0.92,0.92,0.93),
 		"cloud_color": Color(1.0,1.0,1.0,0.0), "has_sun": false, "has_mountains": false,
@@ -163,8 +167,9 @@ static func _apply_deep_water_theme() -> Dictionary:
 		"fog_color": Color(0.50,0.75,0.90,0.06), "has_sea_cliffs": true,
 	}
 
-static func _apply_building_theme(seed: int) -> Dictionary:
-	match tod(seed, 0x3F7A2B1C):
+static func _apply_building_theme(seed: int, tod_override: int = -1) -> Dictionary:
+	var t: int = tod_override if tod_override >= 0 and tod_override <= 2 else tod(seed, 0x3F7A2B1C)
+	match t:
 		1: return {
 				"sky_top": Color(0.06,0.05,0.14), "sky_horizon": Color(0.72,0.28,0.10),
 				"cloud_color": Color(1.0,0.55,0.25,0.70), "cloud_shadow": Color(0.55,0.20,0.10),

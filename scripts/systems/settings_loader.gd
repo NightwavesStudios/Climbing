@@ -12,6 +12,9 @@ const REBINDABLE_ACTIONS: Array[String] = [
 	"select_left_foot",
 	"select_right_foot",
 	"restart",
+	"project_mode",
+	"route_view",
+	"ui_cancel",
 ]
 
 const FPS_CAP_VALUES: Array[int] = [0, 30, 60, 120, 144]

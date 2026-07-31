@@ -17,6 +17,9 @@ var completed_collections: Array[String] = []
 var total_falls: int = 0
 var total_falling_holds: int = 0
 
+# Weekly level best times: weekly_level_path -> best_time_seconds
+var weekly_best_times: Dictionary = {}
+
 # Climb metadata storage (name and grade for each level)
 var climb_metadata: Dictionary = {}  # level_path: {name: String, grade: String}
 
@@ -39,6 +42,7 @@ const COLLECTIONS = {
 			"res://data/levels/tutorial/tutorial_10.json",
 			"res://data/levels/tutorial/tutorial_11.json",
 			"res://data/levels/tutorial/tutorial_12.json",
+			"res://data/levels/tutorial/tutorial_13.json",
 		]
 	},
 	"granite-crag": {
@@ -289,23 +293,28 @@ func _check_collection_completion(level_path: String) -> void:
 
 		if all_complete and collection_id not in completed_collections:
 			completed_collections.append(collection_id)
-			print("🎉 COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
+			print("COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
 
 			# ── Achievement: collection-based checks ───────────────────────
 			if get_node_or_null("/root/Achievements"):
 				match collection_id:
 					"intro-gym":
 						Achievements.check_gym_rat()
-					"granite-crag":
-						Achievements.check_on_real_rock()
+					# "granite-crag" achievement (ON_REAL_ROCK) reserved for full game
 
 func _update_current_collection_from_level(level_path: String) -> void:
 	"""Find and set which collection this level belongs to"""
+	# Check regular collections first
 	for collection_id in COLLECTIONS:
 		if level_path in COLLECTIONS[collection_id].levels:
 			current_collection = collection_id
 			print("GameState: Current collection set to " + collection_id)
 			return
+	
+	# Check if this is a weekly level
+	if level_path.begins_with("res://data/levels/weekly/"):
+		current_collection = "weekly"
+		print("GameState: Current collection set to weekly")
 
 # =============================================================================
 # LEVEL LOCKING (Within Collections)
@@ -430,6 +439,22 @@ func record_falling_hold() -> void:
 		Achievements.check_loose_rock()
 
 
+func get_weekly_best_time(level_path: String) -> float:
+	"""Get the player's best time for a weekly level. Returns 0.0 if none."""
+	return weekly_best_times.get(level_path, 0.0)
+
+
+func record_weekly_best_time(level_path: String, time_seconds: float) -> bool:
+	"""Record a new weekly best time. Returns true if it's a new personal best."""
+	var current_best: float = weekly_best_times.get(level_path, INF)
+	if time_seconds > 0.0 and time_seconds < current_best:
+		weekly_best_times[level_path] = time_seconds
+		save_game()
+		print("GameState: New weekly best for ", level_path, ": ", time_seconds, "s")
+		return true
+	return false
+
+
 func get_total_falls() -> int:
 	return total_falls
 
@@ -505,6 +530,7 @@ func reset_progress() -> void:
 	last_completed_level = ""
 	total_falls = 0
 	total_falling_holds = 0
+	weekly_best_times.clear()
 	save_game()
 	print("GameState: Progress reset")
 
@@ -517,6 +543,7 @@ func get_save_data() -> Dictionary:
 		"current_collection": current_collection,
 		"total_falls": total_falls,
 		"total_falling_holds": total_falling_holds,
+		"weekly_best_times": weekly_best_times,
 	}
 
 func load_save_data(data: Dictionary) -> void:
@@ -527,3 +554,4 @@ func load_save_data(data: Dictionary) -> void:
 	current_collection = data.get("current_collection", "")
 	total_falls = data.get("total_falls", 0)
 	total_falling_holds = data.get("total_falling_holds", 0)
+	weekly_best_times = data.get("weekly_best_times", {})

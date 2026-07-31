@@ -1,7 +1,7 @@
 extends Node
 
 ## FPS counter: prints framerate to the console every second.
-## Press F3 to toggle on/off.
+## Toggle via the FPS Counter binding in Settings.
 
 var _fps_timer: Timer
 var _fps_enabled: bool = false
@@ -15,12 +15,11 @@ func _ready() -> void:
 	_fps_timer.timeout.connect(_on_fps_tick)
 	add_child(_fps_timer)
 
-	print("[FPS] Press F3 to show/hide framerate in console.")
+	print("[FPS] Toggle via Settings > Controls > FPS Counter.")
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_fps_toggle") or \
-	   (event is InputEventKey and event.keycode == KEY_F3 and event.pressed and not event.echo):
+	if event.is_action_pressed("ui_fps_toggle"):
 		get_viewport().set_input_as_handled()
 		_fps_enabled = not _fps_enabled
 		if _fps_enabled:

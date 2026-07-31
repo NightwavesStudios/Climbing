@@ -150,6 +150,9 @@ var is_setup         : bool   = false
 var rope_line        : Line2D = null
 var rope_lower       : Line2D = null
 
+# ── Fall tracking ──────────────────────────────────────────────
+var _fall_recorded: bool = false  # Prevents double-counting a single fall
+
 # =============================================================================
 #  INIT
 # =============================================================================
@@ -240,6 +243,7 @@ func _update_catch(delta: float) -> void:
 				catch_state   = CatchState.FALLING
 				fall_origin_y = player.com_position.y
 				fall_vel      = player.com_velocity.y
+				_fall_recorded = false
 
 		CatchState.FALLING:
 			fall_vel = player.com_velocity.y
@@ -253,6 +257,7 @@ func _update_catch(delta: float) -> void:
 				anim_lean        = 0.4
 				anim_catch_shake = 0.2
 				anim_shake_dir   = randf_range(-1.0, 1.0)
+				_record_player_fall()
 				emit_signal("player_caught")
 				return
 
@@ -266,6 +271,7 @@ func _update_catch(delta: float) -> void:
 				anim_lean        = 1.0
 				anim_catch_shake = clamp(fall_vel / 280.0, 0.3, 1.0)
 				anim_shake_dir   = randf_range(-1.0, 1.0)
+				_record_player_fall()
 				emit_signal("player_caught")
 
 			if _has_hand_hold():
@@ -303,6 +309,15 @@ func _set_player_pos(pos: Vector2) -> void:
 	player.com_position    = pos
 	player.body_velocity   = Vector2.ZERO
 	player.global_position = pos + Vector2(0, -player.COM_OFFSET_Y)
+
+func _record_player_fall() -> void:
+	"""Record this fall for achievement tracking. Guards against double-counting."""
+	if _fall_recorded:
+		return
+	_fall_recorded = true
+	var game_state := get_node_or_null("/root/GameState")
+	if game_state and game_state.has_method("record_fall"):
+		game_state.record_fall()
 
 # =============================================================================
 #  ANIMATION — reads climber state every frame

@@ -9,7 +9,7 @@ extends Node
 const FIRST_CLIMB    := "FIRST_CLIMB"
 const DEMO_COMPLETE  := "DEMO_COMPLETE"
 const GYM_RAT        := "GYM_RAT"
-const ON_REAL_ROCK   := "ON_REAL_ROCK"
+# const ON_REAL_ROCK   := "ON_REAL_ROCK"  # reserved for full game
 const LOOSE_ROCK     := "LOOSE_ROCK"
 const GRAVITY_CHECK  := "GRAVITY_CHECK"
 const SPEED_DEMON    := "SPEED_DEMON"
@@ -28,7 +28,17 @@ func setAchievement(ach: String) -> void:
 		print("Achievements: " + ach + " already unlocked!")
 		return
 	Steam.setAchievement(ach)
+	Steam.storeStats()
 	print("Achievements: Unlocked \"" + ach + "\"")
+
+func _update_progress_stat(ach: String, current: int, target: int) -> void:
+	"""Update a Steam achievement's progress stat so the overlay shows fractional progress.
+	Only calls indicateAchievementProgress if the achievement isn't already achieved."""
+	if Steam.getAchievement(ach)["achieved"]:
+		return
+	var display = "%d/%d" % [current, target]
+	print("Achievements: Progress \"%s\" = %s" % [ach, display])
+	Steam.indicateAchievementProgress(ach, current, target)
 
 # =============================================================================
 #  ACHIEVEMENT CHECKS  (called by game logic when events occur)
@@ -38,7 +48,7 @@ func setAchievement(ach: String) -> void:
 func check_first_climb() -> void:
 	setAchievement(FIRST_CLIMB)
 
-## Called when the last demo level (granite_crag_10) is completed.
+## Called when the last demo level (gym tutorial) is completed.
 func check_demo_complete() -> void:
 	setAchievement(DEMO_COMPLETE)
 
@@ -47,19 +57,20 @@ func check_gym_rat() -> void:
 	if GameState.is_collection_completed("intro-gym"):
 		setAchievement(GYM_RAT)
 
-## Called after a level is completed — checks whether all granite levels are done.
-func check_on_real_rock() -> void:
-	if GameState.is_collection_completed("granite-crag"):
-		setAchievement(ON_REAL_ROCK)
-
 ## Called whenever a falling hold is recorded.
+## Tracks progress via Steam stats so the player sees "X/50" in the overlay.
 func check_loose_rock() -> void:
-	if GameState.get_total_falling_holds() >= FALLING_HOLD_THRESHOLD:
+	var total := GameState.get_total_falling_holds()
+	_update_progress_stat(LOOSE_ROCK, total, FALLING_HOLD_THRESHOLD)
+	if total >= FALLING_HOLD_THRESHOLD:
 		setAchievement(LOOSE_ROCK)
 
 ## Called whenever a fall is recorded.
+## Tracks progress via Steam stats so the player sees "X/20" in the overlay.
 func check_gravity_check() -> void:
-	if GameState.get_total_falls() >= FALL_THRESHOLD:
+	var total := GameState.get_total_falls()
+	_update_progress_stat(GRAVITY_CHECK, total, FALL_THRESHOLD)
+	if total >= FALL_THRESHOLD:
 		setAchievement(GRAVITY_CHECK)
 
 ## Called when a speed climb is completed.
