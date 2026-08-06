@@ -14,7 +14,7 @@ const DISCORD_URL  := "https://discord.gg/5JyxqfsAbq"
 
 # ── Weekly overlay nodes (hidden for normal levels) ─────────────────────────
 @onready var backdrop: ColorRect      = $Backdrop
-@onready var box: ColorRect           = $Box
+@onready var box: Panel           = $Box
 @onready var title_label: Label        = $Box/VBox/Title
 @onready var time_label: Label         = $Box/VBox/TimeLabel
 @onready var best_time_label: Label    = $Box/VBox/BestTimeLabel
@@ -37,12 +37,21 @@ var _completed_level_path: String = ""
 var _active_tweens: Array[Tween] = []
 var _is_weekly := false
 var _leaderboard_data_received := false  # Prevents timeout from overwriting loaded data
+var _leaderboard_displayed := false  # True once rows have been shown (skip re-fade on name refresh)
 
 
 func _ready() -> void:
 	visible = false
 	layer = 10
 	_reset_all()
+	# Make the weekly overlay buttons a uniform width, sized to the widest one.
+	call_deferred(&"_equalize_button_widths")
+
+
+## Give every weekly overlay button the same width (based on the longest label),
+## so Retry / Share on Discord / Home line up as a cohesive column.
+func _equalize_button_widths() -> void:
+	UniversalButton.equalize_widths([restart_button, discord_button, menu_button])
 
 
 func _exit_tree() -> void:
@@ -54,6 +63,7 @@ func _exit_tree() -> void:
 
 func _reset_all() -> void:
 	_leaderboard_data_received = false
+	_leaderboard_displayed = false
 	# Weekly overlay group
 	if backdrop:
 		backdrop.modulate = Color(1, 1, 1, 0)
@@ -317,7 +327,6 @@ func _show_leaderboard_loading() -> void:
 		var timeout := tree.create_timer(5.0)
 		timeout.timeout.connect(_on_leaderboard_timeout)
 
-
 func _on_leaderboard_ready(entries: Array, player_rank: int, _player_time: float) -> void:
 	"""Handle leaderboard data from Steam."""
 	_leaderboard_data_received = true
@@ -341,7 +350,6 @@ func _on_leaderboard_ready(entries: Array, player_rank: int, _player_time: float
 
 	if leaderboard_entries:
 		leaderboard_entries.visible = true
-		leaderboard_entries.modulate = Color(1, 1, 1, 0)
 
 	# Create an entry row for each leaderboard entry
 	for entry in entries:
@@ -349,8 +357,11 @@ func _on_leaderboard_ready(entries: Array, player_rank: int, _player_time: float
 		if row:
 			leaderboard_entries.add_child(row)
 
-	# Fade in the leaderboard entries (title is already faded in by _show_leaderboard_loading)
-	if leaderboard_entries and leaderboard_entries.get_child_count() > 0:
+	# Fade in the leaderboard entries only the first time data arrives
+	# (later re-emissions are name refreshes from persona_state_change — don't flash).
+	if leaderboard_entries and leaderboard_entries.get_child_count() > 0 and not _leaderboard_displayed:
+		_leaderboard_displayed = true
+		leaderboard_entries.modulate = Color(1, 1, 1, 0)
 		var tween := create_tween()
 		_active_tweens.append(tween)
 		tween.tween_interval(0.5)
@@ -372,47 +383,49 @@ func _on_leaderboard_timeout() -> void:
 		tween.tween_property(leaderboard_status, "modulate:a", 0.6, 0.35) \
 			.set_ease(Tween.EASE_OUT) \
 			.set_trans(Tween.TRANS_CUBIC)
-
-
 func _create_leaderboard_row(entry: Dictionary, player_rank: int) -> HBoxContainer:
 	"""Create a single leaderboard row (rank, name, time) for one entry."""
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.theme_override_constants["separation"] = 8
+	row.add_theme_constant_override("separation", 8)
 
 	# Rank label
 	var rank_label := Label.new()
 	rank_label.text = "#" + str(entry["global_rank"])
 	rank_label.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	rank_label.theme_override_font_sizes["font_size"] = 14
+	rank_label.add_theme_font_size_override("font_size", 14)
 	rank_label.custom_minimum_size = Vector2(40, 0)
 
 	# Player name label
 	var name_label := Label.new()
-	name_label.text = entry["name"]
+	var display_name: String = str(entry.get("name", ""))
+	if display_name == "" and entry.get("global_rank", 0) == player_rank and player_rank > 0:
+		# This is the local player's row but the name didn't resolve — use the persona name directly.
+		var wl := get_node_or_null("/root/WeeklyLeaderboard")
+		if wl and wl.has_method("get_local_player_name"):
+			display_name = wl.get_local_player_name()
+	name_label.text = display_name
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.theme_override_font_sizes["font_size"] = 14
-	name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
-	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.add_theme_font_size_override("font_size", 14)
 
 	# Time label
 	var row_time_label := Label.new()
 	var time_seconds: float = entry["score"] / 1000.0
 	row_time_label.text = WeeklyLeaderboard.format_time(time_seconds)
 	row_time_label.size_flags_horizontal = Control.SIZE_SHRINK_END
-	row_time_label.theme_override_font_sizes["font_size"] = 14
+	row_time_label.add_theme_font_size_override("font_size", 14)
 	row_time_label.custom_minimum_size = Vector2(80, 0)
 	row_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 	# Highlight the local player's row
 	if entry["global_rank"] == player_rank and player_rank > 0:
-		rank_label.theme_override_colors["font_color"] = Color(0.35, 1.0, 0.5)
-		name_label.theme_override_colors["font_color"] = Color(0.35, 1.0, 0.5)
-		row_time_label.theme_override_colors["font_color"] = Color(0.35, 1.0, 0.5)
+		rank_label.add_theme_color_override("font_color", Color(0.35, 1.0, 0.5))
+		name_label.add_theme_color_override("font_color", Color(0.35, 1.0, 0.5))
+		row_time_label.add_theme_color_override("font_color", Color(0.35, 1.0, 0.5))
 	else:
-		rank_label.theme_override_colors["font_color"] = Color(0.8, 0.8, 0.85)
-		name_label.theme_override_colors["font_color"] = Color(0.8, 0.8, 0.85)
-		row_time_label.theme_override_colors["font_color"] = Color(0.8, 0.8, 0.85)
+		rank_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.85))
+		name_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.85))
+		row_time_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.85))
 
 	row.add_child(rank_label)
 	row.add_child(name_label)
@@ -424,6 +437,7 @@ func _reset_leaderboard() -> void:
 	"""Clear all dynamically created leaderboard entry rows."""
 	if leaderboard_entries:
 		for child in leaderboard_entries.get_children():
+			leaderboard_entries.remove_child(child)
 			child.queue_free()
 
 

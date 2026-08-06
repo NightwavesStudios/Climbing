@@ -2,7 +2,7 @@ extends Node
 ## Autoload singleton for managing game state, collections, and progression
 
 # Debug flags
-var debug_unlock_all: bool = false  # Set to true to unlock all collections and levels
+var debug_unlock_all: bool = true  # Set to true to unlock all collections and levels
 
 # Current gameplay state
 var current_level: String = ""
@@ -43,6 +43,7 @@ const COLLECTIONS = {
 			"res://data/levels/tutorial/tutorial_11.json",
 			"res://data/levels/tutorial/tutorial_12.json",
 			"res://data/levels/tutorial/tutorial_13.json",
+			"res://data/levels/tutorial/tutorial_14.json",
 		]
 	},
 	"granite-crag": {
@@ -159,6 +160,11 @@ func record_level_completion(level_path: String, completion_time: float) -> void
 		if completed_levels.size() == 1:
 			if get_node_or_null("/root/Achievements") and Achievements.has_method("check_first_climb"):
 				Achievements.check_first_climb()
+
+		# ── Achievement: weekly level (WEEKLY_LEVEL) ──────────────────────
+		if level_path.begins_with("res://data/levels/weekly/"):
+			if get_node_or_null("/root/Achievements") and Achievements.has_method("check_weekly_level"):
+				Achievements.check_weekly_level()
 
 		_check_collection_completion(level_path)
 		save_game()
@@ -294,13 +300,6 @@ func _check_collection_completion(level_path: String) -> void:
 		if all_complete and collection_id not in completed_collections:
 			completed_collections.append(collection_id)
 			print("COLLECTION COMPLETE: " + COLLECTIONS[collection_id].name)
-
-			# ── Achievement: collection-based checks ───────────────────────
-			if get_node_or_null("/root/Achievements"):
-				match collection_id:
-					"intro-gym":
-						Achievements.check_gym_rat()
-					# "granite-crag" achievement (ON_REAL_ROCK) reserved for full game
 
 func _update_current_collection_from_level(level_path: String) -> void:
 	"""Find and set which collection this level belongs to"""

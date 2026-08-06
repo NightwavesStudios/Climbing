@@ -17,6 +17,7 @@ scale = Vector2(0.2, 0.2)
 rotation = 3.1415927
 gravity_space_override = 1
 script = ExtResource("1_oflc6")
+hold_type = 7
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
 position = Vector2(-10, -5.000001)

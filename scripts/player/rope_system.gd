@@ -216,7 +216,9 @@ func _reset_anim_state() -> void:
 #  MAIN LOOP
 # =============================================================================
 
-func _process(delta: float) -> void:
+## Rope physics runs at the fixed 60 Hz physics tick so rope behavior is
+## identical regardless of render FPS (see character.gd for the same split).
+func _physics_process(delta: float) -> void:
 	if not is_setup or not is_instance_valid(player):
 		is_setup = false
 		return
@@ -515,7 +517,7 @@ func _solve_knee(hip: Vector2, foot: Vector2, upper: float, lower: float, bend_s
 
 func _simulate_rope(delta: float) -> void:
 	if rope_points.size() < 3: return
-	var chest := _player_chest()
+	var chest := _player_harness()
 
 	for i in range(1, rope_points.size() - 1):
 		rope_velocities[i].y += ROPE_GRAVITY * delta
@@ -702,6 +704,16 @@ func _player_chest() -> Vector2:
 		else belayer_position + Vector2(0, 100)
 
 
+## Where the rope attaches to the climber: the harness at the waist, not the
+## neck. Attaching at the neck makes a caught hang read as a noose; the waist
+## is both realistic (top-rope catches the harness) and far less gorey.
+func _player_harness() -> Vector2:
+	if not is_instance_valid(player):
+		return belayer_position + Vector2(0, 100)
+	var hdown: float = float(player.get("HIP_DOWN")) if player.get("HIP_DOWN") != null else 20.0
+	return player.global_position + Vector2(0, hdown)
+
+
 func _find_anchor() -> Vector2:
 	for wall in get_tree().get_nodes_in_group("environment_walls"):
 		if wall.has_method("get_anchor_position_for_x"):
@@ -719,7 +731,7 @@ func _find_anchor() -> Vector2:
 func _init_rope() -> void:
 	rope_points.clear()
 	rope_velocities.clear()
-	var waypoints := [b_guide_hand, anchor_position, _player_chest()]
+	var waypoints := [b_guide_hand, anchor_position, _player_harness()]
 	var total     := 0.0
 	for i in range(waypoints.size() - 1):
 		total += waypoints[i].distance_to(waypoints[i + 1])
@@ -756,5 +768,6 @@ func apply_rope_force_to_player(vel: Vector2) -> Vector2:
 func cleanup() -> void:
 	is_setup = false
 	set_process(false)
+	set_physics_process(false)
 	if is_instance_valid(rope_line):  rope_line.queue_free();  rope_line  = null
 	if is_instance_valid(rope_lower): rope_lower.queue_free(); rope_lower = null

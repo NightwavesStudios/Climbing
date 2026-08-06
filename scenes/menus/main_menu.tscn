@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://cmudrme1ntc3v"]
+[gd_scene load_steps=7 format=3 uid="uid://cmudrme1ntc3v"]
 
 [ext_resource type="Script" uid="uid://cih6ocoqb46qx" path="res://scripts/ui/menus/main_menu.gd" id="1_xqga4"]
 [ext_resource type="Texture2D" uid="uid://dusadgoemwud7" path="res://assets/textures/discord.png" id="4_ng0o5"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="5_imvie"]
 [ext_resource type="Texture2D" uid="uid://cxjxb5bobileg" path="res://assets/textures/CLIMBING (14).svg" id="6_ng0o5"]
 [ext_resource type="PackedScene" uid="uid://dc2v5h72unm3e" path="res://scenes/menus/quit_confirmation.tscn" id="7_4endb"]
+[ext_resource type="StyleBox" uid="uid://bfk7e7fgehtut" path="res://assets/themes/popup_card.tres" id="8_qlpst"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -90,12 +91,12 @@ anchor_bottom = 1.0
 mouse_filter = 2
 color = Color(0, 0, 0, 0.15)
 
-[node name="Box" type="ColorRect" parent="DemoNotice"]
+[node name="Box" type="Panel" parent="DemoNotice"]
 offset_left = 320.0
 offset_top = 260.0
 offset_right = 960.0
 offset_bottom = 490.0
-color = Color(0.06, 0.06, 0.06, 0.92)
+theme_override_styles/panel = ExtResource("8_qlpst")
 
 [node name="VBox" type="VBoxContainer" parent="DemoNotice/Box"]
 layout_mode = 0

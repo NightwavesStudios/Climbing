@@ -41,11 +41,6 @@
 			"y": -96.0
 		},
 		{
-			"type": "CRIMP",
-			"x": 80.0,
-			"y": -160.0
-		},
-		{
 			"type": "FOOT",
 			"x": 48.0,
 			"y": -96.0
@@ -78,10 +73,16 @@
 			"type": "FOOT",
 			"x": -48.0,
 			"y": -208.0
+		},
+		{
+			"type": "UNDERCLING",
+			"x": 64.0,
+			"y": -192.0
 		}
 	],
 	"name": "Crimping Spree",
 	"speed_time_limit": 60.0,
+	"time_of_day": -1,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 7,

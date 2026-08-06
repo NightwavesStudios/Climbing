@@ -6,14 +6,14 @@ extends RefCounted
 const INSTRUCTIONS_SAVE_PATH := "user://prefs.cfg"
 
 var _instructions: CanvasLayer
-var _instructions_root: ColorRect
+var _instructions_root: Panel
 var _popup_sprite: Sprite2D
 var _active_popup_key: String = ""
 var _popup_queue: Array[Dictionary] = []
 
 var POPUP_CONFIGS: Array = []
 
-func _init(instructions: CanvasLayer, instructions_root: ColorRect, popup_sprite: Sprite2D) -> void:
+func _init(instructions: CanvasLayer, instructions_root: Panel, popup_sprite: Sprite2D) -> void:
 	_instructions = instructions
 	_instructions_root = instructions_root
 	_popup_sprite = popup_sprite

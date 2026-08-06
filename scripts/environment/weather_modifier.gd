@@ -11,6 +11,7 @@ enum WeatherType {
 	FOG,
 	HAIL,
 	SANDSTORM,
+	WIND,
 }
 
 ## Emitted every physics frame with the current world-space wind vector.
@@ -157,6 +158,24 @@ var sandstorm_cloud_color  := Color(0.72, 0.56, 0.28, 0.90)
 var sandstorm_cloud_shadow := Color(0.52, 0.36, 0.14)
 var sandstorm_fog_sky      := Color(0.72, 0.52, 0.22, 0.50)
 
+# ── Wind parameters ────────────────────────────────────────────────────────────
+# Same physics as sandstorm but visually just faint air-movement streaks.
+# No sand, no haze, no ground dust — pure wind.
+var wind_density      := 600        # number of streak particles (fewer than sandstorm)
+var wind_speed        := 750.0      # horizontal pixels / sec (base)
+var wind_wind_val     := 280.0      # extra horizontal push
+var wind_min_len      := 18.0       # shortest streak (slightly longer to show air flow)
+var wind_max_len      := 60.0       # longest streak
+var wind_angle_deg    := 3.0        # nearly horizontal
+var wind_color        := Color(0.75, 0.80, 0.88, 0.28)  # very faint blue-grey
+var wind_ground_h     := 80.0       # ground-level wind band height
+
+var wind_sky_top      := Color(0.52, 0.56, 0.62)
+var wind_sky_horizon  := Color(0.68, 0.72, 0.78)
+var wind_cloud_color  := Color(0.72, 0.74, 0.78, 0.70)
+var wind_cloud_shadow := Color(0.48, 0.50, 0.54)
+var wind_fog_sky      := Color(0.64, 0.68, 0.72, 0.18)
+
 # ── Player tracking ────────────────────────────────────────────────────────────
 var _player_head_world: Vector2 = Vector2.ZERO
 var _lamp_target_world: Vector2 = Vector2.ZERO
@@ -213,6 +232,13 @@ var _sand_lines: Array[PackedVector2Array] = [
 	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
 var _sand_udx: float = 0.0   # precomputed unit direction x
 var _sand_udy: float = 0.0   # precomputed unit direction y (slight downward)
+
+# ── Wind internal state (reuses line-drawing pattern from sandstorm) ──────────
+var _wind_particles: Array[Dictionary] = []
+var _wind_lines: Array[PackedVector2Array] = [
+	PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
+var _wind_udx: float = 0.0
+var _wind_udy: float = 0.0
 
 # ── RAIN: Flat arrays for high-performance particle updates (600 drops) ───────
 # Structure-of-arrays eliminates Dictionary key-lookup overhead.
@@ -425,6 +451,7 @@ func set_weather(new_weather: int) -> void:
 	_hailstones.clear()
 	_hail_bounces.clear()
 	_sand_particles.clear()
+	_wind_particles.clear()
 	_lightning_active      = false
 	_lightning_bolt_points = []
 	_lightning_branches    = []
@@ -440,6 +467,7 @@ func set_weather(new_weather: int) -> void:
 	for i in range(LAYERS):
 		_rain_lines[i].clear()
 		_sand_lines[i].clear()
+		_wind_lines[i].clear()
 		_hail_points[i].clear()
 		_hail_radii[i].clear()
 		_hail_streaks[i].clear()
@@ -498,6 +526,13 @@ func set_weather(new_weather: int) -> void:
 			if _audio and _audio.playing:
 				_audio.stop()
 			_audio_fading_in = false
+		WeatherType.WIND:
+			_cache_wind_angle()
+			_init_wind()
+			_set_lights_enabled(false)
+			if _audio and _audio.playing:
+				_audio.stop()
+			_audio_fading_in = false
 		_:  # NONE
 			_set_lights_enabled(false)
 			if _audio and _audio.playing:
@@ -530,6 +565,12 @@ func _cache_sand_angle() -> void:
 	var rad := deg_to_rad(sandstorm_angle_deg)
 	_sand_udx = cos(rad)   # dominant horizontal component
 	_sand_udy = sin(rad)   # tiny downward component
+
+func _cache_wind_angle() -> void:
+	# Nearly horizontal airflow
+	var rad := deg_to_rad(wind_angle_deg)
+	_wind_udx = cos(rad)   # dominant horizontal component
+	_wind_udy = sin(rad)   # tiny downward component
 
 
 # =============================================================================
@@ -746,6 +787,52 @@ func _append_sand_line(s: Dictionary) -> void:
 
 
 # =============================================================================
+# WIND INIT / PARTICLE FACTORY — same physics as sandstorm, no sand
+# =============================================================================
+
+func _init_wind() -> void:
+	var count := int(wind_density * clamp(intensity, 0.05, 1.0))
+	_wind_particles.resize(count)
+	for i in range(count):
+		_wind_particles[i] = _make_wind_particle(true)
+	_rebuild_wind_packed()
+
+func _make_wind_particle(spread: bool) -> Dictionary:
+	var b       := _get_draw_bounds()
+	var layer   := _drop_rng.randi() % LAYERS
+	var depth_t := float(layer) / float(LAYERS - 1)
+	# Spread across the whole visible area; recycle from left edge
+	var x := _drop_rng.randf_range(b.x, b.x + b.z) if spread \
+			  else b.x - _drop_rng.randf() * 300.0
+	var y := _drop_rng.randf_range(b.y, b.y + b.w)
+	return {
+		"x":     x,
+		"y":     y,
+		"layer": layer,
+		# Long thin air-flow streaks
+		"len":   lerp(wind_min_len, wind_max_len, depth_t)
+				 * (0.5 + _drop_rng.randf() * 0.8),
+		"speed": wind_speed * lerp(0.5, 1.0, depth_t)
+				 * (0.65 + _drop_rng.randf() * 0.70),
+		# Tiny vertical drift — keeps streaks spread across the screen
+		"vy":    (_drop_rng.randf() - 0.5) * 14.0,
+		"alpha": (0.20 + _drop_rng.randf() * 0.45) * lerp(0.35, 1.0, depth_t),
+	}
+
+func _rebuild_wind_packed() -> void:
+	for i in range(LAYERS): _wind_lines[i].clear()
+	for s in _wind_particles: _append_wind_line(s)
+
+func _append_wind_line(s: Dictionary) -> void:
+	var layer: int = s["layer"]
+	var sx: float  = s["x"]
+	var sy: float  = s["y"]
+	var slen: float = s["len"]
+	_wind_lines[layer].append(Vector2(sx, sy))
+	_wind_lines[layer].append(Vector2(sx - _wind_udx * slen, sy - _wind_udy * slen))
+
+
+# =============================================================================
 # BUILD RAIN LINES (in-place, no alloc)
 # =============================================================================
 
@@ -827,6 +914,9 @@ func _process(delta: float) -> void:
 			_puddle_ripple_time += delta * 0.3
 		WeatherType.SANDSTORM:
 			_update_sandstorm(delta)
+			_puddle_alpha = max(_puddle_alpha - PUDDLE_DECAY_SPEED * delta, 0.0)
+		WeatherType.WIND:
+			_update_wind(delta)
 			_puddle_alpha = max(_puddle_alpha - PUDDLE_DECAY_SPEED * delta, 0.0)
 
 	# If no rain/hail, puddles gradually dry
@@ -914,6 +1004,8 @@ func _compute_scene_tint() -> Color:
 			return Color(0.10, 0.12, 0.18, t)
 		WeatherType.SANDSTORM:
 			return Color(0.18, 0.10, 0.04, t * 1.4)
+		WeatherType.WIND:
+			return Color(0.10, 0.12, 0.16, t * 0.6)
 		_:
 			return Color.TRANSPARENT
 
@@ -1077,6 +1169,33 @@ func _update_sandstorm(delta: float) -> void:
 
 		_append_sand_line(s)
 
+
+# =============================================================================
+# WIND UPDATE — same horizontal-flow logic as sandstorm
+# =============================================================================
+
+func _update_wind(delta: float) -> void:
+	var b        := _get_draw_bounds()
+	var ground_y := _get_ground_y()
+	var gust_push := _gust_strength * 70.0 * delta
+
+	for i in range(LAYERS): _wind_lines[i].clear()
+
+	for i in range(_wind_particles.size()):
+		var s := _wind_particles[i]
+		# All wind streaks move strongly to the right; speed varies by layer
+		s["x"] += (_wind_udx * s["speed"] + wind_wind_val + gust_push) * delta
+		s["y"] += _wind_udy * s["speed"] * delta + s["vy"] * delta
+
+		# Recycle when off right edge, above sky, or below ground
+		if s["x"] - s["len"] > b.x + b.z + 100.0 \
+				or s["y"] < b.y - 40.0 \
+				or s["y"] > ground_y + 40.0:
+			s = _make_wind_particle(false)
+			_wind_particles[i] = s
+
+		_append_wind_line(s)
+
 func _spawn_splash(sx: float, gy: float, drop_alpha: float, _layer: int) -> void:
 	if _drop_rng.randf() > 0.08: return
 	_splashes.append({"x": sx, "gy": gy, "t": 0.0, "alpha": drop_alpha * clamp(intensity, 0.3, 0.7)})
@@ -1191,6 +1310,9 @@ func _draw() -> void:
 			_draw_scene_overlay()
 		WeatherType.SANDSTORM:
 			_draw_sandstorm()
+			_draw_scene_overlay()
+		WeatherType.WIND:
+			_draw_wind()
 			_draw_scene_overlay()
 		WeatherType.NONE:
 			pass
@@ -1482,6 +1604,40 @@ func _draw_sandstorm() -> void:
 
 
 # =============================================================================
+# WIND DRAW — just faint air streaks, no haze, no ground dust
+# =============================================================================
+
+func _draw_wind() -> void:
+	var b        := _get_draw_bounds()
+	var ground_y := _get_ground_y()
+	var total_h  := ground_y - b.y
+	var blend    := _blend * intensity
+
+	# ── 1. Subtle horizon greying — very faint, just a touch of overcast ─────
+	_draw_grad_quad(b.x, b.y, b.z, b.y + total_h,
+		Color(wind_sky_top.r, wind_sky_top.g, wind_sky_top.b, 0.0),
+		Color(wind_sky_horizon.r * 0.6, wind_sky_horizon.g * 0.6, wind_sky_horizon.b * 0.6, 0.08 * blend))
+
+	# ── 2. Faint ground-level wind band — visible gusts near the surface ──────
+	var gh = wind_ground_h * clamp(intensity, 0.3, 1.0)
+	_draw_grad_quad(b.x, ground_y - gh, b.z, ground_y,
+		Color(wind_color.r, wind_color.g, wind_color.b, 0.0),
+		Color(wind_color.r * 0.7, wind_color.g * 0.75, wind_color.b * 0.8, 0.12 * blend))
+
+	# ── 3. Wind streaks — batched per layer with draw_multiline ──────────────
+	for layer in range(LAYERS):
+		if _wind_lines[layer].size() < 2: continue
+		var depth_t := float(layer) / float(LAYERS - 1)
+		var a = lerp(0.12, 0.30, depth_t) * blend
+		if a < 0.02: continue
+		var line_w = lerp(0.5, 1.5, depth_t)
+		draw_multiline(
+			_wind_lines[layer],
+			Color(wind_color.r, wind_color.g, wind_color.b, a),
+			line_w)
+
+
+# =============================================================================
 # ATMOSPHERIC OVERLAYS — puddles, afterglow, scene tint
 # =============================================================================
 
@@ -1557,6 +1713,8 @@ func get_active_sky_override() -> Dictionary:
 			return _build_sky_dict(hail_sky_top, hail_sky_horizon, hail_cloud_color, hail_cloud_shadow, hail_fog_color)
 		WeatherType.SANDSTORM:
 			return _build_sky_dict(sandstorm_sky_top, sandstorm_sky_horizon, sandstorm_cloud_color, sandstorm_cloud_shadow, sandstorm_fog_sky)
+		WeatherType.WIND:
+			return _build_sky_dict(wind_sky_top, wind_sky_horizon, wind_cloud_color, wind_cloud_shadow, wind_fog_sky)
 		_:
 			return {}
 
@@ -1575,6 +1733,7 @@ func get_hold_friction_modifier() -> float:
 		WeatherType.FOG:       return lerp(1.0, 0.82, _blend)
 		WeatherType.HAIL:      return lerp(1.0, 0.45, _blend)
 		WeatherType.SANDSTORM: return lerp(1.0, 0.72, _blend)
+		WeatherType.WIND:      return lerp(1.0, 0.72, _blend)
 		_:                     return 1.0
 
 func get_stamina_drain_modifier() -> float:
@@ -1586,6 +1745,7 @@ func get_stamina_drain_modifier() -> float:
 		WeatherType.FOG:       return lerp(1.0, 1.15, _blend)
 		WeatherType.HAIL:      return lerp(1.0, 1.45, _blend)
 		WeatherType.SANDSTORM: return lerp(1.0, 1.32, _blend)
+		WeatherType.WIND:      return lerp(1.0, 1.32, _blend)
 		_:                     return 1.0
 
 func get_gravity_modifier() -> float:
@@ -1616,6 +1776,9 @@ func get_wind_force() -> Vector2:
 		WeatherType.SANDSTORM:
 			# Very strong constant push — sandstorm is the windiest weather
 			return Vector2(sandstorm_wind * 2.2 * _blend * intensity * (1.0 + gust_factor), 0.0)
+		WeatherType.WIND:
+			# Same strong constant push as sandstorm — pure wind, no sand
+			return Vector2(wind_wind_val * 2.2 * _blend * intensity * (1.0 + gust_factor * 1.2), 0.0)
 		_:
 			return Vector2.ZERO
 

@@ -124,3 +124,16 @@ func _can_interact() -> bool:
 
 func set_visual_state(color: Color) -> void:
 	modulate = color
+
+
+## Make all given buttons the same width, sized to the widest button's text
+## (plus extra padding), so button groups look cohesive and even.
+static func equalize_widths(buttons: Array[Button], extra_padding: float = 32.0) -> void:
+	var widest := 0.0
+	for btn in buttons:
+		if btn:
+			widest = maxf(widest, btn.get_combined_minimum_size().x)
+	var target_width := widest + extra_padding
+	for btn in buttons:
+		if btn:
+			btn.custom_minimum_size.x = target_width

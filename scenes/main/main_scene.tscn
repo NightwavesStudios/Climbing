@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://dobbv2ep5jfco"]
+[gd_scene load_steps=10 format=3 uid="uid://dobbv2ep5jfco"]
 
 [ext_resource type="Script" uid="uid://ckbllmbuj8mpt" path="res://scripts/levels/main_scene.gd" id="1_l7pil"]
 [ext_resource type="PackedScene" uid="uid://c5s02ajy6gea3" path="res://scenes/player/character.tscn" id="2_271kv"]
@@ -7,6 +7,18 @@
 [ext_resource type="Script" uid="uid://c206qolxvk6u1" path="res://scripts/systems/debug.gd" id="7_0jrka"]
 [ext_resource type="Texture2D" uid="uid://cer0dg4pqys0f" path="res://assets/images/popups/tutorial_popup.png" id="7_271kv"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="8_a4cr6"]
+[ext_resource type="StyleBox" uid="uid://bfk7e7fgehtut" path="res://assets/themes/popup_card.tres" id="9_popup"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_restart_hint"]
+content_margin_left = 20.0
+content_margin_top = 10.0
+content_margin_right = 20.0
+content_margin_bottom = 10.0
+bg_color = Color(0, 0, 0, 0.55)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
 
 [node name="MainScene" type="Node2D"]
 script = ExtResource("1_l7pil")
@@ -31,7 +43,7 @@ script = ExtResource("7_0jrka")
 [node name="Instructions" type="CanvasLayer" parent="."]
 visible = false
 
-[node name="ColorRect" type="ColorRect" parent="Instructions"]
+[node name="Card" type="Panel" parent="Instructions"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -41,26 +53,58 @@ offset_right = -443.0
 offset_bottom = -80.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_styles/panel = ExtResource("9_popup")
 
-[node name="Sprite2D" type="Sprite2D" parent="Instructions"]
-position = Vector2(640.00006, 344)
-scale = Vector2(0.60683316, 0.60683316)
-texture = ExtResource("7_271kv")
-
-[node name="HideInstructions" type="Button" parent="Instructions"]
-anchors_preset = 7
+[node name="HideInstructions" type="Button" parent="Instructions/Card"]
+layout_mode = 0
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -72.0
-offset_top = -160.0
-offset_right = 78.0
-offset_bottom = -100.0
+offset_left = -75.0
+offset_top = -74.0
+offset_right = 75.0
+offset_bottom = -14.0
 grow_horizontal = 2
 grow_vertical = 0
 theme_override_font_sizes/font_size = 32
 text = "Dismiss"
 script = ExtResource("8_a4cr6")
 
-[connection signal="pressed" from="Instructions/HideInstructions" to="." method="_on_hide_instructions_pressed"]
+[node name="Sprite2D" type="Sprite2D" parent="Instructions"]
+position = Vector2(640.00006, 344)
+scale = Vector2(0.60683316, 0.60683316)
+texture = ExtResource("7_271kv")
+
+[node name="RestartHint" type="CanvasLayer" parent="."]
+layer = 50
+visible = false
+
+[node name="Panel" type="Panel" parent="RestartHint"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -160.0
+offset_top = -64.0
+offset_right = 160.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_restart_hint")
+
+[node name="Label" type="Label" parent="RestartHint/Panel"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_constants/outline_size = 0
+theme_override_font_sizes/font_size = 22
+text = "Press R to restart"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[connection signal="pressed" from="Instructions/Card/HideInstructions" to="." method="_on_hide_instructions_pressed"]

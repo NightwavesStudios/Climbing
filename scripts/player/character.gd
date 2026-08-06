@@ -21,11 +21,23 @@ var camera_owned_by_main: bool = false
 @onready var _rh_area:  Area2D = $RightHand/Area2D
 @onready var _lf_area:  Area2D = $LeftFoot/Area2D
 @onready var _rf_area:  Area2D = $RightFoot/Area2D
+@onready var _heartbeat_audio: AudioStreamPlayer = $HeartbeatAudio
+var _heartbeat_fade: Tween = null
 
 @export var debug:         bool  = false
 @export var aesthetic:     bool  = true
 @export var show_load_hud: bool  = true
 @export var GRAB_RADIUS:   float = 35.0
+
+# -- Heartbeat (tiredness audio) ---------------------------------------------
+@export_group("Heartbeat")
+## Tiredness (0..1) at which the heartbeat starts playing.
+@export_range(0.0, 1.0, 0.01) var heartbeat_onset_t: float = 0.08
+## Loudness (dB) of the heartbeat at onset tiredness.
+@export_range(-60.0, 0.0, 0.5) var heartbeat_min_db: float = -10.0
+## Loudness (dB) of the heartbeat at full exhaustion (tiredness = 1).
+@export_range(-60.0, 0.0, 0.5) var heartbeat_max_db: float = -2.0
+@export_group("")
 
 # =============================================================================
 #  OUTLINE EXPORTS
@@ -88,7 +100,6 @@ const ONE_ARM_PRESSURE_MULTIPLIER    = 1.8
 const TWO_ARM_PRESSURE_MULTIPLIER    = 1.5
 const THREE_LIMB_PRESSURE_MULTIPLIER = 1.0
 const FOUR_LIMB_PRESSURE_MULTIPLIER  = 0.6
-const FOOT_PRESSURE_REDUCTION        = 0.3
 const EASY_HOLD_BASE_PRESSURE        = 0.8
 const POOR_POSITION_PRESSURE_MULT    = 1.6
 const LOCK_OFF_PRESSURE_MULT         = 1.5
@@ -122,7 +133,6 @@ const P2_SHAKE_LERP_OUT = 1.2
 const P2_PULSE_ONSET    = 0.65
 const P2_PULSE_AMP      = 1.8
 const P2_PULSE_FREQ     = 3.0
-const SHAKE_LERP_SPEED  = 2.0
 
 # -- Failure / P3 -------------------------------------------------------------
 const P3_LEG_BONUS_DRAIN_MULT = 0.88
@@ -148,6 +158,24 @@ const CRIMP_LEG_SPEED_FACTOR = 0.45
 # -- Grab sharing -------------------------------------------------------------
 const SHARED_HOLD_HAND_OFFSET      = 5.0
 const SHARED_HOLD_HAND_FOOT_OFFSET = 5.0
+
+# -- Wind / weather -----------------------------------------------------------
+## How strongly the wind can move the body based on how many limbs are attached
+## to the wall (indexed by attached-limb count 0..4). Fewer limbs = more exposed.
+const WIND_EXPOSURE_BY_ATTACHED    := [1.0, 0.92, 0.66, 0.38, 0.15]
+## Max extra grip-pressure multiplier on hands while at full wind influence.
+const WIND_PRESSURE_MULT_MAX       := 0.5
+## Fraction of the grab radius lost while at full wind influence (0.0 = none).
+const WIND_GRAB_RADIUS_PENALTY     := 0.35
+## Wind force (px/s²) that counts as a full storm for influence normalisation.
+const WIND_FULL_FORCE              := 650.0
+## Visual-only wind effects (draw-time, never touch physics): free limbs trail
+## downwind and flutter so the climber visibly gets whipped by the storm.
+const WIND_VISUAL_DRIFT        := 28.0  # max px a free limb trails sideways
+const WIND_VISUAL_KNEE_FOLLOW  := 0.45  # fraction of drift applied to the knee (ribbon feel)
+const WIND_VISUAL_FLUTTER      := 5.0   # px of flutter on free limbs in the wind
+const WIND_VISUAL_FLUTTER_RATE := 6.0   # rad/s flutter speed
+const WIND_VISUAL_BODY_LEAN    := 8.0   # max px the torso/head lean downwind
 
 # -- Hip shift ----------------------------------------------------------------
 const HIP_SHIFT_STRENGTH   = 0.022
@@ -224,6 +252,7 @@ var speed_timer:        Node   = null
 var speed_climb_active: bool   = false
 var _weather_modifier:  Node   = null
 var _spotlight:         Node   = null
+var _wind_influence:    float  = 0.0  # smoothed 0..1 — how much wind moves the climber
 
 # -- Project mode (practice mode) ---------------------------------------------
 var project_mode: bool = false
@@ -262,6 +291,12 @@ var _frame_delta: float = 0.0
 
 func _ready() -> void:
 	z_index = 10
+	add_to_group("player")
+	# Make sure the weather modifier knows about us right away (it re-caches
+	# periodically anyway, but this avoids the first ~2s without wind).
+	var wm := get_tree().get_first_node_in_group("weather_modifier")
+	if wm and wm.has_method("_cache_player_nodes"):
+		wm._cache_player_nodes()
 	spawn_position = global_position
 	_build_limbs()
 	_set_default_local_positions()
@@ -272,6 +307,9 @@ func _ready() -> void:
 		s.previous_pos = s.node.global_position
 	_weather_modifier = get_tree().get_first_node_in_group("weather_modifier")
 	_spotlight        = get_node_or_null("SpotLight2D")
+	# Loop the heartbeat so it pulses continuously while the climber is tired.
+	if _heartbeat_audio and _heartbeat_audio.stream:
+		_heartbeat_audio.stream.loop = true
 	await get_tree().process_frame
 	call_deferred("initial_grab")
 	# Input method tracking is handled locally via _input()
@@ -374,8 +412,24 @@ func _get_aim_target() -> Vector2:
 #  MAIN LOOP
 # =============================================================================
 
-func _process(delta: float) -> void:
+## Simulation runs at Godot's fixed physics tick (60 Hz by default) so the
+## climb is identical no matter the render FPS. Visual-only updates stay in
+## _process() so the camera and drawing remain smooth at any frame rate.
+func _physics_process(delta: float) -> void:
 	_frame_delta = delta
+	if not _grab_initialized or _ragdoll_active:
+		return
+
+	handle_input()
+	update_grip_states(delta)
+	update_shake_effects(delta)
+	simulate_physics(delta)
+	_update_load_distribution(delta)
+	check_fall_detection(delta)
+	check_climb_completion()
+
+
+func _process(delta: float) -> void:
 	if not _grab_initialized:
 		queue_redraw()
 		if _shadow_node and is_instance_valid(_shadow_node):
@@ -386,22 +440,18 @@ func _process(delta: float) -> void:
 		_ragdoll_elapsed += delta
 		if _ragdoll_elapsed >= _ragdoll_max_time:
 			_ragdoll_active = false
+		_stop_heartbeat()
 		update_camera()
 		queue_redraw()
 		if _shadow_node and is_instance_valid(_shadow_node):
 			_shadow_node.queue_redraw()
 		return
 
-	handle_input()
-	update_grip_states(delta)
-	update_shake_effects(delta)
-	simulate_physics(delta)
-	_update_load_distribution(delta)
-	check_fall_detection(delta)
-	check_climb_completion()
+	_update_heartbeat()
 	update_camera()
 	_update_spotlight()
 	_update_weather_modifier()
+	_update_wind_influence(delta)
 	_update_draw_scales(delta)
 	queue_redraw()
 	if _shadow_node and is_instance_valid(_shadow_node):
@@ -555,6 +605,12 @@ func _update_limb_grip(s: LimbState, delta: float) -> void:
 	else:
 		s.static_time = 0.0
 
+	# Legs/feet have no stamina — they never fatigue, pump, shake, or pop off from pressure.
+	if s.is_foot():
+		s.pressure = 0.0
+		s.grip = GripState.RELAXED
+		return
+
 	# Hands on top-out holds: lock grip as RELAXED, skip all pressure/failure processing.
 	if s.is_hand() and s.hold != null \
 			and s.hold.has_method("is_top_out") and s.hold.is_top_out():
@@ -581,10 +637,7 @@ func _update_limb_grip(s: LimbState, delta: float) -> void:
 		var loading_mult = _get_loading_multiplier(held_count)
 		var hold_pressure = s.hold.get_state_pressure(delta, body_offset, s.static_time, foot_support, s.node)
 
-		if s.is_hand():
-			hold_pressure = _apply_hand_pressure_mods(s as HandState, hold_pressure, loading_mult, body_offset, foot_support, delta)
-		else:
-			hold_pressure = _apply_foot_pressure_mods(hold_pressure, loading_mult, body_offset, delta)
+		hold_pressure = _apply_hand_pressure_mods(s as HandState, hold_pressure, loading_mult, body_offset, foot_support, delta)
 
 		var sharing = _limbs.any(func(o): return o != s and o.hold == s.hold)
 		if sharing:
@@ -611,10 +664,6 @@ func _update_limb_grip(s: LimbState, delta: float) -> void:
 			s.grip = GripState.FAIL
 			release_limb(s)
 			return
-	elif s.pressure >= PRESSURE_FAIL:
-		s.grip = GripState.FAIL
-		release_limb(s)
-		return
 
 	if s.pressure >= PRESSURE_PUMPED:    s.grip = GripState.PUMPED
 	elif s.pressure >= PRESSURE_ENGAGED: s.grip = GripState.ENGAGED
@@ -635,14 +684,10 @@ func _apply_hand_pressure_mods(s: HandState, p: float, loading_mult: float,
 	var pressure_floor = EASY_HOLD_BASE_PRESSURE * loading_mult * 0.5 * delta
 	if p < pressure_floor: p = pressure_floor
 	if body_offset > 0.5:  p *= POOR_POSITION_PRESSURE_MULT
-	return p
-
-
-func _apply_foot_pressure_mods(p: float, loading_mult: float, body_offset: float, delta: float) -> float:
-	p *= FOOT_PRESSURE_REDUCTION * loading_mult
-	var floor_p = EASY_HOLD_BASE_PRESSURE * FOOT_PRESSURE_REDUCTION
-	if p < floor_p: p = floor_p * delta
-	if body_offset > 0.5: p *= 1.2
+	if _wind_influence > 0.0:
+		# Wind drags the body sideways — hands must fight harder to hold on,
+		# especially when the feet aren't taking the load.
+		p *= 1.0 + WIND_PRESSURE_MULT_MAX * _wind_influence * (1.0 - foot_support)
 	return p
 
 
@@ -705,6 +750,40 @@ func _get_body_fatigue_t() -> float:
 	return total / max(count, 1)
 
 # =============================================================================
+#  HEARTBEAT (TIREDNESS AUDIO)
+# =============================================================================
+
+func _update_heartbeat() -> void:
+	"""Play the looping heartbeat while the climber is tired, scaling its
+	volume with how tired they are. Silent (and stopped) when fully rested."""
+	if _heartbeat_audio == null or _heartbeat_audio.stream == null:
+		return
+	var t := _get_body_fatigue_t()
+	if t < heartbeat_onset_t:
+		_stop_heartbeat()
+		return
+	# Map tiredness from onset..1 to loudness from min..max dB, then apply the
+	# volume change smoothly so the pulse never jumps or clicks.
+	var k := clampf((t - heartbeat_onset_t) / (1.0 - heartbeat_onset_t), 0.0, 1.0)
+	var target_db := lerpf(heartbeat_min_db, heartbeat_max_db, k)
+	_heartbeat_audio.volume_db = lerpf(_heartbeat_audio.volume_db, target_db, clampf(8.0 * get_process_delta_time(), 0.0, 1.0))
+	if not _heartbeat_audio.playing:
+		_heartbeat_audio.volume_db = heartbeat_min_db
+		_heartbeat_audio.play()
+
+
+func _stop_heartbeat() -> void:
+	if _heartbeat_audio == null or not _heartbeat_audio.playing:
+		return
+	# Fade out quickly so the pulse doesn't cut off abruptly when rested.
+	if _heartbeat_fade and _heartbeat_fade.is_valid():
+		_heartbeat_fade.kill()
+	_heartbeat_fade = create_tween()
+	_heartbeat_fade.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	_heartbeat_fade.tween_property(_heartbeat_audio, "volume_db", -80.0, 0.25)
+	_heartbeat_fade.tween_callback(_heartbeat_audio.stop)
+
+# =============================================================================
 #  SHAKE EFFECTS
 # =============================================================================
 
@@ -730,20 +809,6 @@ func update_shake_effects(delta: float) -> void:
 		else:
 			hs.shake_offset = Vector2.ZERO
 
-	for s in _feet:
-		var mods      = _get_foot_modifiers(s.grip)
-		var tgt_shake = mods.shake
-		s.shake_lerp  = lerp(s.shake_lerp, tgt_shake, SHAKE_LERP_SPEED * delta)
-		if s.shake_lerp > 0.01:
-			var freq = 25.0 + s.shake_lerp * 15.0
-			var amp  = s.shake_lerp * 2.5
-			var ph   = 1.0 if s.is_left else 1.5
-			s.shake_offset = Vector2(sin(t_now * freq + ph) * amp,
-				sin(t_now * freq * 1.2 + ph - 0.2) * amp)
-		else:
-			s.shake_offset = Vector2.ZERO
-
-
 func _get_hand_modifiers(grip: int) -> Dictionary:
 	match grip:
 		GripState.RELAXED: return {"reach_mult": 1.0,  "speed_mult": 1.0,  "latency": 0.0,  "shake": 0.0}
@@ -751,15 +816,6 @@ func _get_hand_modifiers(grip: int) -> Dictionary:
 		GripState.PUMPED:  return {"reach_mult": 0.82, "speed_mult": 0.78, "latency": 0.10, "shake": 0.20}
 		GripState.FAIL:    return {"reach_mult": 0.0,  "speed_mult": 0.0,  "latency": 1.0,  "shake": 1.0}
 	return _get_hand_modifiers(GripState.RELAXED)
-
-
-func _get_foot_modifiers(grip: int) -> Dictionary:
-	match grip:
-		GripState.RELAXED: return {"shake": 0.0}
-		GripState.ENGAGED: return {"shake": 0.04}
-		GripState.PUMPED:  return {"shake": 0.14}
-		GripState.FAIL:    return {"shake": 0.6}
-	return _get_foot_modifiers(GripState.RELAXED)
 
 
 func _get_pressure_shake_frac(p: float) -> float:
@@ -1054,6 +1110,13 @@ func _apply_adaptive_leg_assistance(_delta: float) -> void:
 
 
 func _apply_natural_limb_positions(_delta: float) -> void:
+	var rope_state := _rope_state()
+	if rope_state == RopeSystem.CatchState.FALLING:
+		_apply_falling_posture()
+		return
+	if rope_state == RopeSystem.CatchState.STRETCHING or rope_state == RopeSystem.CatchState.HELD:
+		_apply_hanging_posture()
+		return
 	for s in _hands:
 		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
 		var shoulder  = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
@@ -1072,6 +1135,64 @@ func _apply_natural_limb_positions(_delta: float) -> void:
 		var tgt_knee = hip + Vector2(sx * leg_splay, LEG_UPPER_LENGTH)
 		s.joint.global_position = s.joint.global_position.lerp(tgt_knee, FREE_LEG_RELAXATION_SPEED)
 		s.node.global_position  = s.node.global_position.lerp(tgt_knee + Vector2(sx * leg_splay * 0.5, LEG_LOWER_LENGTH), FREE_LEG_RELAXATION_SPEED)
+		s.reset_velocity()
+
+
+## Current rope catch state, or -1 if no rope is active. Used to pick a
+## climber posture while airborne/hanging so the character never looks like
+## a limp, dead figure.
+func _rope_state() -> int:
+	if rope_system == null or not is_instance_valid(rope_system):
+		return -1
+	var rs := rope_system as RopeSystem
+	return rs.catch_state if rs != null else -1
+
+
+## Active fall pose: arms thrown up and out, legs splayed — a climber reaching
+## for the wall. Replaces the dead straight-down hang during the fall.
+func _apply_falling_posture() -> void:
+	var spd := 0.22
+	for s in _hands:
+		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
+		var shoulder  = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
+		var sx        = -1.0 if s.is_left else 1.0
+		var tgt_elbow = shoulder + Vector2(sx * 20.0, -ARM_UPPER_LENGTH * 0.45)
+		var tgt_hand  = tgt_elbow + Vector2(sx * 26.0, -ARM_LOWER_LENGTH * 0.5)
+		s.joint.global_position = s.joint.global_position.lerp(tgt_elbow, spd)
+		s.node.global_position  = s.node.global_position.lerp(tgt_hand,  spd)
+		s.reset_velocity()
+	for s in _feet:
+		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
+		var hip      = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
+		var sx       = -1.0 if s.is_left else 1.0
+		var tgt_knee = hip + Vector2(sx * 18.0, LEG_UPPER_LENGTH * 0.65)
+		var tgt_foot = tgt_knee + Vector2(sx * 12.0, LEG_LOWER_LENGTH * 0.75)
+		s.joint.global_position = s.joint.global_position.lerp(tgt_knee, spd)
+		s.node.global_position  = s.node.global_position.lerp(tgt_foot, spd)
+		s.reset_velocity()
+
+
+## Natural rest pose while the rope holds the climber: arms reach up to grip
+## the rope (like supporting their weight), legs hang with a slight bend. This
+## reads as a climber resting on the rope, not a pinned/broken figure.
+func _apply_hanging_posture() -> void:
+	for s in _hands:
+		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
+		var shoulder  = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
+		var sx        = -1.0 if s.is_left else 1.0
+		var tgt_elbow = shoulder + Vector2(sx * 7.0, -ARM_UPPER_LENGTH * 0.68)
+		var tgt_hand  = tgt_elbow + Vector2(sx * 4.0, -ARM_LOWER_LENGTH * 0.85)
+		s.joint.global_position = s.joint.global_position.lerp(tgt_elbow, FREE_ARM_RELAXATION_SPEED)
+		s.node.global_position  = s.node.global_position.lerp(tgt_hand,  FREE_ARM_RELAXATION_SPEED)
+		s.reset_velocity()
+	for s in _feet:
+		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
+		var hip      = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
+		var sx       = -1.0 if s.is_left else 1.0
+		var tgt_knee = hip + Vector2(sx * 9.0, LEG_UPPER_LENGTH * 0.92)
+		var tgt_foot = tgt_knee + Vector2(sx * 5.0, LEG_LOWER_LENGTH * 0.95)
+		s.joint.global_position = s.joint.global_position.lerp(tgt_knee, FREE_LEG_RELAXATION_SPEED)
+		s.node.global_position  = s.node.global_position.lerp(tgt_foot, FREE_LEG_RELAXATION_SPEED)
 		s.reset_velocity()
 
 func _update_grab_animations() -> void:
@@ -1216,7 +1337,8 @@ func attempt_grab(s: LimbState) -> void:
 	var space_state = get_world_2d().direct_space_state
 	var query = PhysicsShapeQueryParameters2D.new()
 	var circle = CircleShape2D.new()
-	circle.radius = GRAB_RADIUS
+	var grab_radius := GRAB_RADIUS * (1.0 - WIND_GRAB_RADIUS_PENALTY * _wind_influence)
+	circle.radius = grab_radius
 	query.shape = circle; query.transform = Transform2D(0, s.node.global_position)
 	query.collision_mask = 2; query.collide_with_areas = true; query.collide_with_bodies = false
 	var results = space_state.intersect_shape(query, 16)
@@ -1348,6 +1470,13 @@ func _find_nearest_hold_radius(from: Vector2, radius: float) -> Area2D:
 	return nearest
 
 func initial_grab() -> void:
+	# Bail out if the level's holds aren't in the scene yet. This runs deferred
+	# from _ready(), which races with the async level loading (holds are spawned
+	# over many frames). Grabbing nothing here would leave the player floating
+	# with no hand/foot holds — main_scene calls reset_climb() once the level is
+	# fully loaded, which performs the real initial grab and foot snap.
+	if get_tree().get_nodes_in_group("holds").is_empty():
+		return
 	_zero_all()
 	global_position = spawn_position
 	com_position    = spawn_position + Vector2(0, COM_OFFSET_Y)
@@ -1437,7 +1566,15 @@ func _snap_feet_on_spawn() -> void:
 		var other = rf if s == lf else lf
 		var best  = _find_best_foot_hold(s, s.node.global_position)
 		s.node.global_position = saved[s]
-		if best == null or best == lh.hold or best == rh.hold or best == other.hold: continue
+		if best == null or best == lh.hold or best == rh.hold: continue
+		# Prefer a distinct foothold per foot, but if the only reachable foothold
+		# is already claimed by the other foot, still snap to it so BOTH feet land
+		# on footholds at spawn (FOOT holds allow up to 2 limbs). This covers
+		# levels whose start only has a single foothold nearby.
+		if best == other.hold:
+			var alt := _find_best_foot_hold(s, s.node.global_position, [best])
+			if alt != null:
+				continue
 		if not best.can_grab(s.node, true): continue
 		var hp       = best.get_node_or_null("HoldPoint")
 		var snap_pos = hp.global_position if hp else best.global_position
@@ -1455,6 +1592,7 @@ func reset_climb() -> void:
 	fall_timer = 0.0; _ragdoll_active = false; _ragdoll_elapsed = 0.0
 	climb_started = false; climb_completed = false
 	rest_mode_active = false; _leg_bonus_smooth = 1.0
+	_wind_influence  = 0.0
 	_load = [0.0, 0.0, 0.0, 0.0]; selected_limbs.clear(); use_mouse_aim = false
 	_lh_draw_scale = 1.0; _rh_draw_scale = 1.0
 	_lf_draw_scale = 1.0; _rf_draw_scale = 1.0
@@ -1568,6 +1706,7 @@ func project_mode_reset() -> void:
 	fall_timer = 0.0; _ragdoll_active = false; _ragdoll_elapsed = 0.0
 	climb_started = false; climb_completed = false
 	rest_mode_active = false; _leg_bonus_smooth = 1.0
+	_wind_influence  = 0.0
 	_load = [0.0, 0.0, 0.0, 0.0]; selected_limbs.clear(); use_mouse_aim = false
 	_lh_draw_scale = 1.0; _rh_draw_scale = 1.0
 	_lf_draw_scale = 1.0; _rf_draw_scale = 1.0
@@ -1678,7 +1817,7 @@ func _find_nearest_hold(from: Vector2) -> Area2D:
 			nearest = hold
 	return nearest
 
-func _find_best_foot_hold(s: FootState, search_center: Vector2) -> Area2D:
+func _find_best_foot_hold(s: FootState, search_center: Vector2, exclude: Array = []) -> Area2D:
 	var hip   = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
 	var max_r = (LEG_UPPER_LENGTH + LEG_LOWER_LENGTH) * 0.95
 	var space_state = get_world_2d().direct_space_state
@@ -1690,6 +1829,7 @@ func _find_best_foot_hold(s: FootState, search_center: Vector2) -> Area2D:
 	var best: Area2D = null; var bs = -INF
 	for result in results:
 		var hold: Area2D = result.collider
+		if hold in exclude: continue
 		var hp = hold.get_node_or_null("HoldPoint")
 		if hp == null: continue
 		var hpos: Vector2 = hp.global_position
@@ -1910,19 +2050,35 @@ func _draw_stick_figure() -> void:
 	var lf_scale = _lf_draw_scale
 	var rf_scale = _rf_draw_scale
 
-	var lhd = lh.node.position + lh.shake_offset + lh.visual_offset + _lh_hover_jitter
-	var rhd = rh.node.position + rh.shake_offset + rh.visual_offset + _rh_hover_jitter
-	var lfd = lf.node.position + lf.shake_offset + lf.visual_offset + _lf_hover_jitter
-	var rfd = rf.node.position + rf.shake_offset + rf.visual_offset + _rf_hover_jitter
+	# Wind visuals: free limbs trail downwind + flutter, and the torso leans
+	# into the storm. Purely cosmetic — physics positions are untouched.
+	var t_wind   = Time.get_ticks_msec() * 0.001
+	var lh_drift = _get_wind_limb_drift(lh, t_wind)
+	var rh_drift = _get_wind_limb_drift(rh, t_wind)
+	var lf_drift = _get_wind_limb_drift(lf, t_wind)
+	var rf_drift = _get_wind_limb_drift(rf, t_wind)
+	var wind_lean = _wind_influence * WIND_VISUAL_BODY_LEAN * signf(_get_wind_force_world().x)
 
-	var head_pos  = Vector2(0, HEAD_OFFSET)
-	var left_sh   = Vector2(-SHOULDER_OFFSET, 0)
-	var right_sh  = Vector2( SHOULDER_OFFSET, 0)
-	var left_hip  = Vector2(-HIP_OFFSET, HIP_DOWN)
-	var right_hip = Vector2( HIP_OFFSET, HIP_DOWN)
-	var hip_pos   = Vector2(0, HIP_DOWN)
-	var left_sl   = left_sh.lerp(_lh_joint.position,  0.35)
-	var right_sl  = right_sh.lerp(_rh_joint.position, 0.35)
+	var lhd = lh.node.position + lh.shake_offset + lh.visual_offset + _lh_hover_jitter + lh_drift
+	var rhd = rh.node.position + rh.shake_offset + rh.visual_offset + _rh_hover_jitter + rh_drift
+	var lfd = lf.node.position + lf.shake_offset + lf.visual_offset + _lf_hover_jitter + lf_drift
+	var rfd = rf.node.position + rf.shake_offset + rf.visual_offset + _rf_hover_jitter + rf_drift
+
+	# Knees follow a fraction of the drift so legs/arms trail like a ribbon
+	# instead of pivoting rigidly.
+	var lh_knee = _lh_joint.position + lh_drift * WIND_VISUAL_KNEE_FOLLOW
+	var rh_knee = _rh_joint.position + rh_drift * WIND_VISUAL_KNEE_FOLLOW
+	var lf_knee = _lf_joint.position + lf_drift * WIND_VISUAL_KNEE_FOLLOW
+	var rf_knee = _rf_joint.position + rf_drift * WIND_VISUAL_KNEE_FOLLOW
+
+	var head_pos  = Vector2(wind_lean, HEAD_OFFSET)
+	var left_sh   = Vector2(-SHOULDER_OFFSET + wind_lean, 0)
+	var right_sh  = Vector2( SHOULDER_OFFSET + wind_lean, 0)
+	var left_hip  = Vector2(-HIP_OFFSET + wind_lean * 0.5, HIP_DOWN)
+	var right_hip = Vector2( HIP_OFFSET + wind_lean * 0.5, HIP_DOWN)
+	var hip_pos   = Vector2(wind_lean * 0.5, HIP_DOWN)
+	var left_sl   = left_sh.lerp(lh_knee,  0.35)
+	var right_sl  = right_sh.lerp(rh_knee, 0.35)
 
 	var ow = figure_outline_width
 
@@ -1940,41 +2096,41 @@ func _draw_stick_figure() -> void:
 		var oc_lh_skin  = _outline_color(lh_skin)
 		var oc_rh_skin  = _outline_color(rh_skin)
 
-		draw_line(left_hip,  _lf_joint.position, oc_lf_pants, (12.0 + ow) * lf_scale)
-		draw_circle(_lf_joint.position, (5.0 + ow * 0.5) * lf_scale, oc_lf_pants)
-		draw_line(_lf_joint.position, lfd, oc_lf_pants, (11.0 + ow) * lf_scale)
+		draw_line(left_hip,  lf_knee, oc_lf_pants, (12.0 + ow) * lf_scale)
+		draw_circle(lf_knee, (5.0 + ow * 0.5) * lf_scale, oc_lf_pants)
+		draw_line(lf_knee, lfd, oc_lf_pants, (11.0 + ow) * lf_scale)
 		draw_circle(lfd, (9.0 + ow * 0.5) * lf_scale, oc_lf_shoe)
-		draw_line(right_hip, _rf_joint.position, oc_rf_pants, (12.0 + ow) * rf_scale)
-		draw_circle(_rf_joint.position, (5.0 + ow * 0.5) * rf_scale, oc_rf_pants)
-		draw_line(_rf_joint.position, rfd, oc_rf_pants, (11.0 + ow) * rf_scale)
+		draw_line(right_hip, rf_knee, oc_rf_pants, (12.0 + ow) * rf_scale)
+		draw_circle(rf_knee, (5.0 + ow * 0.5) * rf_scale, oc_rf_pants)
+		draw_line(rf_knee, rfd, oc_rf_pants, (11.0 + ow) * rf_scale)
 		draw_circle(rfd, (9.0 + ow * 0.5) * rf_scale, oc_rf_shoe)
 		draw_line(left_hip,  right_hip,        oc_pants,    17.0 + ow)
 		draw_line(left_hip,  right_hip,        oc_harness,   4.0 + ow * 0.5)
 		draw_line(hip_pos,   Vector2.ZERO,     oc_shirt,    19.0 + ow)
 		draw_line(Vector2.ZERO, head_pos + Vector2(0, 16), oc_shirt, 17.0 + ow)
-		for pt in [left_sh, right_sh, _lh_joint.position, _rh_joint.position]:
+		for pt in [left_sh, right_sh, lh_knee, rh_knee]:
 			draw_circle(pt, 5.0 + ow * 0.5, oc_shirt)
 		draw_line(left_sh,   left_sl,            oc_shirt, (12.0 + ow) * lh_scale)
-		draw_line(left_sl,   _lh_joint.position, oc_lh_skin,  (12.0 + ow) * lh_scale)
-		draw_circle(_lh_joint.position, (5.0 + ow * 0.5) * lh_scale, oc_lh_skin)
-		draw_line(_lh_joint.position, lhd, oc_lh_skin, (10.0 + ow) * lh_scale)
+		draw_line(left_sl,   lh_knee, oc_lh_skin,  (12.0 + ow) * lh_scale)
+		draw_circle(lh_knee, (5.0 + ow * 0.5) * lh_scale, oc_lh_skin)
+		draw_line(lh_knee, lhd, oc_lh_skin, (10.0 + ow) * lh_scale)
 		draw_circle(lhd, (8.0 + ow * 0.5) * lh_scale, _outline_color(lh_skin))
 		draw_line(right_sh,  right_sl,           oc_shirt, (12.0 + ow) * rh_scale)
-		draw_line(right_sl,  _rh_joint.position, oc_rh_skin,  (12.0 + ow) * rh_scale)
-		draw_circle(_rh_joint.position, (5.0 + ow * 0.5) * rh_scale, oc_rh_skin)
-		draw_line(_rh_joint.position, rhd, oc_rh_skin, (10.0 + ow) * rh_scale)
+		draw_line(right_sl,  rh_knee, oc_rh_skin,  (12.0 + ow) * rh_scale)
+		draw_circle(rh_knee, (5.0 + ow * 0.5) * rh_scale, oc_rh_skin)
+		draw_line(rh_knee, rhd, oc_rh_skin, (10.0 + ow) * rh_scale)
 		draw_circle(rhd, (8.0 + ow * 0.5) * rh_scale, _outline_color(rh_skin))
 		draw_line(head_pos + Vector2(0, 14), head_pos + Vector2(0, 4), oc_skin, 10.0 + ow)
 		draw_circle(head_pos, 16.0 + ow * 0.5, oc_skin)
 
 	# ── FILL PASS ─────────────────────────────────────────────────────────────
-	draw_line(left_hip,  _lf_joint.position, lf_pants, 12.0 * lf_scale)
-	draw_circle(_lf_joint.position, 5 * lf_scale, lf_pants)
-	draw_line(_lf_joint.position, lfd, lf_pants, 11.0 * lf_scale)
+	draw_line(left_hip,  lf_knee, lf_pants, 12.0 * lf_scale)
+	draw_circle(lf_knee, 5 * lf_scale, lf_pants)
+	draw_line(lf_knee, lfd, lf_pants, 11.0 * lf_scale)
 	draw_circle(lfd, 9 * lf_scale, lf_shoe)
-	draw_line(right_hip, _rf_joint.position, rf_pants, 12.0 * rf_scale)
-	draw_circle(_rf_joint.position, 5 * rf_scale, rf_pants)
-	draw_line(_rf_joint.position, rfd, rf_pants, 11.0 * rf_scale)
+	draw_line(right_hip, rf_knee, rf_pants, 12.0 * rf_scale)
+	draw_circle(rf_knee, 5 * rf_scale, rf_pants)
+	draw_line(rf_knee, rfd, rf_pants, 11.0 * rf_scale)
 	draw_circle(rfd, 9 * rf_scale, rf_shoe)
 	draw_line(left_hip,  right_hip,        pants_color,   17.0)
 	draw_line(left_hip,  right_hip,        harness_color,  4.0)
@@ -1982,15 +2138,15 @@ func _draw_stick_figure() -> void:
 	draw_line(Vector2.ZERO, head_pos + Vector2(0, 16), shirt_color, 17.0)
 	draw_circle(left_sh,  5, shirt_color)
 	draw_line(left_sh,   left_sl,            shirt_color, 12.0 * lh_scale)
-	draw_line(left_sl,   _lh_joint.position, lh_skin,  12.0 * lh_scale)
-	draw_circle(_lh_joint.position, 5 * lh_scale, lh_skin)
-	draw_line(_lh_joint.position, lhd, lh_skin, 10.0 * lh_scale)
+	draw_line(left_sl,   lh_knee, lh_skin,  12.0 * lh_scale)
+	draw_circle(lh_knee, 5 * lh_scale, lh_skin)
+	draw_line(lh_knee, lhd, lh_skin, 10.0 * lh_scale)
 	draw_circle(lhd, 8 * lh_scale, lh_skin)
 	draw_circle(right_sh, 5, shirt_color)
 	draw_line(right_sh,  right_sl,           shirt_color, 12.0 * rh_scale)
-	draw_line(right_sl,  _rh_joint.position, rh_skin,  12.0 * rh_scale)
-	draw_circle(_rh_joint.position, 5 * rh_scale, rh_skin)
-	draw_line(_rh_joint.position, rhd, rh_skin, 10.0 * rh_scale)
+	draw_line(right_sl,  rh_knee, rh_skin,  12.0 * rh_scale)
+	draw_circle(rh_knee, 5 * rh_scale, rh_skin)
+	draw_line(rh_knee, rhd, rh_skin, 10.0 * rh_scale)
 	draw_circle(rhd, 8 * rh_scale, rh_skin)
 	draw_line(head_pos + Vector2(0, 14), head_pos + Vector2(0, 4), skin_color, 10.0)
 	draw_circle(head_pos, 16, skin_color)
@@ -2013,6 +2169,91 @@ func _update_weather_modifier() -> void:
 	if _weather_modifier and _weather_modifier.has_method("update_player_data"):
 		_weather_modifier.update_player_data(
 			global_position + Vector2(0, HEAD_OFFSET), _get_aim_target())
+
+
+# =============================================================================
+#  WIND (weather)
+# =============================================================================
+
+func _ensure_weather_modifier() -> void:
+	if _weather_modifier == null or not is_instance_valid(_weather_modifier):
+		_weather_modifier = get_tree().get_first_node_in_group("weather_modifier")
+
+
+func _get_wind_force_world() -> Vector2:
+	_ensure_weather_modifier()
+	if _weather_modifier and _weather_modifier.has_method("get_wind_force"):
+		return _weather_modifier.get_wind_force()
+	return Vector2.ZERO
+
+
+func _get_attached_limb_count() -> int:
+	var n := 0
+	for s in _limbs:
+		if s.hold != null and not s.is_grabbing:
+			n += 1
+	return n
+
+
+## 0..1 — how much of the wind the body catches right now.
+## Fewer limbs on the wall means more exposed to the wind.
+func _get_wind_exposure() -> float:
+	return WIND_EXPOSURE_BY_ATTACHED[clampi(_get_attached_limb_count(), 0, 4)]
+
+
+## Smoothly tracks how strongly the wind currently affects the climber,
+## combining raw wind strength with limb exposure. Drives grip pressure and
+## grab-radius penalties so the sandstorm genuinely makes climbing harder.
+func _update_wind_influence(delta: float) -> void:
+	var wf := _get_wind_force_world()
+	var target := 0.0
+	if not wf.is_zero_approx():
+		var strength := clampf(wf.length() / WIND_FULL_FORCE, 0.0, 1.0)
+		target = strength * _get_wind_exposure()
+	_wind_influence = lerpf(_wind_influence, target, minf(1.0, delta * 4.0))
+
+
+## True while the climber is in a fall: airborne with no holds and falling fast,
+## or currently hanging on the rope after a catch. Wind must not shove the body
+## sideways during a fall — with the rope engaged the sandstorm otherwise keeps
+## pushing the dangling player indefinitely.
+func _is_in_fall_state() -> bool:
+	if _count_held_limbs() == 0 and com_velocity.y > FALL_VELOCITY_THRESHOLD:
+		return true
+	if rope_system == null or not is_instance_valid(rope_system):
+		return false
+	var rs := rope_system as RopeSystem
+	return rs != null and rs.catch_state != RopeSystem.CatchState.IDLE
+
+
+## Called every physics frame by the WeatherModifier with this frame's wind
+## impulse (px/s). Pushes the whole body to the right — the fewer limbs attached
+## to the wall, the more the wind moves the climber.
+func apply_wind_force(force: Vector2) -> void:
+	if _is_in_fall_state():
+		return
+	var exposure := _get_wind_exposure()
+	if exposure <= 0.0:
+		return
+	com_velocity += force * exposure
+
+
+## Visual-only downwind drift for a FREE limb, in px. Purely cosmetic — never
+## touches physics. Makes legs/arms visibly trail sideways and flutter in the
+## wind, so the storm reads clearly even before it moves the body. Held limbs
+## stay planted. Direction follows the actual wind force vector.
+func _get_wind_limb_drift(s: LimbState, t: float) -> Vector2:
+	if _wind_influence <= 0.01 or s.hold != null:
+		return Vector2.ZERO
+	var wx := _get_wind_force_world().x
+	if absf(wx) < 1.0:
+		return Vector2.ZERO
+	var dir := signf(wx)
+	var phase := 0.0 if s.is_left else PI * 0.7
+	var fl := Vector2(
+		sin(t * WIND_VISUAL_FLUTTER_RATE + phase),
+		cos(t * WIND_VISUAL_FLUTTER_RATE * 0.8 + phase) * 0.7)
+	return (Vector2(dir, 0.0) * WIND_VISUAL_DRIFT + fl * WIND_VISUAL_FLUTTER) * _wind_influence
 
 
 func _query_water(pos: Vector2, vel: Vector2) -> Dictionary:

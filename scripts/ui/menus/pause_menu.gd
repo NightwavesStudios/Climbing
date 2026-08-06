@@ -1,9 +1,12 @@
 extends CanvasLayer
 
+const SETTINGS_SCRIPT := preload("res://scripts/ui/menus/settings.gd")
+const MAIN_SCENE_PATH := "res://scenes/main/main_scene.tscn"
+
 signal resumed
 
 var _is_animating: bool = false
-var _panel: Control = null
+var _menu: Control = null
 var _backdrop: ColorRect = null
 
 # Transition singleton (or any external system) sets this to false
@@ -15,16 +18,7 @@ func _ready() -> void:
 	visible = false
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_backdrop = get_node_or_null("Backdrop") as ColorRect
-	await get_tree().process_frame
-	_panel = _get_panel()
-	if _panel:
-		_panel.pivot_offset = _panel.size / 2.0
-
-func _get_panel() -> Control:
-	for child in get_children():
-		if child is Control:
-			return child
-	return null
+	_menu = get_node_or_null("Menu") as Control
 
 func show_pause_menu() -> void:
 	if _is_animating or not pausing_enabled:
@@ -35,36 +29,27 @@ func show_pause_menu() -> void:
 	# Reset visuals for animation
 	if _backdrop:
 		_backdrop.color = Color(0, 0, 0, 0)
-	if _panel:
-		_panel.modulate = Color(1, 1, 1, 0)
-		_panel.scale = Vector2(0.85, 0.85)
-		_panel.pivot_offset = _panel.size / 2.0
+	if _menu:
+		_menu.modulate = Color(1, 1, 1, 0)
 
 	get_tree().paused = true
 
-	# Animate backdrop and panel simultaneously
+	# Animate backdrop and menu simultaneously
 	var tween = create_tween()
 	tween.set_parallel(true)
 	tween.set_ease(Tween.EASE_OUT)
 	tween.set_trans(Tween.TRANS_CUBIC)
 	if _backdrop:
 		tween.tween_property(_backdrop, "color:a", 0.55, 0.25)
-	if _panel:
-		tween.tween_property(_panel, "modulate", Color(1, 1, 1, 1), 0.18)
-		tween.tween_property(_panel, "scale", Vector2(1.0, 1.0), 0.22) \
-			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if _menu:
+		tween.tween_property(_menu, "modulate", Color(1, 1, 1, 1), 0.18)
 	await tween.finished
 	_is_animating = false
 	# Focus the first button for controller navigation
 	call_deferred(&"_focus_pause_button")
 
 func _focus_pause_button() -> void:
-	for child in get_children():
-		if child is Button and not child.disabled and child.visible:
-			child.grab_focus()
-			return
-	# Also check inside VBoxContainer
-	var vbox := $VBoxContainer as VBoxContainer
+	var vbox := get_node_or_null("Menu") as VBoxContainer
 	if vbox:
 		for child in vbox.get_children():
 			if child is Button and not child.disabled and child.visible:
@@ -81,9 +66,8 @@ func hide_pause_menu() -> void:
 	tween.set_trans(Tween.TRANS_CUBIC)
 	if _backdrop:
 		tween.tween_property(_backdrop, "color:a", 0.0, 0.18)
-	if _panel:
-		tween.tween_property(_panel, "modulate", Color(1, 1, 1, 0), 0.14)
-		tween.tween_property(_panel, "scale", Vector2(0.85, 0.85), 0.14)
+	if _menu:
+		tween.tween_property(_menu, "modulate", Color(1, 1, 1, 0), 0.14)
 	await tween.finished
 	get_tree().paused = false
 	visible = false
@@ -105,6 +89,9 @@ func _on_resume_pressed() -> void:
 	resumed.emit()
 
 func _on_settings_pressed() -> void:
+	# Tell the settings scene to return to the level (not the main menu)
+	# when the user backs out, so they resume where they were.
+	SETTINGS_SCRIPT.return_scene = MAIN_SCENE_PATH
 	await hide_pause_menu()
 	Transition.to("res://scenes/menus/settings.tscn")
 

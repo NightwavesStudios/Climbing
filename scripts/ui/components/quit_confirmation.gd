@@ -10,7 +10,7 @@ const WISHLIST_URL := "https://store.steampowered.com/app/4484650/Climbing_Simpl
 const DISCORD_URL  := "https://discord.gg/5JyxqfsAbq"
 
 @onready var backdrop: ColorRect       = $Backdrop
-@onready var box: ColorRect            = $Box
+@onready var box: Panel            = $Box
 @onready var title_label: Label        = $Box/VBox/TitleLabel
 @onready var wishlist_btn: Button      = $Box/VBox/WishlistButton
 @onready var discord_btn: Button       = $Box/VBox/DiscordButton
@@ -22,6 +22,14 @@ func _ready() -> void:
 	visible = false
 	layer = 10
 	_reset_alpha()
+	# Make all popup buttons a uniform width, sized to the widest one.
+	call_deferred(&"_equalize_button_widths")
+
+
+## Give every button in the popup the same width (based on the longest label),
+## so Wishlist / Discord / Exit / Cancel line up as a cohesive column.
+func _equalize_button_widths() -> void:
+	UniversalButton.equalize_widths([wishlist_btn, discord_btn, exit_btn, cancel_btn])
 
 
 func _reset_alpha() -> void:

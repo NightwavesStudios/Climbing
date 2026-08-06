@@ -1,5 +1,6 @@
-[gd_scene load_steps=3 format=3 uid="uid://c2x5yq20ejvlg"]
+[gd_scene load_steps=4 format=3 uid="uid://c2x5yq20ejvlg"]
 
+[ext_resource type="StyleBoxFlat" uid="uid://bfk7e7fgehtut" path="res://assets/themes/popup_card.tres" id="3_qlpst"]
 [ext_resource type="Script" uid="uid://ccf58j81j45ip" path="res://scripts/ui/menus/demo_finished.gd" id="1_2e4gq"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_ac25j"]
 
@@ -14,12 +15,12 @@ anchor_bottom = 1.0
 mouse_filter = 2
 color = Color(0, 0, 0, 0.65)
 
-[node name="Box" type="ColorRect" parent="."]
+[node name="Box" type="Panel" parent="."]
 offset_left = 340.0
 offset_top = 240.0
 offset_right = 940.0
 offset_bottom = 480.0
-color = Color(0.06, 0.06, 0.06, 0.95)
+theme_override_styles/panel = ExtResource("3_qlpst")
 
 [node name="VBox" type="VBoxContainer" parent="Box"]
 layout_mode = 1

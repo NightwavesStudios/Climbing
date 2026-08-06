@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://dc2v5h72unm3e"]
+[gd_scene load_steps=4 format=3 uid="uid://dc2v5h72unm3e"]
 
 [ext_resource type="Script" uid="uid://dyhk0q8r31dox" path="res://scripts/ui/components/quit_confirmation.gd" id="1_uoqnl"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_tcrnp"]
+[ext_resource type="StyleBox" uid="uid://bfk7e7fgehtut" path="res://assets/themes/popup_card.tres" id="3_qlpst"]
 
 [node name="QuitConfirmation" type="CanvasLayer"]
 layer = 10
@@ -14,12 +15,12 @@ anchor_bottom = 1.0
 mouse_filter = 2
 color = Color(0, 0, 0, 0.5)
 
-[node name="Box" type="ColorRect" parent="."]
+[node name="Box" type="Panel" parent="."]
 offset_left = 360.0
 offset_top = 265.0
 offset_right = 920.0
 offset_bottom = 480.0
-color = Color(0.06, 0.06, 0.06, 0.95)
+theme_override_styles/panel = ExtResource("3_qlpst")
 
 [node name="VBox" type="VBoxContainer" parent="Box"]
 layout_mode = 1

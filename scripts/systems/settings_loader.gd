@@ -46,19 +46,8 @@ func _load_and_apply() -> void:
 	if wm_idx >= 0 and wm_idx < WINDOW_MODES.size():
 		DisplayServer.window_set_mode(WINDOW_MODES[wm_idx])
 
-	# ── VSync ──────────────────────────────────────────────────────────────
-	var vsync_on: bool = cfg.get_value("video", "vsync_enabled", true)
-	DisplayServer.window_set_vsync_mode(
-		DisplayServer.VSYNC_ENABLED if vsync_on else DisplayServer.VSYNC_DISABLED
-	)
-
-	# ── FPS cap (only meaningful when VSync is off) ────────────────────────
-	if vsync_on:
-		Engine.max_fps = 0
-	else:
-		var fps_idx: int = cfg.get_value("performance", "fps_cap_index", 0)
-		if fps_idx >= 0 and fps_idx < FPS_CAP_VALUES.size():
-			Engine.max_fps = FPS_CAP_VALUES[fps_idx]
+	# ── VSync + FPS cap (single source of truth) ───────────────────────────
+	apply_fps_cap()
 
 	# ── Keybinds ───────────────────────────────────────────────────────────
 	for action in REBINDABLE_ACTIONS:
@@ -77,3 +66,25 @@ func _load_and_apply() -> void:
 				InputMap.action_add_event(action, ev)
 
 	print("SettingsLoader: Applied saved settings from ", SETTINGS_PATH)
+
+
+## Reads the saved VSync + FPS cap from settings.cfg and applies them.
+## Safe to call from anywhere (menus, level entry) — it is idempotent and
+## always leaves Engine.max_fps / vsync in the state the player configured.
+func apply_fps_cap() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) != OK:
+		return  # no saved settings — leave engine defaults
+
+	var vsync_on: bool = cfg.get_value("video", "vsync_enabled", true)
+	DisplayServer.window_set_vsync_mode(
+		DisplayServer.VSYNC_ENABLED if vsync_on else DisplayServer.VSYNC_DISABLED
+	)
+
+	# ── FPS cap (only meaningful when VSync is off) ────────────────────────
+	if vsync_on:
+		Engine.max_fps = 0
+	else:
+		var fps_idx: int = cfg.get_value("performance", "fps_cap_index", 0)
+		if fps_idx >= 0 and fps_idx < FPS_CAP_VALUES.size():
+			Engine.max_fps = FPS_CAP_VALUES[fps_idx]

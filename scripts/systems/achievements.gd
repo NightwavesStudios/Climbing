@@ -8,7 +8,7 @@ extends Node
 # ── Achievement API Names ─────────────────────────────────────────────────
 const FIRST_CLIMB    := "FIRST_CLIMB"
 const DEMO_COMPLETE  := "DEMO_COMPLETE"
-const GYM_RAT        := "GYM_RAT"
+const WEEKLY_LEVEL   := "WEEKLY_LEVEL"
 # const ON_REAL_ROCK   := "ON_REAL_ROCK"  # reserved for full game
 const LOOSE_ROCK     := "LOOSE_ROCK"
 const GRAVITY_CHECK  := "GRAVITY_CHECK"
@@ -22,9 +22,18 @@ const FALL_THRESHOLD         := 20
 
 # ── Internal ──────────────────────────────────────────────────────────────
 
+var _steam_available := false
+
+func _ready() -> void:
+	_steam_available = Engine.has_singleton("Steam") and Steam.isSteamRunning()
+	if not _steam_available:
+		print("Achievements: Steam not available — achievements disabled")
+
 func setAchievement(ach: String) -> void:
-	var status = Steam.getAchievement(ach)
-	if status["achieved"]:
+	if not _steam_available:
+		return
+	var status: Dictionary = Steam.getAchievement(ach)
+	if status.get("achieved", false):
 		print("Achievements: " + ach + " already unlocked!")
 		return
 	Steam.setAchievement(ach)
@@ -34,9 +43,11 @@ func setAchievement(ach: String) -> void:
 func _update_progress_stat(ach: String, current: int, target: int) -> void:
 	"""Update a Steam achievement's progress stat so the overlay shows fractional progress.
 	Only calls indicateAchievementProgress if the achievement isn't already achieved."""
-	if Steam.getAchievement(ach)["achieved"]:
+	if not _steam_available:
 		return
-	var display = "%d/%d" % [current, target]
+	if Steam.getAchievement(ach).get("achieved", false):
+		return
+	var display: String = "%d/%d" % [current, target]
 	print("Achievements: Progress \"%s\" = %s" % [ach, display])
 	Steam.indicateAchievementProgress(ach, current, target)
 
@@ -52,10 +63,9 @@ func check_first_climb() -> void:
 func check_demo_complete() -> void:
 	setAchievement(DEMO_COMPLETE)
 
-## Called after a level is completed — checks whether all gym levels are done.
-func check_gym_rat() -> void:
-	if GameState.is_collection_completed("intro-gym"):
-		setAchievement(GYM_RAT)
+## Called when the weekly level is completed.
+func check_weekly_level() -> void:
+	setAchievement(WEEKLY_LEVEL)
 
 ## Called whenever a falling hold is recorded.
 ## Tracks progress via Steam stats so the player sees "X/50" in the overlay.

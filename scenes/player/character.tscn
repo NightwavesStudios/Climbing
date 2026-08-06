@@ -1,8 +1,9 @@
-[gd_scene load_steps=6 format=3 uid="uid://c5s02ajy6gea3"]
+[gd_scene load_steps=7 format=3 uid="uid://c5s02ajy6gea3"]
 
 [ext_resource type="Script" uid="uid://bl2to4omx6gks" path="res://scripts/player/character.gd" id="1_pjt0s"]
 [ext_resource type="Texture2D" uid="uid://k8jd38xjth1r" path="res://assets/textures/icon.svg" id="2_wa5vi"]
 [ext_resource type="Texture2D" uid="uid://dk6fuvvqaqxos" path="res://assets/textures/light.png" id="3_unmdi"]
+[ext_resource type="AudioStream" path="res://assets/audio/sfx/heartbeat.mp3" id="4_heart"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wfnr8"]
 size = Vector2(150, 150)
@@ -157,3 +158,7 @@ offset_right = -186.0
 offset_bottom = -294.97345
 scale = Vector2(11.673236, 17.316816)
 color = Color(0.30692267, 0.3069227, 0.3069227, 1)
+
+[node name="HeartbeatAudio" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("4_heart")
+volume_db = -80.0

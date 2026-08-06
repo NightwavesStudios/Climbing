@@ -97,6 +97,14 @@ func reset_timer() -> void:
 	print("WeeklyTimer: Reset")
 
 
+func hide_timer() -> void:
+	## Hide the timer display (e.g. while the level-complete summary is showing,
+	## since the summary already shows the time). The timer reappears on the
+	## next climb via start_timer().
+	visible = false
+	print("WeeklyTimer: Hidden")
+
+
 func get_elapsed_time() -> float:
 	return elapsed_time
 

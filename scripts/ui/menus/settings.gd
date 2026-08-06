@@ -8,6 +8,13 @@ const SETTINGS_PATH     := "user://settings.cfg"
 const PREFS_PATH        := "user://prefs.cfg"
 const DEFAULT_VOLUME    := 0.5
 
+const MAIN_MENU_SCENE   := "res://scenes/menus/main_menu.tscn"
+
+## Where the "Back" button should return to. Set by the pause menu when
+## settings is opened mid-level so Back returns to gameplay instead of the
+## main menu. Empty means the default (main menu).
+static var return_scene: String = ""
+
 const REBINDABLE_ACTIONS: Array[String] = [
 	"select_left",
 	"select_right",
@@ -336,7 +343,9 @@ func _on_fps_cap_item_selected(index: int) -> void:
 func _on_back_pressed() -> void:
 	# Auto-save before leaving — the user expects changes to stick
 	_on_save_pressed()
-	Transition.to("res://scenes/menus/main_menu.tscn")
+	var target := MAIN_MENU_SCENE if return_scene.is_empty() else return_scene
+	return_scene = ""
+	Transition.to(target)
 
 # ─────────────────────────────────────────────
 #  RESET DATA

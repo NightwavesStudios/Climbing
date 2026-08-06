@@ -19,23 +19,8 @@
 	"holds": [
 		{
 			"type": "CRIMP",
-			"x": 0.0,
-			"y": -224.0
-		},
-		{
-			"type": "CRIMP",
-			"x": 96.0,
-			"y": -288.0
-		},
-		{
-			"type": "CRIMP",
 			"x": -96.0,
 			"y": -352.0
-		},
-		{
-			"type": "CRIMP",
-			"x": 64.0,
-			"y": -416.0
 		},
 		{
 			"type": "SLOPER",
@@ -66,10 +51,38 @@
 			"type": "FOOT",
 			"x": -64.0,
 			"y": -288.0
+		},
+		{
+			"type": "UNDERCLING",
+			"x": 64.0,
+			"y": -416.0
+		},
+		{
+			"modifiers": [
+				{
+					"auto_reset": false,
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"reset_delay": 4.0,
+					"shake_frequency": 22.0,
+					"shake_max_amp": 1.8,
+					"shake_ramp_speed": 1.8,
+					"type": "falling"
+				}
+			],
+			"type": "UNDERCLING",
+			"x": 0.0,
+			"y": -224.0
+		},
+		{
+			"type": "UNDERCLING",
+			"x": 96.0,
+			"y": -320.0
 		}
 	],
 	"name": "Carbon Copy",
 	"speed_time_limit": 60.0,
+	"time_of_day": -1,
 	"wall_polygon": {
 		"enabled": true,
 		"ground_left_index": 6,

@@ -302,6 +302,13 @@ func _resolve_custom_spawn_position() -> void:
 		return
 
 	var hold_point = custom_spawn_hold.get_node_or_null("HoldPoint")
+	# The spawn hold root is a wrapper Node2D — the HoldPoint lives on the
+	# script-bearing Area2D child, so look there if the root has no direct one.
+	if hold_point == null:
+		for child in custom_spawn_hold.get_children():
+			if child is Area2D:
+				hold_point = child.get_node_or_null("HoldPoint")
+				break
 	var world_pos: Vector2
 	if hold_point:
 		world_pos = hold_point.global_position
@@ -359,8 +366,21 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 	var hold = scene.instantiate()
 	hold.global_position = Vector2(hold_data.get("x", 0.0), hold_data.get("y", 0.0))
 
+	# The hold root is a wrapper Node2D; the script-bearing Area2D child owns
+	# hold_type. Find it so the warning-free path works for both layouts.
+	var hold_type_node: Node = null
 	if "hold_type" in hold:
-		hold.hold_type = type_name
+		hold_type_node = hold
+	else:
+		for child in hold.get_children():
+			if child is Area2D and "hold_type" in child:
+				hold_type_node = child
+				break
+	if hold_type_node and hold_type_node.has_method("set_hold_type_from_string"):
+		# Use the enum-aware setter, NOT a raw string assignment: assigning
+		# "START"/"FOOT" straight to the typed int property converts via
+		# String.to_int() and silently zeroes every hold's type.
+		hold_type_node.set_hold_type_from_string(type_name)
 		print("  Spawned %s hold at (%.1f, %.1f)" % [
 			type_name, hold.global_position.x, hold.global_position.y])
 	else:
@@ -370,9 +390,6 @@ func spawn_hold(hold_data: Dictionary) -> Node2D:
 			hold.get_class(),
 			hold.get_script().resource_path if hold.get_script() else "NO SCRIPT"
 		])
-
-	if hold.has_method("set_hold_type_from_string"):
-		hold.set_hold_type_from_string(type_name)
 
 	holds_container.add_child(hold)
 	hold.add_to_group("holds")
@@ -415,6 +432,15 @@ func _attach_modifiers_to_hold(hold: Node2D, modifiers_data: Array) -> void:
 			continue
 
 		var type_key: String = mod_data.get("type", "")
+
+		# Skip duplicates — e.g. an undercling hold auto-attaches its modifier
+		# in holds.gd _ready(), so a saved "undercling" modifier must not stack.
+		var mod_registry := get_node_or_null("/root/HoldModifierRegistry")
+		if mod_registry and mod_registry.has_method("find_modifier") \
+				and mod_registry.find_modifier(target, type_key) != null:
+			print("  [_attach_modifiers] '%s' already attached — skipping duplicate" % type_key)
+			continue
+
 		print("  [_attach_modifiers] Creating modifier type='%s'" % type_key)
 
 		var modifier: Node = null
@@ -462,18 +488,20 @@ func get_hold_count() -> int:
 
 func get_start_holds() -> Array[Node2D]:
 	var starts: Array[Node2D] = []
-	if holds_container:
-		for hold in holds_container.get_children():
-			if hold.has_method("is_start_hold") and hold.is_start_hold():
-				starts.append(hold)
+	# Hold scenes are wrapper Node2D roots whose script-bearing Area2D child is
+	# added to the "holds" group. Iterating the child roots fails because the
+	# root has no script (and thus no is_start_hold()), so query the group
+	# instead — this is what fixes spawn detection for all levels.
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold is Area2D and hold.has_method("is_start_hold") and hold.is_start_hold():
+			starts.append(hold)
 	return starts
 
 func get_top_holds() -> Array[Node2D]:
 	var tops: Array[Node2D] = []
-	if holds_container:
-		for hold in holds_container.get_children():
-			if hold.has_method("is_top_out") and hold.is_top_out():
-				tops.append(hold)
+	for hold in get_tree().get_nodes_in_group("holds"):
+		if hold is Area2D and hold.has_method("is_top_out") and hold.is_top_out():
+			tops.append(hold)
 	if dynamic_wall:
 		for child in dynamic_wall.get_children():
 			if child.has_meta("is_top_edge_hold"):

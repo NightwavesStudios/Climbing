@@ -1,6 +1,6 @@
 [gd_scene load_steps=6 format=3 uid="uid://phva7vynr56p"]
 
-[ext_resource type="Script" uid="uid://3c1r06go1w6k" path="res://scripts/ui/menus/collections_select.gd" id="1_ns5ma"]
+[ext_resource type="Script" path="res://scripts/ui/menus/collections_select.gd" id="1_ns5ma"]
 [ext_resource type="Script" uid="uid://dm0msblu3juue" path="res://scripts/ui/components/buttons.gd" id="2_rcboh"]
 [ext_resource type="Texture2D" uid="uid://cq0kntyvpbx64" path="res://assets/images/map/gym_location_icon.png" id="3_dfhjo"]
 [ext_resource type="Texture2D" uid="uid://cedoa8r2y51cp" path="res://assets/images/map/granite_location_map.png" id="4_45fai"]
@@ -32,38 +32,6 @@ grow_horizontal = 2
 theme_override_constants/separation = 50
 alignment = 1
 
-[node name="Sandstone" type="Button" parent="HBoxContainer"]
-visible = false
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Sandstone"
-script = ExtResource("2_rcboh")
-
-[node name="DeepWaterSolo" type="Button" parent="HBoxContainer"]
-visible = false
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Deep Water Solo"
-script = ExtResource("2_rcboh")
-
-[node name="Building" type="Button" parent="HBoxContainer"]
-visible = false
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Building"
-script = ExtResource("2_rcboh")
-
-[node name="Ice" type="Button" parent="HBoxContainer"]
-visible = false
-custom_minimum_size = Vector2(87, 0)
-layout_mode = 2
-size_flags_vertical = 4
-text = "Ice"
-script = ExtResource("2_rcboh")
-
 [node name="Gym" type="Button" parent="HBoxContainer"]
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
@@ -87,12 +55,28 @@ icon_alignment = 1
 vertical_icon_alignment = 0
 script = ExtResource("2_rcboh")
 
-[node name="Wooden Gym" type="Button" parent="HBoxContainer"]
+[node name="Sandstone" type="Button" parent="HBoxContainer"]
 visible = false
 custom_minimum_size = Vector2(87, 0)
 layout_mode = 2
 size_flags_vertical = 4
-text = "Wooden Gym"
+text = "Sandstone"
+script = ExtResource("2_rcboh")
+
+[node name="Building" type="Button" parent="HBoxContainer"]
+visible = false
+custom_minimum_size = Vector2(87, 0)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Building"
+script = ExtResource("2_rcboh")
+
+[node name="Ice" type="Button" parent="HBoxContainer"]
+visible = false
+custom_minimum_size = Vector2(87, 0)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Ice"
 script = ExtResource("2_rcboh")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
@@ -102,10 +86,8 @@ scale = Vector2(0.03166672, 0.03166672)
 texture = ExtResource("6_edj87")
 
 [connection signal="pressed" from="Back" to="." method="_on_back_pressed"]
-[connection signal="pressed" from="HBoxContainer/Sandstone" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/DeepWaterSolo" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/Building" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/Ice" to="." method="_on_flow_collection_pressed"]
 [connection signal="pressed" from="HBoxContainer/Gym" to="." method="_on_tutorial_collection_pressed"]
 [connection signal="pressed" from="HBoxContainer/Granite" to="." method="_on_flow_collection_pressed"]
-[connection signal="pressed" from="HBoxContainer/Wooden Gym" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/Sandstone" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/Building" to="." method="_on_flow_collection_pressed"]
+[connection signal="pressed" from="HBoxContainer/Ice" to="." method="_on_flow_collection_pressed"]

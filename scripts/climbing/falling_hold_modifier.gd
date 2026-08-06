@@ -8,6 +8,10 @@ extends HoldModifierBase
 ##   FALLING   → limbs force-released, hold drops, collision disabled
 ##   FALLEN    → resting off-screen, waiting for reset_delay
 ##   RESETTING → snaps back to origin, collision re-enabled
+##
+## The fall is committed the moment any limb grabs the hold: even if every
+## limb releases while still SHAKING, the hold keeps shaking and always falls
+## when the fall timer elapses.
 
 # ── Tunable parameters ────────────────────────────────────────────────────
 var fall_delay:       float = 2.2
@@ -105,9 +109,11 @@ func on_grab(limb_node: Node2D) -> void:
 		_enter_shaking()
 
 func on_release(limb_node: Node2D) -> void:
+	# The fall is already committed once the hold starts shaking, so letting
+	# go never cancels it — the hold keeps shaking and falls when the timer
+	# elapses. We only drop the limb from the claimed set so a later
+	# _force_release_all() doesn't try to release a limb that already let go.
 	_claimed_limbs.erase(limb_node)
-	# Once the hold has been activated (touched a limb), it keeps shaking and
-	# will fall regardless — releasing early no longer cancels the shake.
 
 # ── State ticks ───────────────────────────────────────────────────────────
 

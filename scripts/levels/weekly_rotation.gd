@@ -16,9 +16,6 @@ var weekly_level_paths: Array[String] = []
 var total_weeks: int:
 	get: return weekly_level_paths.size()
 
-## Cached week index for the current session.
-var _current_week_index: int = -1
-
 
 func _ready() -> void:
 	_refresh_weekly_levels()
@@ -47,6 +44,7 @@ func _refresh_weekly_levels() -> void:
 
 ## Returns the current week number (weeks since Unix epoch).
 ## This is deterministic and the same for all players.
+@warning_ignore("integer_division")
 func get_current_week_number() -> int:
 	var unix_now := int(Time.get_unix_time_from_system())
 	# Week number = seconds since epoch / seconds per week

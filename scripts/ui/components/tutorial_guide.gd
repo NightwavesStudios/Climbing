@@ -11,7 +11,7 @@ var _current_step: int = Step.INTRO_JUGS
 var _player: CharacterBody2D = null
 var _panel: Panel = null
 var _dim_overlay: ColorRect = null
-var _label: Label = null
+var _label: RichTextLabel = null
 var _title_label: Label = null
 var _hands_placed: bool = false
 var _feet_placed: bool = false
@@ -37,52 +37,67 @@ func _build_ui() -> void:
 	_dim_overlay = ColorRect.new()
 	_dim_overlay.name = "DimOverlay"
 	_dim_overlay.anchors_preset = Control.PRESET_FULL_RECT
-	_dim_overlay.color = Color(0, 0, 0, 0.3)
+	_dim_overlay.color = Color(0, 0, 0, 0.35)
 	_dim_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_dim_overlay)
 
 	# Panel at bottom center (absolute positioning)
 	_panel = Panel.new()
 	_panel.name = "TutorialPanel"
-	_panel.position = Vector2(200, 500)
-	_panel.size = Vector2(880, 140)
+	_panel.position = Vector2(200, 496)
+	_panel.size = Vector2(880, 156)
 
 	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color(0.08, 0.08, 0.12, 0.92)
+	panel_style.bg_color = Color(0.06, 0.06, 0.08, 0.95)
 	panel_style.border_width_left = 1
 	panel_style.border_width_right = 1
 	panel_style.border_width_top = 1
 	panel_style.border_width_bottom = 1
-	panel_style.border_color = Color(0.85, 0.55, 0.1, 0.7)
-	panel_style.corner_radius_top_left = 10
-	panel_style.corner_radius_top_right = 10
-	panel_style.corner_radius_bottom_left = 10
-	panel_style.corner_radius_bottom_right = 10
+	panel_style.border_color = Color(1, 1, 1, 0.1)
+	panel_style.corner_radius_top_left = 14
+	panel_style.corner_radius_top_right = 14
+	panel_style.corner_radius_bottom_left = 14
+	panel_style.corner_radius_bottom_right = 14
+	panel_style.shadow_color = Color(0, 0, 0, 0.4)
+	panel_style.shadow_size = 10
 	_panel.add_theme_stylebox_override("panel", panel_style)
 	add_child(_panel)
 
 	_title_label = Label.new()
 	_title_label.name = "TitleLabel"
-	_title_label.position = Vector2(20, 8)
-	_title_label.size = Vector2(840, 24)
+	_title_label.position = Vector2(24, 24)
+	_title_label.size = Vector2(832, 28)
 	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_title_label.add_theme_font_size_override("font_size", 16)
-	_title_label.add_theme_color_override("font_color", Color(0.5, 0.75, 1.0))
+	_title_label.add_theme_font_size_override("font_size", 17)
+	_title_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.3))
 	_title_label.text = "TUTORIAL"
 	_panel.add_child(_title_label)
 
-	_label = Label.new()
+	# Body text container — centers the label vertically regardless of line count
+	var body_container := VBoxContainer.new()
+	body_container.name = "BodyContainer"
+	body_container.position = Vector2(30, 58)
+	body_container.size = Vector2(820, 92)
+	body_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	_panel.add_child(body_container)
+
+	_label = RichTextLabel.new()
 	_label.name = "TutorialLabel"
-	_label.position = Vector2(20, 36)
-	_label.size = Vector2(840, 96)
-	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_label.fit_content = true
+	_label.bbcode_enabled = true
+	_label.scroll_active = false
 	_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_label.add_theme_font_size_override("font_size", 17)
-	_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.95))
-	_label.add_theme_constant_override("line_spacing", 4)
-	_panel.add_child(_label)
+	_label.add_theme_color_override("default_color", Color(0.92, 0.92, 0.96))
+	_label.add_theme_constant_override("line_spacing", 6)
+	body_container.add_child(_label)
+
+
+func _key(key_name: String) -> String:
+	return "[b][color=#e8b84b]" + InputHelper.get_action_key_name(key_name) + "[/color][/b]"
 
 
 func setup(player: CharacterBody2D) -> void:
@@ -110,9 +125,7 @@ func _start_step_intro_jugs() -> void:
 		_player.set_hands_enabled(true)
 		_player.set_feet_enabled(false)
 	_title_label.text = "STEP 1: JUGS"
-	var left_key := InputHelper.get_action_key_name("select_left")
-	var right_key := InputHelper.get_action_key_name("select_right")
-	_label.text = "Jugs are the easiest climbing holds. Any 2 limbs can grip them.\nPress %s or %s to select a hand, aim, and release to grab.\nMove both hands to the next set of jugs to continue." % [left_key, right_key]
+	_label.text = "[center]The blue holds, jugs are the easiest climbing holds. Any 2 limbs can grip them.\nPress %s or %s to select a hand, aim, and release to grab.\nMove both hands to the jug on the left to continue.[/center]" % [_key("select_left"), _key("select_right")]
 
 
 func _start_step_place_feet() -> void:
@@ -121,9 +134,7 @@ func _start_step_place_feet() -> void:
 		_player.set_hands_enabled(false)
 		_player.set_feet_enabled(true)
 	_title_label.text = "STEP 2: FOOTHOLDS"
-	var left_key := InputHelper.get_action_key_name("select_left_foot")
-	var right_key := InputHelper.get_action_key_name("select_right_foot")
-	_label.text = "The green holds are footholds, they can only be used by your feet.\nUse %s or %s to select a foot, aim, and release to place it.\nPlace both feet on footholds to continue." % [left_key, right_key]
+	_label.text = "[center]The green holds are footholds, they can only be used by your feet.\nUse %s or %s to select a foot, aim, and release to place it.\nPlace both feet on footholds to continue.[/center]" % [_key("select_left_foot"), _key("select_right_foot")]
 
 
 func _start_step_unlock_all() -> void:
@@ -132,13 +143,13 @@ func _start_step_unlock_all() -> void:
 		_player.set_hands_enabled(true)
 		_player.set_feet_enabled(true)
 	_title_label.text = "STEP 3: CLIMB!"
-	_label.text = "Your feet push your body up the wall! Getting your feet high is key.\nAll controls are unlocked. Climb to the top to finish the route!"
+	_label.text = "[center]Your feet push your body up the wall! Getting your feet high is key.\nAll controls are unlocked. Climb to the top to finish the route![/center]"
 
 
 func _start_step_near_top() -> void:
 	_current_step = Step.NEAR_TOP
 	_title_label.text = "ALMOST THERE!"
-	_label.text = "You're close to the top! Place both hands on the jug with the tape to finish the route."
+	_label.text = "[center]You're close to the top! Place both hands on the jug with the tape to finish the route.[/center]"
 
 
 func _on_dismiss_timer_end() -> void:
@@ -192,7 +203,7 @@ func _process(delta: float) -> void:
 				# Player moved hands to the next set of jugs — advance
 				if not _hands_placed:
 					_hands_placed = true
-					_label.text = "Great! Both hands are on the jugs."
+					_label.text = "[center]Great! Both hands are on the jugs.[/center]"
 					_transition_timer = 2
 					_pending_step = Step.PLACE_FEET
 			else:
@@ -204,7 +215,7 @@ func _process(delta: float) -> void:
 			if _player.lf.hold != null and _player.rf.hold != null:
 				if not _feet_placed:
 					_feet_placed = true
-					_label.text = "Excellent! Feet are placed."
+					_label.text = "[center]Excellent! Feet are placed.[/center]"
 					_transition_timer = 2
 					_pending_step = Step.UNLOCK_ALL
 

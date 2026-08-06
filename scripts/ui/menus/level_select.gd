@@ -12,7 +12,7 @@ var _current_index: int = 0
 var _tween: Tween = null
 var _transitioning: bool = false
 
-const WEATHER_NAMES = { 0: "", 1: "Rain", 2: "Night", 3: "Snow", 4: "Lightning", 5: "Fog", 6: "Hail" }
+const WEATHER_NAMES = { 0: "", 1: "Rain", 2: "Night", 3: "Snow", 4: "Lightning", 5: "Fog", 6: "Hail", 7: "Sandstorm", 8: "Wind" }
 
 const HOLD_SCENE_MAP = {
 	"JUG":    "res://scenes/holds/jug.tscn",
@@ -148,7 +148,7 @@ func _show_page(index: int) -> void:
 	info_vbox.add_child(header_ctrl)
 
 	var header_bg := ColorRect.new()
-	header_bg.color = Color(palette.wall.r * 0.7, palette.wall.g * 0.7, palette.wall.b * 0.7, 1.0)
+	header_bg.color = Color(palette.wall.r * 0.30, palette.wall.g * 0.30, palette.wall.b * 0.30, 0.55)
 	header_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	header_ctrl.add_child(header_bg)
 
@@ -208,14 +208,14 @@ func _show_page(index: int) -> void:
 	info_vbox.add_child(tags_m)
 
 	if meta.unlocked:
-		_add_tag(tags_hbox, discipline.capitalize(),   Color(palette.wall.r, palette.wall.g, palette.wall.b, 0.55))
-		_add_tag(tags_hbox, environment.capitalize(),  Color(palette.wall.r * 0.7, palette.wall.g * 0.7, palette.wall.b * 0.7, 0.55))
+		_add_tag(tags_hbox, discipline.capitalize(),   Color(palette.wall.r, palette.wall.g, palette.wall.b, 0.30))
+		_add_tag(tags_hbox, environment.capitalize(),  Color(palette.wall.r * 0.7, palette.wall.g * 0.7, palette.wall.b * 0.7, 0.30))
 		if weather_int > 0:
-			_add_tag(tags_hbox, WEATHER_NAMES.get(weather_int, ""), Color(0.25, 0.38, 0.55, 0.7))
+			_add_tag(tags_hbox, WEATHER_NAMES.get(weather_int, ""), Color(0.35, 0.45, 0.58, 0.35))
 		# Time-of-day tag: only show if meaningfully non-midday
 		var tod_label := _time_of_day_label(time_of_day)
 		if tod_label != "":
-			_add_tag(tags_hbox, tod_label, Color(0.18, 0.18, 0.28, 0.7))
+			_add_tag(tags_hbox, tod_label, Color(0.30, 0.30, 0.38, 0.35))
 
 	var sep1 := ColorRect.new()
 	sep1.color = Color(1, 1, 1, 0.06)

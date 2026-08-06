@@ -11,8 +11,13 @@ var _preview_complete: bool = false
 @onready var camera: Camera2D = $Camera2D
 @onready var pause_menu: CanvasLayer = $PauseMenu
 @onready var instructions: CanvasLayer = $Instructions
-@onready var instructions_root: ColorRect = $Instructions/ColorRect
+@onready var instructions_root: Panel = $Instructions/Card
 @onready var popup_sprite: Sprite2D = $Instructions/Sprite2D
+@onready var restart_hint: CanvasLayer = $RestartHint
+@onready var restart_hint_panel: Control = $RestartHint/Panel
+
+const PLANNING_PHASE_SCENE := preload("res://scenes/ui/planning_phase.tscn")
+var planning_phase: PlanningPhase = null
 
 var _current_level_path: String = ""
 var dynamic_wall: Node2D = null
@@ -31,6 +36,18 @@ var _project_mode_complete_overlay: ProjectModeComplete = null
 var _popup_manager: PopupManager = null
 var _tutorial_guide: TutorialGuide = null
 var _zoom_tutorial_guide: ZoomTutorialGuide = null
+## Set once the zoom tutorial has been completed so it never re-triggers.
+var _zoom_tutorial_done: bool = false
+
+# =============================================================================
+#  ROPE RESTART HINT — "Press R to restart" while hanging on the rope
+# =============================================================================
+
+## Delay (seconds) of hanging on the rope before the restart hint appears.
+const RESTART_HINT_DELAY := 1.5
+
+var _hang_hint_timer: float = 0.0
+var _hang_hint_showing: bool = false
 
 # =============================================================================
 #  PROJECT MODE (practice mode)
@@ -46,6 +63,9 @@ var _project_mode_button: Button = null
 enum CameraMode { FOLLOW_PLAYER, ROUTE_PREVIEW }
 
 var _cam_mode: CameraMode = CameraMode.FOLLOW_PLAYER
+
+## Whether the planning phase is active (route zoomed out, climber locked).
+var _planning_active: bool = false
 var _preview_tween: Tween = null
 var _return_tween: Tween  = null
 var _preview_zoom_normal := Vector2(1.0, 1.0)
@@ -93,22 +113,36 @@ func _get_route_zoom() -> Vector2:
 	return Vector2.ONE * PREVIEW_ZOOM_MIN
 
 
-func start_route_preview() -> void:
-	camera_owned_by_main = true
-	if not camera or not is_instance_valid(camera):
-		camera_owned_by_main = false
-		return
+## The route-planning phase (free camera + hold hover) is only available on
+## roped climbs, which the player first meets at level 5 (tutorial_05).
+## Bouldering, speed, and earlier levels don't get the planning phase.
+func _is_planning_enabled() -> bool:
+	return current_discipline == ClimbingDiscipline.Type.ROPED
 
-	# Disable player input so they can't move before the zoom-in completes
+
+func begin_planning() -> void:
+	"""Enter the planning phase: zoom out to the route overview, lock the
+	climber, and show the planning UI (free camera + hold hover)."""
+	if not _is_planning_enabled():
+		return
+	if _planning_active or not camera or not is_instance_valid(camera):
+		return
+	_planning_active = true
+
+	# Disable player input so the climber is locked while planning.
 	_set_player_input(false)
 
-	# Disable position smoothing during preview tween so tween_property controls
-	# the actual rendered camera position, not just the smoothing target.
+	# Disable position smoothing so the snap to the overview is exact.
 	_smoothing_was_enabled = camera.position_smoothing_enabled
 	camera.position_smoothing_enabled = false
 	camera.reset_smoothing()
 
 	_cam_mode = CameraMode.ROUTE_PREVIEW
+
+	# Take ownership of the camera away from the player's follow-lerp so it
+	# doesn't keep snapping back toward the climber while the player pans around
+	# the route in planning mode. Toggled back to false on exit/reset/cleanup.
+	camera_owned_by_main = true
 
 	if _preview_tween and _preview_tween.is_valid():
 		_preview_tween.kill()
@@ -118,28 +152,39 @@ func start_route_preview() -> void:
 	var overview_pos  := _get_route_overview_position()
 	var overview_zoom := _get_route_zoom()
 
-	# Snap immediately to zoomed-out overview — no tween, happens before fade-in
-	camera.global_position = overview_pos
-	camera.zoom            = overview_zoom
-
+	# Tween the camera out to the route overview (smooth zoom-out) instead of
+	# snapping. The planning UI activates once the camera has landed.
 	_preview_tween = create_tween() \
 		.set_ease(Tween.EASE_IN_OUT) \
 		.set_trans(Tween.TRANS_CUBIC)
+	_preview_tween.set_parallel(true)
+	_preview_tween.tween_property(camera, "zoom", overview_zoom, TAB_ZOOM_OUT_TIME)
+	_preview_tween.tween_property(camera, "global_position", overview_pos, TAB_ZOOM_OUT_TIME)
+	_preview_tween.set_parallel(false)
+	_preview_tween.tween_callback(func() -> void:
+		if planning_phase:
+			planning_phase.enter(camera, overview_pos, overview_zoom)
+	)
 
-	# 1. Hold at the overview so the player can read the route
-	_preview_tween.tween_interval(PREVIEW_HOLD_TIME)
+func end_planning() -> void:
+	"""Exit the planning phase: glide the camera back to the player and
+	unlock the climber."""
+	if not _planning_active or not camera or not is_instance_valid(camera):
+		return
+	_planning_active = false
 
-	# 2. After the hold, start the return tween to where the player is NOW.
-	#    Uses a separate tween (_return_tween) so player_pos is captured at
-	#    the right moment (after 5s hold), not 5 seconds earlier.
-	_preview_tween.tween_callback(_start_return_tween)
+	# Stop any in-flight camera zoom-out so it doesn't fight the return tween.
+	if _preview_tween and _preview_tween.is_valid():
+		_preview_tween.kill()
 
-func _start_return_tween() -> void:
-	if not is_instance_valid(camera) or not is_instance_valid(player):
+	if planning_phase:
+		planning_phase.exit()
+
+	if not is_instance_valid(player):
 		_finish_preview()
 		return
 
-	# Capture the player's current position right NOW (after the 5s hold)
+	# Capture the player's current position NOW so the tween lands there.
 	var player_pos := player.global_position
 
 	_return_tween = create_tween() \
@@ -194,7 +239,7 @@ func _on_tutorial_completed() -> void:
 
 func _start_zoom_tutorial() -> void:
 	"""Start the interactive zoom tutorial for the first roped route."""
-	if _zoom_tutorial_guide:
+	if _zoom_tutorial_guide or _zoom_tutorial_done:
 		return
 	_zoom_tutorial_guide = ZoomTutorialGuide.new()
 	_zoom_tutorial_guide.name = "ZoomTutorialGuide"
@@ -205,47 +250,29 @@ func _start_zoom_tutorial() -> void:
 
 func _on_zoom_tutorial_completed() -> void:
 	_zoom_tutorial_guide = null
+	_zoom_tutorial_done = true
 	# Re-enable player input in case it was locked
 	_set_player_input(true)
 
 
 func toggle_route_view() -> void:
-	if not camera:
+	"""Tab toggle: enter planning phase (zoom out + lock) or exit it (zoom in + unlock).
+	No-op on levels where the planning feature isn't enabled (non-roped)."""
+	if not _is_planning_enabled():
 		return
-
-	if _preview_tween and _preview_tween.is_valid():
-		_preview_tween.kill()
-	if _return_tween and _return_tween.is_valid():
-		_return_tween.kill()
-
-	_preview_tween = create_tween() \
-		.set_ease(Tween.EASE_IN_OUT) \
-		.set_trans(Tween.TRANS_CUBIC)
-
-	if _cam_mode == CameraMode.FOLLOW_PLAYER:
-		_cam_mode = CameraMode.ROUTE_PREVIEW
-		camera_owned_by_main = true
-		# Disable smoothing so the tween controls the actual rendered position
-		_smoothing_was_enabled = camera.position_smoothing_enabled
-		camera.position_smoothing_enabled = false
-		camera.reset_smoothing()
-		var overview_pos  := _get_route_overview_position()
-		var overview_zoom := _get_route_zoom()
-		_preview_tween.set_parallel(true)
-		_preview_tween.tween_property(camera, "global_position", overview_pos, TAB_ZOOM_OUT_TIME)
-		_preview_tween.tween_property(camera, "zoom", overview_zoom, TAB_ZOOM_OUT_TIME)
+	if _planning_active:
+		end_planning()
 	else:
-		_cam_mode = CameraMode.FOLLOW_PLAYER
-		var player_pos := player.global_position if player else camera.global_position
-		_preview_tween.set_parallel(true)
-		_preview_tween.tween_property(camera, "zoom", _preview_zoom_normal, TAB_ZOOM_IN_TIME)
-		_preview_tween.tween_property(camera, "global_position", player_pos, TAB_ZOOM_IN_TIME)
-		_preview_tween.set_parallel(false)
-		_preview_tween.tween_callback(func():
-			camera.position_smoothing_enabled = _smoothing_was_enabled
-			camera.reset_smoothing()
-			camera_owned_by_main = false
-		)
+		begin_planning()
+
+func _force_exit_planning() -> void:
+	"""Instantly leave the planning phase (hides UI, unlocks state) without the
+	return tween. Used on reset/level-change/cleanup paths."""
+	_planning_active = false
+	# Give the camera back to the player's follow-lerp on any exit path.
+	camera_owned_by_main = false
+	if planning_phase and is_instance_valid(planning_phase):
+		planning_phase.exit()
 
 
 func _set_player_input(enabled: bool) -> void:
@@ -442,6 +469,13 @@ func _check_paths() -> void:
 func _ready():
 	print("=== MAIN SCENE READY ===")
 
+	# ── Enforce saved VSync/FPS cap on every level entry ───────────────
+	# Guards against an uncapped frame rate leaking in from any menu path
+	# (e.g. leaving the main menu mid-animation). Physics runs at a fixed
+	# 60 Hz regardless, but this keeps rendering consistent with settings.
+	if get_node_or_null("/root/SettingsLoader"):
+		SettingsLoader.apply_fps_cap()
+
 	# ── Project mode UI setup ──────────────────────────────────────────
 	_setup_project_mode_ui()
 
@@ -452,6 +486,14 @@ func _ready():
 
 	_popup_manager = PopupManager.new(instructions, instructions_root, popup_sprite)
 	add_to_group("main_scene")
+
+	# Create the planning phase overlay (route overview, free camera, hold hover).
+	# Created in code so it doesn't require editing the main scene file.
+	planning_phase = PLANNING_PHASE_SCENE.instantiate() as PlanningPhase
+	add_child(planning_phase)
+	# The planning phase's "Continue" button ends the planning phase and starts
+	# the route (zoom back in, unlock the climber, start tutorials if any).
+	planning_phase.continue_pressed.connect(end_planning)
 
 	if instructions_root:
 		instructions_root.modulate.a = 0.0
@@ -479,13 +521,56 @@ func _ready():
 	await get_tree().process_frame
 	_show_popup_for_level(initial_level)
 
-	# Start the interactive tutorial immediately (bypasses preview animation)
-	if initial_level.ends_with("tutorial_01.json"):
-		_finish_preview()
-
 	_loading_complete = true
 	ready_to_show.emit()
 	print("=== MAIN SCENE READY COMPLETE ===")
+
+# =============================================================================
+#  ROPE RESTART HINT
+# =============================================================================
+
+func _process(delta: float) -> void:
+	_update_restart_hint(delta)
+
+
+## While the player is hanging on a roped route (rope caught them after a fall),
+## show a small "Press R to restart" widget once they've hung for a moment.
+## The hint disappears as soon as they grab a hold again or reset the climb.
+func _update_restart_hint(delta: float) -> void:
+	var hanging := false
+	if rope_system != null and is_instance_valid(rope_system):
+		var rs := rope_system as RopeSystem
+		hanging = rs != null and rs.catch_state != RopeSystem.CatchState.IDLE
+
+	if hanging:
+		_hang_hint_timer += delta
+		if _hang_hint_timer >= RESTART_HINT_DELAY and not _hang_hint_showing:
+			_show_restart_hint()
+	else:
+		_hang_hint_timer = 0.0
+		if _hang_hint_showing:
+			_hide_restart_hint()
+
+
+func _show_restart_hint() -> void:
+	if restart_hint == null:
+		return
+	_hang_hint_showing = true
+	restart_hint.visible = true
+	if restart_hint_panel:
+		restart_hint_panel.modulate = Color(1, 1, 1, 0)
+		var tween := create_tween()
+		tween.tween_property(restart_hint_panel, "modulate:a", 1.0, 0.25)
+
+
+func _hide_restart_hint() -> void:
+	if restart_hint == null:
+		return
+	_hang_hint_showing = false
+	restart_hint.visible = false
+	_hang_hint_timer = 0.0
+	if restart_hint_panel:
+		restart_hint_panel.modulate = Color.WHITE
 
 # =============================================================================
 #  TRANSITION READY HOOK
@@ -541,10 +626,8 @@ func _setup_pause_menu() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	# Tab → toggle route view.
 	if event.is_action_pressed("route_view") or event.is_action_pressed("ui_focus_next"):
-		# Don't allow Tab-toggle during the auto-preview hold phase.
-		# The return phase and normal FOLLOW_PLAYER allow it.
-		if _preview_tween == null or not _preview_tween.is_running():
-			toggle_route_view()
+		# Tab toggles the planning phase (zoom out + lock, or zoom in + unlock).
+		toggle_route_view()
 		return
 
 	if event.is_action_pressed("ui_cancel"):
@@ -624,13 +707,24 @@ func _load_initial_level(path: String) -> void:
 
 	position_player_at_spawn()
 
+	# ── Initial grab / foot snap ───────────────────────────────────────────
+	# The character's own initial_grab() runs deferred from _ready(), which is
+	# BEFORE the level loader has spawned any holds, so it can't grab the start
+	# hold or place feet on footholds. Re-run the full reset_climb() now that
+	# the level is fully in the scene tree: it grabs the START hold and snaps
+	# the feet onto the nearest footholds at spawn.
+	if player and player.has_method("reset_climb"):
+		player.reset_climb()
+
 	await get_tree().process_frame
 	center_camera_on_route()
 
-	# ── Route preview (Option B) ──────────────────────────────────────────────
-	# Wait one more frame so the camera is positioned before the tween fires.
+	# ── Planning phase ────────────────────────────────────────────────────────
+	# Wait one more frame so the camera is positioned, then enter the planning
+	# phase: the route stays zoomed out and the climber stays locked until the
+	# player presses "Continue" (or Tab / Enter).
 	await get_tree().process_frame
-	start_route_preview()
+	begin_planning()
 	# ─────────────────────────────────────────────────────────────────────────
 
 	_update_project_button_visibility(path)
@@ -872,6 +966,7 @@ func on_level_complete():
 	if _return_tween and _return_tween.is_valid():
 		_return_tween.kill()
 	_cam_mode = CameraMode.FOLLOW_PLAYER
+	_force_exit_planning()
 
 	if pause_menu and pause_menu.visible:
 		pause_menu.hide_pause_menu()
@@ -923,6 +1018,12 @@ func on_level_complete():
 	else:
 		Transition.to("res://scenes/menus/level_completed.tscn")
 
+	# The weekly summary already shows the time, so hide the top-of-screen
+	# timer while the summary is up. It reappears on the next climb start.
+	if is_weekly_level and weekly_timer and is_instance_valid(weekly_timer):
+		if weekly_timer.has_method("hide_timer"):
+			weekly_timer.hide_timer()
+
 func on_player_reset():
 	# Manual reset (Escape/R key) — does NOT count toward skip threshold
 	if project_mode_active and player and player.has_method("project_mode_reset"):
@@ -940,12 +1041,16 @@ func _do_player_reset():
 	if player and not player._grab_initialized:
 		return
 
+	# Hide the rope restart hint — the climb is being restarted
+	_hide_restart_hint()
+
 	# Kill any active route preview tween so it doesn't fight the camera
 	if _preview_tween and _preview_tween.is_valid():
 		_preview_tween.kill()
 	if _return_tween and _return_tween.is_valid():
 		_return_tween.kill()
 	_cam_mode = CameraMode.FOLLOW_PLAYER
+	_force_exit_planning()
 
 	position_player_at_spawn()
 	camera_owned_by_main = false
@@ -982,6 +1087,7 @@ func _project_mode_reset_player() -> void:
 	if _return_tween and _return_tween.is_valid():
 		_return_tween.kill()
 	_cam_mode = CameraMode.FOLLOW_PLAYER
+	_force_exit_planning()
 
 	# Reset the player at the last hold
 	if player and player.has_method("project_mode_reset"):
@@ -1172,6 +1278,7 @@ func cleanup_discipline_systems():
 	if _return_tween and _return_tween.is_valid():
 		_return_tween.kill()
 	_cam_mode = CameraMode.FOLLOW_PLAYER
+	_force_exit_planning()
 
 	if rope_system != null:
 		if is_instance_valid(rope_system):

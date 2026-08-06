@@ -8,7 +8,7 @@ const WISHLIST_URL  := "https://store.steampowered.com/app/4484650/Climbing_Simp
 const DISCORD_URL   := "https://discord.gg/5JyxqfsAbq"
 
 @onready var backdrop: ColorRect    = $Backdrop
-@onready var box: ColorRect         = $Box
+@onready var box: Panel         = $Box
 @onready var title_label: Label     = $Box/VBox/Title
 @onready var subtitle_label: Label  = $Box/VBox/Subtitle
 @onready var wishlist_btn: Button   = $Box/VBox/WishlistButton

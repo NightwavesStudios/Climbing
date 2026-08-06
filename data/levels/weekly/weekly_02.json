@@ -1,0 +1,308 @@
+{
+	"belayer_position": {
+		"x": -64.0,
+		"y": 128.0
+	},
+	"crashpads": [
+		{
+			"x": -96.0,
+			"y": 224.0
+		},
+		{
+			"x": 128.0,
+			"y": 224.0
+		}
+	],
+	"discipline": "roped",
+	"environment": "granite",
+	"grade": "5.8",
+	"holds": [
+		{
+			"type": "START",
+			"x": 0.0,
+			"y": 0.0
+		},
+		{
+			"type": "SLOPER",
+			"x": 0.0,
+			"y": -1184.0
+		},
+		{
+			"type": "SLOPER",
+			"x": 64.0,
+			"y": -1056.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "SLOPER",
+			"x": 32.0,
+			"y": -800.0
+		},
+		{
+			"type": "SLOPER",
+			"x": 32.0,
+			"y": -480.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "SLOPER",
+			"x": -32.0,
+			"y": -288.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "SLOPER",
+			"x": 32.0,
+			"y": -128.0
+		},
+		{
+			"type": "SLOPER",
+			"x": -64.0,
+			"y": -64.0
+		},
+		{
+			"type": "CRIMP",
+			"x": -96.0,
+			"y": -1088.0
+		},
+		{
+			"type": "CRIMP",
+			"x": -64.0,
+			"y": -416.0
+		},
+		{
+			"type": "CRIMP",
+			"x": 64.0,
+			"y": -256.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "JUG",
+			"x": -64.0,
+			"y": -992.0
+		},
+		{
+			"type": "JUG",
+			"x": 0.0,
+			"y": -864.0
+		},
+		{
+			"type": "JUG",
+			"x": 32.0,
+			"y": -704.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "JUG",
+			"x": 0.0,
+			"y": -544.0
+		},
+		{
+			"type": "JUG",
+			"x": 64.0,
+			"y": -352.0
+		},
+		{
+			"type": "FOOT",
+			"x": 32.0,
+			"y": -64.0
+		},
+		{
+			"type": "FOOT",
+			"x": 64.0,
+			"y": -192.0
+		},
+		{
+			"type": "FOOT",
+			"x": -64.0,
+			"y": -480.0
+		},
+		{
+			"type": "FOOT",
+			"x": -64.0,
+			"y": -576.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "FOOT",
+			"x": 64.0,
+			"y": -864.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "FOOT",
+			"x": 0.0,
+			"y": -1088.0
+		},
+		{
+			"modifiers": [
+				{
+					"fall_delay": 2.2,
+					"fall_gravity": 1800.0,
+					"type": "falling"
+				}
+			],
+			"type": "FOOT",
+			"x": 64.0,
+			"y": -1152.0
+		},
+		{
+			"type": "FOOT",
+			"x": -128.0,
+			"y": -1024.0
+		},
+		{
+			"type": "FOOT",
+			"x": -64.0,
+			"y": -1184.0
+		},
+		{
+			"type": "FOOT",
+			"x": 64.0,
+			"y": -608.0
+		},
+		{
+			"type": "FOOT",
+			"x": 96.0,
+			"y": -416.0
+		},
+		{
+			"type": "FOOT",
+			"x": 0.0,
+			"y": 64.0
+		},
+		{
+			"type": "CRIMP",
+			"x": 32.0,
+			"y": -960.0
+		},
+		{
+			"type": "SLOPER",
+			"x": -32.0,
+			"y": -640.0
+		},
+		{
+			"type": "FOOT",
+			"x": -85.1669311523438,
+			"y": -214.762512207031
+		},
+		{
+			"type": "FOOT",
+			"x": -105.193542480469,
+			"y": 5.55194091796875
+		},
+		{
+			"type": "FOOT",
+			"x": -56.7550048828125,
+			"y": -801.283874511719
+		},
+		{
+			"type": "FOOT",
+			"x": -32.4278564453125,
+			"y": -917.650756835938
+		},
+		{
+			"type": "FOOT",
+			"x": -32.332763671875,
+			"y": -710.53759765625
+		},
+		{
+			"type": "FOOT",
+			"x": 96.998046875,
+			"y": -722.701599121094
+		},
+		{
+			"type": "FOOT",
+			"x": -0.57861328125,
+			"y": -352.112915039062
+		}
+	],
+	"name": "Slippery When Wet",
+	"speed_time_limit": 60.0,
+	"time_of_day": -1,
+	"wall_polygon": {
+		"enabled": true,
+		"ground_left_index": 6,
+		"ground_right_index": 5,
+		"points": [
+			{
+				"x": -146.805969238281,
+				"y": -1192.49389648438
+			},
+			{
+				"x": -75.4935913085938,
+				"y": -1223.71765136719
+			},
+			{
+				"x": 63.7642822265625,
+				"y": -1241.63903808594
+			},
+			{
+				"x": 109.723999023438,
+				"y": -1208.09399414062
+			},
+			{
+				"x": 150.748779296875,
+				"y": -1175.39440917969
+			},
+			{
+				"x": 123.2216796875,
+				"y": 214.0
+			},
+			{
+				"x": -155.731811523438,
+				"y": 214.0
+			}
+		],
+		"top_edge_indices": [
+			0,
+			1,
+			2,
+			3
+		]
+	},
+	"weather": 1,
+	"weather_intensity": 1.0
+}

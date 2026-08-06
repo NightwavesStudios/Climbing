@@ -2,7 +2,6 @@
 extends Control
 
 const PREFS_PATH        := "user://prefs.cfg"
-const SETTINGS_PATH     := "user://settings.cfg"
 const DEMO_NOTICE_KEY   := "demo_notice_seen"
 
 const FPS_CAP_VALUES: Array[int] = [0, 30, 60, 120, 144]
@@ -40,6 +39,13 @@ func _focus_first_button() -> void:
 		if btn is Button and not btn.disabled and btn.visible:
 			btn.grab_focus()
 			return
+
+## Guaranteed FPS-cap restore: fires no matter how this scene is left (button
+## press mid-animation, transition, etc.), so Engine.max_fps is never stuck
+## at 0 (uncapped) when the player enters a level.
+func _exit_tree() -> void:
+	if get_node_or_null("/root/SettingsLoader"):
+		SettingsLoader.apply_fps_cap()
 
 # ── Entry animation ──────────────────────────────────────────────────────────
 
@@ -88,22 +94,14 @@ func _play_entry_animation() -> void:
 
 # ── FPS cap ───────────────────────────────────────────────────────────────────
 
-## Reads saved FPS cap from settings and applies it.
+## Re-applies the saved VSync/FPS cap after the entry animation finishes.
 ## The menu starts with Engine.max_fps = 0 to avoid animation stutter,
-## but after the animation finishes we re-apply the user's chosen cap.
+## but after the animation finishes we restore the user's chosen cap.
+## _exit_tree() also calls this, so leaving mid-animation can't leak
+## an uncapped frame rate into the game.
 func _restore_fps_cap() -> void:
-	var cfg := ConfigFile.new()
-	if cfg.load(SETTINGS_PATH) != OK:
-		return  # no saved settings — leave unlimited
-
-	var vsync_on: bool = cfg.get_value("video", "vsync_enabled", true)
-	if vsync_on:
-		# VSync handles timing; no software cap needed
-		return
-
-	var fps_idx: int = cfg.get_value("performance", "fps_cap_index", 0)
-	if fps_idx >= 0 and fps_idx < FPS_CAP_VALUES.size():
-		Engine.max_fps = FPS_CAP_VALUES[fps_idx]
+	if get_node_or_null("/root/SettingsLoader"):
+		SettingsLoader.apply_fps_cap()
 
 
 # ── Button callbacks ─────────────────────────────────────────────────────────
@@ -156,7 +154,7 @@ func _show_demo_notice_if_needed() -> void:
 		return
 
 	var backdrop := $DemoNotice/Backdrop as ColorRect
-	var box := $DemoNotice/Box as ColorRect
+	var box := $DemoNotice/Box as Panel
 
 	demo_notice.process_mode = PROCESS_MODE_INHERIT
 	demo_notice.show()
@@ -202,7 +200,7 @@ func _on_demo_notice_dismissed() -> void:
 		return
 
 	var backdrop := $DemoNotice/Backdrop as ColorRect
-	var box := $DemoNotice/Box as ColorRect
+	var box := $DemoNotice/Box as Panel
 
 	# Animate out
 	var tween := create_tween().set_parallel(true).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_CUBIC)

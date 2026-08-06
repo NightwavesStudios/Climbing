@@ -43,11 +43,13 @@ var info_label: Label
 
 # Left palette
 var palette_panel: PanelContainer
+var palette_list: VBoxContainer
 var palette_buttons: Dictionary = {}   # type_key → Button
 
 # Contextual properties panel
 var props_panel: PanelContainer = null
 var props_hold: Node2D = null
+var _props_mod_list: VBoxContainer = null
 
 # Discipline extras
 var speed_time_input: SpinBox
@@ -63,7 +65,7 @@ var weather_dropdown: OptionButton
 var weather_intensity_slider: HSlider
 var weather_intensity_label: Label
 var time_of_day_dropdown: OptionButton
-var drawer_panel: ColorRect
+var drawer_panel: PanelContainer
 var drawer_container: MarginContainer
 var fold_button: Button
 var ui_panel_collapsed: bool = true
@@ -120,8 +122,13 @@ var _suppress_dirty: bool = false        # prevent re‑entrant dirty signals
 
 var _hold_modifiers: Dictionary = {}
 
+# ── Moving-hold modifier point placement state ──────────────────────────────
+var _place_move_hold: Node2D = null   # hold whose point is being set
+var _place_move_idx: int = -1         # index of the modifier in _hold_modifiers[hold]
+var _place_move_key: String = ""      # "start" or "end" while waiting for a world click
+
 # ── Constants ──────────────────────────────────────────────────────────────
-const WEATHER_NAMES := ["None", "Rain", "Night", "Snow", "Lightning", "Fog", "Hail", "Sandstorm"]
+const WEATHER_NAMES := ["None", "Rain", "Night", "Snow", "Lightning", "Fog", "Hail", "Sandstorm", "Wind"]
 const V_GRADES: Array[String] = ["VB","V0","V1","V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12"]
 const YDS_GRADES: Array[String] = ["5.5","5.6","5.7","5.8","5.9","5.10a","5.10b","5.10c","5.10d",
 					"5.11a","5.11b","5.11c","5.11d","5.12a","5.12b","5.12c","5.12d","5.13a","5.13b"]
@@ -158,19 +165,20 @@ const WALL_PADDING_BOTTOM = 150.0
 
 # UI geometry
 const TOP_BAR_H   := 52.0
-const LEFT_PAL_W  := 80.0
+const LEFT_PAL_W  := 118.0
 const DRAWER_H    := 144.0
 
 # Colours — chalk-board palette
 const C_BG        := Color(0.08, 0.08, 0.09)
 const C_SURFACE   := Color(0.12, 0.12, 0.14)
-const C_BORDER    := Color(0.22, 0.22, 0.26)
+const C_BORDER    := Color(0.30, 0.30, 0.36)
 const C_TEXT      := Color(0.88, 0.88, 0.90)
 const C_MUTED     := Color(0.45, 0.45, 0.50)
-const C_ACCENT    := Color(0.29, 0.62, 1.00)     # electric blue
+const C_ACCENT    := Color(0.90, 0.72, 0.35)     # soft gold (matches new UI style)
 const C_WARN      := Color(1.00, 0.42, 0.21)     # orange
 const C_SUCCESS   := Color(0.27, 0.85, 0.50)     # green
-const C_MODIFIER  := Color(0.60, 0.35, 1.00)     # purple
+const C_MODIFIER  := Color(0.62, 0.52, 0.88)     # soft violet
+const CRASHPAD_COLOR := Color(0.45, 0.72, 0.95)  # padded blue
 
 # FIX 3: outline shader source — draws a 1-pixel coloured border around
 # the opaque region of the hold sprite by sampling 8 neighbours.
@@ -183,38 +191,54 @@ void fragment() {
 	vec4 col = texture(TEXTURE, UV);
 	if (col.a > 0.1) {
 		COLOR = col;
-		return;
-	}
-	vec2 px = outline_width / vec2(textureSize(TEXTURE, 0));
-	float nb =
-		texture(TEXTURE, UV + vec2( px.x,  0.0  )).a +
-		texture(TEXTURE, UV + vec2(-px.x,  0.0  )).a +
-		texture(TEXTURE, UV + vec2( 0.0,   px.y )).a +
-		texture(TEXTURE, UV + vec2( 0.0,  -px.y )).a +
-		texture(TEXTURE, UV + vec2( px.x,  px.y )).a +
-		texture(TEXTURE, UV + vec2(-px.x,  px.y )).a +
-		texture(TEXTURE, UV + vec2( px.x, -px.y )).a +
-		texture(TEXTURE, UV + vec2(-px.x, -px.y )).a;
-	if (nb > 0.0) {
-		COLOR = outline_color;
 	} else {
-		COLOR = col;
+		vec2 px = outline_width / vec2(textureSize(TEXTURE, 0));
+		float nb =
+			texture(TEXTURE, UV + vec2( px.x,  0.0  )).a +
+			texture(TEXTURE, UV + vec2(-px.x,  0.0  )).a +
+			texture(TEXTURE, UV + vec2( 0.0,   px.y )).a +
+			texture(TEXTURE, UV + vec2( 0.0,  -px.y )).a +
+			texture(TEXTURE, UV + vec2( px.x,  px.y )).a +
+			texture(TEXTURE, UV + vec2(-px.x,  px.y )).a +
+			texture(TEXTURE, UV + vec2( px.x, -px.y )).a +
+			texture(TEXTURE, UV + vec2(-px.x, -px.y )).a;
+		if (nb > 0.0) {
+			COLOR = outline_color;
+		} else {
+			COLOR = col;
+		}
 	}
 }
 """
 
-# Hold type accent colours for palette buttons
+# Hold type accent colours — muted to fit the chalk-board aesthetic
+# (less rainbow, more cohesive). Only used as thin accent stripes on
+# the palette buttons; the buttons themselves stay near-white.
 var HOLD_COLORS := {
-	"START":  Color(0.27, 0.85, 0.50),
-	"TOP":    Color(0.29, 0.62, 1.00),
-	"JUG":    Color(0.88, 0.88, 0.90),
-	"CRIMP":  Color(1.00, 0.42, 0.21),
-	"SLOPER": Color(1.00, 0.78, 0.20),
-	"POCKET": Color(0.80, 0.40, 1.00),
-	"FOOT":   Color(0.50, 0.80, 0.60),
-	"UNDERCLING": Color(0.95, 0.55, 0.70),
-	"WINDOW": Color(0.40, 0.85, 0.95),
-	"LEDGE":  Color(0.90, 0.70, 0.50),
+	"START":  Color(0.40, 0.72, 0.50),   # muted green
+	"TOP":    Color(0.48, 0.62, 0.92),   # muted blue
+	"JUG":    Color(0.78, 0.78, 0.82),   # neutral
+	"CRIMP":  Color(0.92, 0.58, 0.38),   # muted orange
+	"SLOPER": Color(0.86, 0.66, 0.34),   # muted amber
+	"POCKET": Color(0.70, 0.58, 0.92),   # muted purple
+	"FOOT":   Color(0.48, 0.74, 0.64),   # muted teal
+	"UNDERCLING": Color(0.86, 0.56, 0.60), # muted rose
+	"WINDOW": Color(0.50, 0.74, 0.86),   # muted cyan
+	"LEDGE":  Color(0.76, 0.62, 0.44),   # muted tan
+}
+
+# Short descriptions shown as tooltips on the palette buttons.
+var HOLD_TOOLTIPS := {
+	"START":  "Start hold — the route must begin here. Max 2.",
+	"TOP":    "Top hold — the finish of the route.",
+	"JUG":    "Easiest grip, any 2 limbs can hold it.",
+	"CRIMP":  "Small edge — fingertips only, but strong.",
+	"SLOPER": "Open rounded hold — needs a good hand position.",
+	"POCKET": "A pocket for one or two fingers.",
+	"FOOT":   "Foothold — feet only, can't be gripped.",
+	"UNDERCLING": "Grip from below, palms up.",
+	"WINDOW": "Hole through the wall (building walls).",
+	"LEDGE":  "Wide shelf — easy to stand on.",
 }
 
 var loaded_scenes: Dictionary = {}
@@ -269,7 +293,21 @@ func _ready():
 	if ResourceLoader.exists(CRASHPAD_SCENE):
 		crashpad_scene = load(CRASHPAD_SCENE)
 
+	# Sync our environment with the shared EnvironmentConfig so the palette
+	# filtering matches what the wall actually shows (e.g. MENU_SUNSET after
+	# coming from the main menu).
+	var env_autoload := get_node_or_null("/root/EnvironmentConfig")
+	if env_autoload:
+		current_environment = env_autoload.get_current_environment_name().to_lower()
+
+	# The shared menu background (animated sunset sky) is an autoload that
+	# persists across scenes — hide it here so it doesn't clutter the canvas.
+	var menu_bg := get_node_or_null("/root/MenuBackgroundManager")
+	if menu_bg and menu_bg.has_method("hide"):
+		menu_bg.hide()
+
 	_build_ui()
+	_refresh_hold_palette_for_environment()
 	update_wall_bounds()
 	# Set initial window title
 	_update_title_bar()
@@ -353,6 +391,7 @@ func _build_ui():
 	add_child(ui_layer)
 
 	_build_top_bar()
+	_build_palette()
 	_build_drawer()
 	_build_info_bar()
 
@@ -363,106 +402,78 @@ func _build_top_bar():
 	var bg = ColorRect.new()
 	bg.color = C_BG
 	bg.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	bg.size.y = TOP_BAR_H
+	bg.offset_bottom = TOP_BAR_H
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_layer.add_child(bg)
 
 	var line = ColorRect.new()
 	line.color = C_BORDER
 	line.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	line.position.y = TOP_BAR_H - 1
-	line.size.y = 1
+	line.offset_top = TOP_BAR_H - 1
+	line.offset_bottom = TOP_BAR_H
 	ui_layer.add_child(line)
 
 	var margin = MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	margin.size.y = TOP_BAR_H
+	margin.offset_bottom = TOP_BAR_H
 	for s in ["margin_left","margin_right","margin_top","margin_bottom"]:
-		margin.add_theme_constant_override(s, 16 if "left" in s or "right" in s else 8)
+		margin.add_theme_constant_override(s, 10 if "left" in s or "right" in s else 6)
 	ui_layer.add_child(margin)
 
 	var hbox = HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 10)
+	hbox.add_theme_constant_override("separation", 8)
 	hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	margin.add_child(hbox)
 
-	var logo = _label("EDITOR", 10, C_ACCENT)
+	# ── Back to main menu (kept visible & obvious — NOT hidden in the drawer) ──
+	var back_btn = _make_action_button("← Back", C_TEXT, func(): _on_back_pressed())
+	back_btn.tooltip_text = "Return to the main menu"
+	hbox.add_child(back_btn)
+	_bar_sep(hbox)
+
+	var logo = _label("EDITOR", 12, C_TEXT)
 	logo.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hbox.add_child(logo)
 
+	_bar_sep(hbox)
+
 	# ── File operations ────────────────────────────────────────────────────
-	_btn_new  = _make_action_button("New",  C_MUTED,   _on_new_level)
-	_btn_open = _make_action_button("Open", C_MUTED,   _on_open_level_browser)
+	_btn_new  = _make_action_button("New",  C_TEXT,   _on_new_level)
+	_btn_open = _make_action_button("Open", C_TEXT,   _on_open_level_browser)
 	_btn_save = _make_action_button("Save", C_SUCCESS, _on_save)
+	_btn_new.tooltip_text  = "Start a new route (discards unsaved changes)"
+	_btn_open.tooltip_text = "Open a previously saved route"
+	_btn_save.tooltip_text = "Save the current route"
 	hbox.add_child(_btn_new)
 	hbox.add_child(_btn_open)
 	hbox.add_child(_btn_save)
 
 	_bar_sep(hbox)
 
-	# ── Filename ───────────────────────────────────────────────────────────
-	_file_label = _label("New Route", 10, C_TEXT)
-	_file_label.vertical_alignment     = VERTICAL_ALIGNMENT_CENTER
-	_file_label.custom_minimum_size    = Vector2(140, 0)
-	_file_label.mouse_filter           = Control.MOUSE_FILTER_STOP
-	_file_label.add_theme_color_override("font_color", C_MUTED)
-	hbox.add_child(_file_label)
-
-	_bar_sep(hbox)
-
 	climb_name_input = LineEdit.new()
 	climb_name_input.placeholder_text = "Route name…"
-	climb_name_input.custom_minimum_size = Vector2(160, 32)
+	climb_name_input.custom_minimum_size = Vector2(170, 30)
 	_style_line_edit(climb_name_input)
 	climb_name_input.text_changed.connect(func(t): climb_name = t)
 	hbox.add_child(climb_name_input)
 
 	_bar_sep(hbox)
 
-	discipline_dropdown = _make_option_button(110)
+	discipline_dropdown = _make_option_button(104)
 	discipline_dropdown.add_item("Boulder")
 	discipline_dropdown.add_item("Roped")
 	discipline_dropdown.add_item("Speed")
 	discipline_dropdown.item_selected.connect(_on_discipline_changed)
 	hbox.add_child(discipline_dropdown)
 
-	grade_dropdown = _make_option_button(80)
+	grade_dropdown = _make_option_button(76)
 	_populate_grade_dropdown()
 	grade_dropdown.item_selected.connect(_on_grade_changed)
 	hbox.add_child(grade_dropdown)
 
-	_bar_sep(hbox)
-
-	var hold_type_dropdown = OptionButton.new()
-	hold_type_dropdown.custom_minimum_size = Vector2(110, 32)
-	_style_option_button(hold_type_dropdown)
-	hold_type_dropdown.add_item("-- Hold Type --")
-	for ht in ["START", "TOP", "JUG", "CRIMP", "SLOPER", "POCKET", "FOOT", "UNDERCLING", "WINDOW", "LEDGE"]:
-		hold_type_dropdown.add_item(ht.capitalize())
-		hold_type_dropdown.set_item_metadata(hold_type_dropdown.get_item_count() - 1, ht)
-	hold_type_dropdown.item_selected.connect(func(idx):
-		if idx == 0:
-			selected_hold_type = ""
-			placing_crashpad = false
-			clear_preview()
-			return
-		var key: String = hold_type_dropdown.get_item_metadata(idx)
-		# FIX 4: guard dropdown selection against current wall type
-		var registry = get_node_or_null("/root/HoldRegistry")
-		if registry and not registry.is_hold_valid_for_wall(key, current_environment):
-			_notify("'%s' hold not available on %s walls" % [key, current_environment], true)
-			_sfx(0.5)
-			hold_type_dropdown.select(0)
-			return
-		_on_palette_type_selected(key)
-	)
-	hbox.add_child(hold_type_dropdown)
-
-	_bar_sep(hbox)
-
-	crashpad_button = _make_action_button("Crashpad", C_MUTED, func(): _on_place_crashpad_pressed())
-	hbox.add_child(crashpad_button)
-
+	# Speed time-limit spinbox (only shown for the Speed discipline).
+	# The Belayer button lives in the left palette now.
 	discipline_extras_panel = HBoxContainer.new()
 	discipline_extras_panel.add_theme_constant_override("separation", 4)
 	discipline_extras_panel.visible = false
@@ -475,59 +486,150 @@ func _build_top_bar():
 	speed_time_input = SpinBox.new()
 	speed_time_input.min_value = 10; speed_time_input.max_value = 300
 	speed_time_input.step = 5; speed_time_input.value = 60; speed_time_input.suffix = "s"
-	speed_time_input.custom_minimum_size = Vector2(84, 30)
+	speed_time_input.custom_minimum_size = Vector2(84, 28)
 	speed_time_input.value_changed.connect(func(v): speed_time_limit = v)
 	discipline_extras_panel.add_child(speed_time_input)
-
-	belayer_placement_button = _make_action_button("Belayer", C_MUTED, func(): _on_place_belayer_pressed())
-	discipline_extras_panel.add_child(belayer_placement_button)
-
-	_bar_sep(hbox)
-
-	hbox.add_child(_make_action_button("Export", C_MUTED,   func(): _on_copy_json()))
-	hbox.add_child(_make_action_button("Import", C_MUTED,  func(): _on_paste_json()))
 
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(spacer)
 
-	hbox.add_child(_make_action_button("Test", C_SUCCESS, func(): _on_preview()))
+	var export_btn = _make_action_button("Export", C_TEXT, func(): _on_copy_json())
+	export_btn.tooltip_text = "Copy the level as JSON to the clipboard"
+	hbox.add_child(export_btn)
+	var import_btn = _make_action_button("Import", C_TEXT, func(): _on_paste_json())
+	import_btn.tooltip_text = "Load a level from JSON on the clipboard"
+	hbox.add_child(import_btn)
 
 	_bar_sep(hbox)
 
-	fold_button = _make_action_button("More ▼", C_MUTED, func(): _toggle_drawer())
+	var test_btn = _make_action_button("Test", C_SUCCESS, func(): _on_preview())
+	test_btn.tooltip_text = "Playtest the current route"
+	hbox.add_child(test_btn)
+
+	_bar_sep(hbox)
+
+	fold_button = _make_action_button("More ▼", C_TEXT, func(): _toggle_drawer())
+	fold_button.tooltip_text = "Environment, editor tools and shortcuts"
 	hbox.add_child(fold_button)
+
+
+# ── LEFT PALETTE ────────────────────────────────────────────────────────────
+# The palette is the primary hold picker. It only ever shows hold types that
+# are valid for the current environment (see _refresh_hold_palette_for_environment).
+
+func _build_palette():
+	palette_panel = PanelContainer.new()
+	palette_panel.name = "PalettePanel"
+	palette_panel.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	palette_panel.offset_left   = 6
+	palette_panel.offset_right  = LEFT_PAL_W
+	palette_panel.offset_top    = TOP_BAR_H + 6
+	palette_panel.offset_bottom = -28
+	var sty = StyleBoxFlat.new()
+	sty.bg_color = Color(C_SURFACE.r, C_SURFACE.g, C_SURFACE.b, 0.94)
+	sty.set_border_width_all(1)
+	sty.border_color = C_BORDER
+	sty.set_corner_radius_all(6)
+	sty.content_margin_left   = 8
+	sty.content_margin_right  = 8
+	sty.content_margin_top    = 8
+	sty.content_margin_bottom = 8
+	palette_panel.add_theme_stylebox_override("panel", sty)
+	ui_layer.add_child(palette_panel)
+
+	var outer = VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 6)
+	palette_panel.add_child(outer)
+
+	var title = _label("HOLDS", 9, C_ACCENT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	outer.add_child(title)
+
+	# All entries live in one list so widths stay consistent and there is no
+	# dead space between the holds and the utility entries.
+	palette_list = VBoxContainer.new()
+	palette_list.add_theme_constant_override("separation", 4)
+	palette_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	palette_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(palette_list)
+
+	# Hold type buttons — grouped for clarity; visibility is still filtered
+	# by environment in _refresh_hold_palette_for_environment().
+	var registry = get_node_or_null("/root/HoldRegistry")
+	var hold_groups: Array[Array] = [
+		["START & TOP", ["START", "TOP"]],
+		["GRIPS", ["JUG", "CRIMP", "SLOPER", "POCKET", "UNDERCLING", "LEDGE"]],
+		["FEET", ["FOOT"]],
+		["WALL FEATURES", ["WINDOW"]],
+	]
+	for group in hold_groups:
+		var group_title: String = group[0]
+		var group_lbl = _label(group_title, 8, C_MUTED)
+		group_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		palette_list.add_child(group_lbl)
+		for type_key in (group[1] as Array):
+			var display: String = type_key.capitalize()
+			if registry:
+				display = registry.get_hold_display_name(type_key)
+			var btn = _make_palette_button(display, HOLD_COLORS.get(type_key, C_MUTED), HOLD_TOOLTIPS.get(type_key, ""))
+			btn.pressed.connect(func(): _on_palette_type_selected(type_key))
+			palette_list.add_child(btn)
+			palette_buttons[type_key] = btn
+
+	# ── Utility entries (crashpad / belayer) ─────────────────────────────
+	var other = _label("OTHER", 8, C_MUTED)
+	other.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	palette_list.add_child(other)
+	var sep = HSeparator.new()
+	sep.add_theme_color_override("color", C_BORDER)
+	palette_list.add_child(sep)
+
+	crashpad_button = _make_palette_button("Crashpad", CRASHPAD_COLOR)
+	crashpad_button.pressed.connect(func(): _on_place_crashpad_pressed())
+	palette_list.add_child(crashpad_button)
+	palette_buttons["CRASHPAD"] = crashpad_button
+
+	belayer_placement_button = _make_palette_button("Belayer", C_WARN)
+	belayer_placement_button.pressed.connect(func(): _on_place_belayer_pressed())
+	belayer_placement_button.visible = false
+	palette_list.add_child(belayer_placement_button)
+	palette_buttons["BELAYER"] = belayer_placement_button
+
+	# Default selection: none.
+	_deselect_all_palette()
 
 
 # ── DRAWER ─────────────────────────────────────────────────────────────────
 
 func _build_drawer():
-	drawer_panel       = ColorRect.new()
-	drawer_panel.color = Color(C_BG.r, C_BG.g, C_BG.b, 0.97)
-	drawer_panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	drawer_panel.position.y   = TOP_BAR_H
-	drawer_panel.size.y       = DRAWER_H
+	# Floating rounded panel, centered under the top bar — matches the
+	# project's card/popup style instead of a full-width strip.
+	drawer_panel       = PanelContainer.new()
+	drawer_panel.name  = "DrawerPanel"
+	drawer_panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	drawer_panel.offset_left   = -470
+	drawer_panel.offset_right  = 470
+	drawer_panel.offset_top    = TOP_BAR_H + 8
+	drawer_panel.offset_bottom = TOP_BAR_H + 8 + DRAWER_H
 	drawer_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	drawer_panel.visible      = false
+	var sty = StyleBoxFlat.new()
+	sty.bg_color = Color(0.06, 0.06, 0.08, 0.98)
+	sty.set_border_width_all(1)
+	sty.border_color = Color(1, 1, 1, 0.09)
+	sty.set_corner_radius_all(12)
+	sty.shadow_color = Color(0, 0, 0, 0.4)
+	sty.shadow_size  = 10
+	drawer_panel.add_theme_stylebox_override("panel", sty)
 	ui_layer.add_child(drawer_panel)
 
-	var border = ColorRect.new()
-	border.color = C_BORDER
-	border.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	border.position.y = TOP_BAR_H + DRAWER_H - 1
-	border.size.y = 1
-	border.visible = false
-	ui_layer.add_child(border)
-	drawer_panel.set_meta("border_rect", border)
-
 	drawer_container = MarginContainer.new()
-	drawer_container.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	drawer_container.position.y = TOP_BAR_H
-	drawer_container.size.y     = DRAWER_H
+	drawer_container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	drawer_container.visible    = false
 	for s in ["margin_left","margin_right","margin_top","margin_bottom"]:
 		drawer_container.add_theme_constant_override(s, 24 if "left" in s or "right" in s else 14)
-	ui_layer.add_child(drawer_container)
+	drawer_panel.add_child(drawer_container)
 
 	var hbox = HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 20)
@@ -539,7 +641,7 @@ func _build_drawer():
 	environment_dropdown.custom_minimum_size = Vector2(120, 26)
 	_style_option_button(environment_dropdown)
 	_populate_environment_dropdown(environment_dropdown)
-	environment_dropdown.item_selected.connect(func(i): on_environment_changed(i, environment_dropdown))
+	environment_dropdown.item_selected.connect(func(i): on_environment_changed(i))
 	env_row.add_child(environment_dropdown)
 
 	var wx_row = _drawer_row(env_col, "Weather")
@@ -601,11 +703,6 @@ func _build_drawer():
 	save_as_btn.pressed.connect(_on_save_as)
 	row2.add_child(save_as_btn)
 
-	var back_btn = _make_flat_button("← Back", Vector2(80, 26))
-	back_btn.add_theme_color_override("font_color", C_WARN)
-	back_btn.pressed.connect(_on_back_pressed)
-	row2.add_child(back_btn)
-
 	_drawer_vsep(hbox)
 
 	var sc_col = _drawer_col(hbox, "SHORTCUTS")
@@ -649,16 +746,64 @@ func _deselect_all_palette():
 func _highlight_palette_button(key: String, active: bool):
 	var btn = palette_buttons.get(key)
 	if btn == null: return
-	var col: Color = HOLD_COLORS.get(key, C_MUTED) if key != "CRASHPAD" else C_MUTED
+	var col: Color = HOLD_COLORS.get(key, C_MUTED)
+	if key == "CRASHPAD": col = CRASHPAD_COLOR
+	elif key == "BELAYER": col = C_WARN
+	_style_palette_button(btn, col, active)
+
+
+## Build a palette entry button (full width, hold-colour coded).
+## tooltip: optional help text shown on hover.
+func _make_palette_button(text: String, col: Color, tooltip: String = "") -> Button:
+	var btn = Button.new()
+	btn.text = text
+	btn.custom_minimum_size = Vector2(0, 30)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.add_theme_font_size_override("font_size", 11)
+	btn.clip_text = true
+	if tooltip != "":
+		btn.tooltip_text = tooltip
+	# Thin coloured accent stripe on the left edge (kept inset so it sits
+	# inside the 1px border / rounded corner).
+	var stripe := ColorRect.new()
+	stripe.name = "Stripe"
+	stripe.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	stripe.offset_left = 1.0
+	stripe.offset_right = 4.0
+	stripe.offset_top = 1.0
+	stripe.offset_bottom = -1.0
+	stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(stripe)
+	_style_palette_button(btn, col, false)
+	return btn
+
+
+## Apply the selected/unselected style to a palette button.
+## Clean minimal look: near-white label with a thin coloured accent stripe
+## on the left edge (matches the project's flat UI style).
+func _style_palette_button(btn: Button, col: Color, active: bool):
 	var n = StyleBoxFlat.new()
-	n.bg_color = Color(col.r, col.g, col.b, 0.28 if active else 0.06)
-	if active:
-		n.border_color = col
-		n.set_border_width_all(0)
-		n.border_width_left = 3
-	n.set_corner_radius_all(0)
+	n.bg_color = Color(col.r, col.g, col.b, 0.10 if active else 0.045)
+	n.set_border_width_all(1)
+	n.border_color = Color(col.r, col.g, col.b, 0.25)
+	n.set_corner_radius_all(4)
 	btn.add_theme_stylebox_override("normal", n)
-	btn.add_theme_color_override("font_color", col if active else Color(col.r,col.g,col.b,0.55))
+	var h = StyleBoxFlat.new()
+	h.bg_color = Color(col.r, col.g, col.b, 0.18 if active else 0.13)
+	h.set_border_width_all(1)
+	h.border_color = Color(col.r, col.g, col.b, 0.5)
+	h.set_corner_radius_all(4)
+	btn.add_theme_stylebox_override("hover", h)
+	var p = h.duplicate()
+	p.bg_color = Color(col.r, col.g, col.b, 0.22)
+	btn.add_theme_stylebox_override("pressed", p)
+	btn.add_theme_color_override("font_color", Color(1, 1, 1) if active else C_TEXT)
+	btn.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	# Accent stripe brightens when the button is selected.
+	var stripe := btn.get_node_or_null("Stripe")
+	if stripe is ColorRect:
+		stripe.color = Color(col.r, col.g, col.b, 0.95 if active else 0.65)
 
 
 # ── FIX 4: PALETTE WALL-TYPE FILTERING ────────────────────────────────────
@@ -686,11 +831,30 @@ func _refresh_hold_palette_for_environment():
 # ── INFO BAR ──────────────────────────────────────────────────────────────
 
 func _build_info_bar():
+	# A slim status strip along the bottom edge, consistent with the top bar.
+	var strip = ColorRect.new()
+	strip.color = Color(C_BG.r, C_BG.g, C_BG.b, 0.92)
+	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	strip.offset_top = -28
+	strip.offset_bottom = 0
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_layer.add_child(strip)
+
+	var line = ColorRect.new()
+	line.color = C_BORDER
+	line.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	line.offset_top = -28
+	line.offset_bottom = -27
+	ui_layer.add_child(line)
+
 	info_label = Label.new()
 	info_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	info_label.position   = Vector2(8, -24)
-	info_label.add_theme_font_size_override("font_size", 10)
-	info_label.add_theme_color_override("font_color", C_MUTED)
+	info_label.offset_left = 12
+	info_label.offset_top = -27
+	info_label.offset_bottom = -2
+	info_label.add_theme_font_size_override("font_size", 12)
+	info_label.add_theme_color_override("font_color", Color(0.78, 0.78, 0.84))
+	info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_layer.add_child(info_label)
 
@@ -745,6 +909,7 @@ func _open_props_panel(hold: Node2D):
 	mod_list.name = "ModList"
 	mod_list.add_theme_constant_override("separation", 4)
 	vbox.add_child(mod_list)
+	_props_mod_list = mod_list
 	_rebuild_mod_list(mod_list, hold)
 
 	vbox.add_child(_hsep())
@@ -876,6 +1041,129 @@ func _rebuild_mod_list(list: VBoxContainer, hold: Node2D):
 			)
 			fields_grid.add_child(grav_spin)
 
+		if mod_type == "soft_hold":
+			var soft_grid = GridContainer.new()
+			soft_grid.columns = 2
+			soft_grid.add_theme_constant_override("h_separation", 8)
+			soft_grid.add_theme_constant_override("v_separation", 4)
+			card_vbox.add_child(soft_grid)
+
+			soft_grid.add_child(_label("Max uses", 9, C_MUTED))
+			var uses_spin = SpinBox.new()
+			uses_spin.min_value = 1; uses_spin.max_value = 20
+			uses_spin.step = 1; uses_spin.suffix = " grabs"
+			uses_spin.value = float(int(md.get("max_uses", 4)))
+			uses_spin.custom_minimum_size = Vector2(90, 22)
+			var ci4 = i
+			uses_spin.value_changed.connect(func(v):
+				var cur: Array = _hold_modifiers.get(hold, [])
+				if ci4 < cur.size():
+					(cur[ci4] as Dictionary)["max_uses"] = int(v)
+				_hold_modifiers[hold] = cur
+				_sync_modifier_component(hold, cur[ci4])
+			)
+			soft_grid.add_child(uses_spin)
+
+		if mod_type == "moving":
+			var move_vbox = VBoxContainer.new()
+			move_vbox.add_theme_constant_override("separation", 4)
+			card_vbox.add_child(move_vbox)
+
+			move_vbox.add_child(_label("Click a button, then click the wall to place that point.", 8, C_MUTED))
+
+			var pt_row = HBoxContainer.new()
+			pt_row.add_theme_constant_override("separation", 6)
+			move_vbox.add_child(pt_row)
+
+			var mi = i
+			var set_start_btn = _make_flat_button("Set Start", Vector2(95, 24))
+			set_start_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+			set_start_btn.pressed.connect(func(): _begin_move_point_placement(hold, mi, "start"))
+			pt_row.add_child(set_start_btn)
+
+			var set_end_btn = _make_flat_button("Set End", Vector2(95, 24))
+			set_end_btn.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
+			set_end_btn.pressed.connect(func(): _begin_move_point_placement(hold, mi, "end"))
+			pt_row.add_child(set_end_btn)
+
+			# Live readouts so the designer sees the currently-set points.
+			var ro = _label("", 8, C_MUTED)
+			ro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			ro.custom_minimum_size = Vector2(0, 26)
+			move_vbox.add_child(ro)
+			_show_move_points(ro, md)
+
+			var spd_row = GridContainer.new()
+			spd_row.columns = 2
+			spd_row.add_theme_constant_override("h_separation", 8)
+			spd_row.add_theme_constant_override("v_separation", 4)
+			move_vbox.add_child(spd_row)
+
+			spd_row.add_child(_label("Speed", 9, C_MUTED))
+			var speed_spin = SpinBox.new()
+			speed_spin.min_value = 10.0; speed_spin.max_value = 600.0
+			speed_spin.step = 5.0; speed_spin.suffix = " px/s"
+			speed_spin.value = float(md.get("speed", 80.0))
+			speed_spin.custom_minimum_size = Vector2(90, 22)
+			var ci5 = i
+			speed_spin.value_changed.connect(func(v):
+				var cur: Array = _hold_modifiers.get(hold, [])
+				if ci5 < cur.size():
+					(cur[ci5] as Dictionary)["speed"] = v
+				_hold_modifiers[hold] = cur
+				_sync_modifier_component(hold, cur[ci5])
+			)
+			spd_row.add_child(speed_spin)
+
+
+# ── Moving-hold modifier: click-to-place points ────────────────────────────
+
+func _begin_move_point_placement(hold: Node2D, idx: int, key: String):
+	if is_testing: return
+	_place_move_hold = hold
+	_place_move_idx  = idx
+	_place_move_key  = key
+	_notify("Click on the wall to set the %s point (ESC cancels)" % key)
+	_sfx(1.0)
+
+func _cancel_move_point_placement():
+	_place_move_hold = null
+	_place_move_idx  = -1
+	_place_move_key  = ""
+
+func _place_move_point():
+	var hold: Node2D = _place_move_hold
+	var key: String  = _place_move_key
+	if hold == null or not is_instance_valid(hold):
+		_cancel_move_point_placement(); queue_redraw(); return
+
+	var pos := _snap(get_global_mouse_position())
+	var cur: Array = _hold_modifiers.get(hold, [])
+	if _place_move_idx >= 0 and _place_move_idx < cur.size():
+		var md: Dictionary = cur[_place_move_idx]
+		if key == "start":
+			md["start_x"] = pos.x
+			md["start_y"] = pos.y
+		else:
+			md["end_x"] = pos.x
+			md["end_y"] = pos.y
+		cur[_place_move_idx] = md
+		_hold_modifiers[hold] = cur
+		_sync_modifier_component(hold, md)
+	_cancel_move_point_placement()
+	if _props_mod_list and is_instance_valid(_props_mod_list):
+		_rebuild_mod_list(_props_mod_list, hold)
+	queue_redraw()
+	_sfx(1.2)
+	_notify("Set %s point" % key)
+
+func _show_move_points(ro: Label, md: Dictionary):
+	var sx := float(md.get("start_x", 0.0))
+	var sy := float(md.get("start_y", 0.0))
+	var ex := float(md.get("end_x", 0.0))
+	var ey := float(md.get("end_y", 0.0))
+	ro.text = "Start (%d, %d)  →  End (%d, %d)" % [sx, sy, ex, ey]
+
 
 func _add_modifier(hold: Node2D, type_key: String, list: VBoxContainer):
 	var existing: Array = _hold_modifiers.get(hold, [])
@@ -894,6 +1182,20 @@ func _add_modifier(hold: Node2D, type_key: String, list: VBoxContainer):
 	if type_key == "falling":
 		if not default_data.has("fall_delay"):   default_data["fall_delay"]   = 2.2
 		if not default_data.has("fall_gravity"): default_data["fall_gravity"] = 1800.0
+	# Ensure defaults for soft hold if registry didn't supply them
+	if type_key == "soft_hold":
+		if not default_data.has("max_uses"): default_data["max_uses"] = 4
+	# Ensure defaults for moving hold: span a vertical path around the hold.
+	# The modifier's serialize() defaults are arbitrary (origin-based), so the
+	# start/end points are always anchored to the hold's current position.
+	if type_key == "moving":
+		if not default_data.has("speed"): default_data["speed"] = 80.0
+		if not default_data.has("pause"): default_data["pause"] = false
+		if not default_data.has("pause_time"): default_data["pause_time"] = 0.5
+		default_data["start_x"] = hold.global_position.x
+		default_data["start_y"] = hold.global_position.y - 64.0
+		default_data["end_x"]   = hold.global_position.x
+		default_data["end_y"]   = hold.global_position.y + 64.0
 	if not _hold_modifiers.has(hold): _hold_modifiers[hold] = []
 	(_hold_modifiers[hold] as Array).append(default_data)
 	_rebuild_mod_list(list, hold)
@@ -906,6 +1208,8 @@ func _add_modifier(hold: Node2D, type_key: String, list: VBoxContainer):
 func _close_props_panel():
 	if props_panel and is_instance_valid(props_panel): props_panel.queue_free()
 	props_panel = null; props_hold = null
+	_props_mod_list = null
+	_cancel_move_point_placement()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -950,6 +1254,23 @@ func _sync_modifier_component(hold: Node2D, data: Dictionary):
 		var comp = hold.get_node_or_null(_FALLING_MOD_NODE_NAME)
 		if comp and "fall_delay"   in comp: comp.fall_delay   = float(data.get("fall_delay",   2.2))
 		if comp and "fall_gravity" in comp: comp.fall_gravity = float(data.get("fall_gravity", 1800.0))
+	if type_key == "soft_hold":
+		var registry = get_node_or_null("/root/HoldModifierRegistry")
+		if registry:
+			var comp = registry.find_modifier(hold, "soft_hold")
+			if comp and "max_uses" in comp: comp.max_uses = int(data.get("max_uses", 4))
+	if type_key == "moving":
+		var registry = get_node_or_null("/root/HoldModifierRegistry")
+		if registry:
+			var comp = registry.find_modifier(hold, "moving")
+			if comp:
+				if "start_point" in comp:
+					comp.start_point = Vector2(float(data.get("start_x", 0.0)), float(data.get("start_y", 0.0)))
+				if "end_point" in comp:
+					comp.end_point = Vector2(float(data.get("end_x", 0.0)), float(data.get("end_y", 0.0)))
+				if "speed" in comp: comp.speed = float(data.get("speed", 80.0))
+				if "pause_at_ends" in comp: comp.pause_at_ends = bool(data.get("pause", false))
+				if "pause_time" in comp: comp.pause_time = float(data.get("pause_time", 0.5))
 
 func _attach_falling_modifier(hold: Node2D, data: Dictionary):
 	# Remove stale component first
@@ -1054,6 +1375,8 @@ func _input(event):
 		match event.keycode:
 			KEY_ESCAPE:
 				if is_testing: _stop_testing(); return
+				if _place_move_key != "":
+					_cancel_move_point_placement(); _notify("Point placement cancelled"); return
 				if props_panel and is_instance_valid(props_panel): _close_props_panel(); return
 				selected_hold_type = ""; placing_crashpad = false; placing_belayer = false
 				_deselect_all_palette(); clear_preview()
@@ -1069,6 +1392,9 @@ func _input(event):
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				if _place_move_key != "":
+					_place_move_point()
+					return
 				if props_panel and is_instance_valid(props_panel): _close_props_panel()
 				_handle_left_click()
 			else:
@@ -1079,6 +1405,9 @@ func _input(event):
 				dragging_hold = null; dragging_crashpad = null
 
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			if _place_move_key != "":
+				_cancel_move_point_placement(); _notify("Point placement cancelled")
+				return
 			var pos  = get_global_mouse_position()
 			var hold = _get_hold_at(pos)
 			if hold:
@@ -1144,6 +1473,8 @@ func _is_mouse_over_ui() -> bool:
 	var mp = get_viewport().get_mouse_position()
 	if mp.y < TOP_BAR_H:  return true
 	if not ui_panel_collapsed and mp.y < TOP_BAR_H + DRAWER_H: return true
+	if palette_panel and palette_panel.visible:
+		if Rect2(palette_panel.global_position, palette_panel.size).has_point(mp): return true
 	if props_panel and is_instance_valid(props_panel):
 		if Rect2(props_panel.position, props_panel.size).has_point(mp): return true
 	return false
@@ -1331,7 +1662,7 @@ func _update_info_label():
 	var disc_map = {"bouldering":"Boulder","roped":"Roped","speed":"Speed"}
 	var parts = [
 		"%s  %s" % [disc_map.get(current_discipline, current_discipline), climb_grade],
-		"Env: %s" % current_environment,
+		"Env: %s" % current_environment.capitalize(),
 		"Holds: %d" % holds_container.get_child_count(),
 		"Start: %d/%d  Top: %d/%d" % [_count_type("START"), MAX_START_HOLDS,
 									   _count_type("TOP"),   MAX_TOP_HOLDS],
@@ -1357,6 +1688,7 @@ func _on_discipline_changed(index: int):
 		0:
 			current_discipline = "bouldering"; climb_grade = "VB"
 			discipline_extras_panel.visible = false
+			belayer_placement_button.visible = false
 			crashpad_button.visible = true
 			_clear_belayer_marker()
 			_destroy_rope_visual()
@@ -1396,6 +1728,7 @@ func _on_place_crashpad_pressed():
 func _on_place_belayer_pressed():
 	placing_belayer = true; selected_hold_type = ""; placing_crashpad = false
 	_deselect_all_palette(); clear_preview(); _close_props_panel()
+	_highlight_palette_button("BELAYER", true)
 	_notify("Click anywhere to place rope anchor")
 
 func _create_belayer_marker(pos: Vector2):
@@ -1425,8 +1758,6 @@ func _toggle_drawer():
 	ui_panel_collapsed = !ui_panel_collapsed
 	drawer_panel.visible     = not ui_panel_collapsed
 	drawer_container.visible = not ui_panel_collapsed
-	if drawer_panel.has_meta("border_rect"):
-		drawer_panel.get_meta("border_rect").visible = not ui_panel_collapsed
 	fold_button.text = "Less ▲" if not ui_panel_collapsed else "More ▼"
 
 func _toggle_grid(btn: Button):
@@ -1453,7 +1784,7 @@ func _populate_environment_dropdown(dd: OptionButton):
 	else:
 		dd.add_item("Gym"); dd.add_item("Granite"); dd.select(0)
 
-func on_environment_changed(index: int, dd: OptionButton):
+func on_environment_changed(index: int):
 	var env = get_node_or_null("/root/EnvironmentConfig")
 	if not env: return
 	var types = env.get_all_environment_types()
@@ -1537,6 +1868,14 @@ func _on_preview():
 	# FIX 1: attach all modifier components on all holds when entering test
 	for h in holds_container.get_children():
 		_attach_all_modifiers(h)
+		# Moving modifiers: re-capture the base so the path reflects any
+		# dragging done in edit mode, then enable simulation.
+		var reg := get_node_or_null("/root/HoldModifierRegistry")
+		if reg:
+			var mcomp = reg.find_modifier(h, "moving")
+			if mcomp and mcomp.has_method("rebase"):
+				mcomp.rebase()
+	MovingHoldModifier.simulate_in_editor = true
 
 	# FIX 2: create rope visual for roped discipline
 	if current_discipline in ["roped", "speed"]:
@@ -1604,6 +1943,7 @@ func _disable_player_cameras(player: Node):
 
 func _stop_testing():
 	is_testing = false; _speed_fail_pending = false; preview_player_ref = null
+	MovingHoldModifier.simulate_in_editor = false
 	if is_instance_valid(_speed_timer_node): _speed_timer_node.queue_free()
 	_speed_timer_node = null
 	var pp = get_node_or_null("PreviewPlayer"); if pp: pp.queue_free()
@@ -1845,7 +2185,7 @@ func _show_save_dialog():
 	vbox.add_theme_constant_override("separation", 14)
 	margin.add_child(vbox)
 
-	vbox.add_child(_label("SAVE LEVEL", 14, C_ACCENT))
+	vbox.add_child(_label("SAVE LEVEL", 14, C_TEXT))
 	vbox.add_child(_label("Give your route a name:", 11, C_MUTED))
 
 	var name_input := LineEdit.new()
@@ -1965,7 +2305,7 @@ func _build_level_browser():
 	# ── Header ──────────────────────────────────────────────────────────────
 	var hdr := HBoxContainer.new()
 	vbox.add_child(hdr)
-	var title := _label("OPEN LEVEL", 14, C_ACCENT)
+	var title := _label("OPEN LEVEL", 14, C_TEXT)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hdr.add_child(title)
 	var close_btn := _make_flat_button("X", Vector2(28, 28))
@@ -2419,7 +2759,8 @@ func undo_last_action():
 
 func _draw():
 	var is_night = current_weather < WEATHER_NAMES.size() and WEATHER_NAMES[current_weather] == "Night"
-	var grid_col  = Color(0.55,0.55,0.65,0.40) if is_night else Color(0.30,0.30,0.32,0.18)
+	var grid_col  = Color(0.60,0.60,0.70,0.50) if is_night else Color(0.42,0.42,0.48,0.30)
+	var major_col = Color(0.62,0.66,0.76,0.55) if is_night else Color(0.46,0.47,0.55,0.38)
 	var bdr_col   = Color(0.55,0.75,1.00,0.65) if is_night else C_BORDER
 
 	draw_rect(Rect2(CANVAS_MIN_X, CANVAS_MIN_Y,
@@ -2443,6 +2784,20 @@ func _draw():
 
 	for h in holds_container.get_children():
 		if _hold_modifiers.has(h) and not (_hold_modifiers[h] as Array).is_empty():
+			# Motion path for moving modifiers: line + green start marker + red end marker.
+			for md in (_hold_modifiers[h] as Array):
+				if (md as Dictionary).get("type", "") == "moving":
+					var sp := Vector2(float(md.get("start_x", 0.0)), float(md.get("start_y", 0.0)))
+					var ep := Vector2(float(md.get("end_x",   0.0)), float(md.get("end_y",   0.0)))
+					draw_line(sp, ep, Color(C_MODIFIER.r, C_MODIFIER.g, C_MODIFIER.b, 0.55), 2.0)
+					draw_circle(sp, 6, Color(0.3, 1.0, 0.45, 0.55))
+					draw_arc(sp, 9, 0, TAU, 24, Color(0.3, 1.0, 0.45, 0.9), 2.0)
+					draw_circle(ep, 6, Color(1.0, 0.4, 0.3, 0.55))
+					draw_arc(ep, 9, 0, TAU, 24, Color(1.0, 0.4, 0.3, 0.9), 2.0)
+					# Small arrows indicate travel direction.
+					var dir := (ep - sp).normalized()
+					var mid := sp.lerp(ep, 0.5)
+					draw_line(mid, mid + dir * 14.0, Color(1.0, 1.0, 1.0, 0.6), 2.0)
 			draw_string(ThemeDB.fallback_font,
 				h.global_position + Vector2(-5, -28),
 				"M", HORIZONTAL_ALIGNMENT_LEFT, -1, 11,
@@ -2464,6 +2819,13 @@ func _draw():
 	var y = sy
 	while y <= ey2: draw_line(Vector2(dx,y), Vector2(ex,y), grid_col, 1.0); y += grid_size
 
+	# Major grid lines every 128px (4 cells) for orientation.
+	var major_step := grid_size * 4.0
+	var mx = sx
+	while mx <= ex2: draw_line(Vector2(mx,dy), Vector2(mx,ey), major_col, 1.5); mx += major_step
+	var my = sy
+	while my <= ey2: draw_line(Vector2(dx,my), Vector2(ex,my), major_col, 1.5); my += major_step
+
 func _get_route_bounds() -> Dictionary:
 	if holds_container.get_child_count() == 0:
 		return {"min":Vector2.ZERO,"max":Vector2.ZERO,"valid":false}
@@ -2484,18 +2846,33 @@ func _notify(text: String, is_error: bool = false):
 	var old = ui_layer.get_node_or_null("Toast"); if old: old.queue_free()
 	var ui_bottom = TOP_BAR_H + (DRAWER_H if not ui_panel_collapsed else 0.0) + 8.0
 
-	var toast = ColorRect.new(); toast.name = "Toast"
-	toast.size    = Vector2(380, 38)
+	# Minimal card-style toast: dark translucent panel, coloured edge/text only.
+	var toast = PanelContainer.new(); toast.name = "Toast"
+	toast.custom_minimum_size = Vector2(380, 40)
 	toast.position = Vector2(get_viewport_rect().size.x/2.0 - 190.0, ui_bottom)
-	toast.color   = Color(0.55,0.12,0.12,0.94) if is_error else Color(0.10,0.38,0.20,0.94)
+	var sty = StyleBoxFlat.new()
+	sty.bg_color = Color(0.16, 0.09, 0.09, 0.97) if is_error else Color(0.07, 0.11, 0.08, 0.97)
+	sty.set_border_width_all(1)
+	sty.border_color = Color(1.0, 0.45, 0.4, 0.45) if is_error else Color(0.55, 0.85, 0.62, 0.4)
+	sty.set_corner_radius_all(8)
+	sty.shadow_color = Color(0, 0, 0, 0.35)
+	sty.shadow_size  = 6
+	toast.add_theme_stylebox_override("panel", sty)
+
+	var margin = MarginContainer.new()
+	for m in ["margin_left","margin_right","margin_top","margin_bottom"]:
+		margin.add_theme_constant_override(m, 12)
+	toast.add_child(margin)
 
 	var lbl = Label.new(); lbl.text = text
-	lbl.size = toast.size
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	lbl.add_theme_font_size_override("font_size", 11)
-	lbl.add_theme_color_override("font_color", Color(1,1,1))
-	toast.add_child(lbl); ui_layer.add_child(toast)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.72, 0.68) if is_error else Color(0.82, 0.95, 0.85))
+	margin.add_child(lbl)
+	ui_layer.add_child(toast)
 
 	await get_tree().create_timer(2.2).timeout
 	if is_instance_valid(toast): toast.queue_free()
@@ -2537,6 +2914,7 @@ func _style_line_edit(le: LineEdit):
 	le.add_theme_stylebox_override("normal", n)
 	le.add_theme_font_size_override("font_size", 11)
 	le.add_theme_color_override("font_color", C_TEXT)
+	le.add_theme_color_override("placeholder_font_color", Color(0.50, 0.50, 0.56))
 
 func _make_option_button(min_w: int) -> OptionButton:
 	var ob = OptionButton.new(); ob.custom_minimum_size = Vector2(min_w, 30)
@@ -2544,6 +2922,7 @@ func _make_option_button(min_w: int) -> OptionButton:
 
 func _style_option_button(ob: OptionButton):
 	ob.add_theme_font_size_override("font_size", 11)
+	ob.add_theme_constant_override("arrow_margin", 6)
 	ob.add_theme_color_override("font_color", C_TEXT)
 	var n = StyleBoxFlat.new()
 	n.bg_color = C_SURFACE; n.set_border_width_all(1); n.border_color = C_BORDER
@@ -2554,23 +2933,30 @@ func _make_action_button(text: String, color: Color, cb: Callable) -> Button:
 	btn.custom_minimum_size = Vector2(0, 30)
 	btn.add_theme_font_size_override("font_size", 11)
 	btn.add_theme_color_override("font_color", color)
+	btn.add_theme_color_override("font_hover_color", color.lightened(0.25))
 	var n = StyleBoxFlat.new(); n.bg_color = C_SURFACE
-	n.set_border_width_all(1); n.border_color = C_BORDER; n.set_corner_radius_all(3)
+	n.set_border_width_all(1); n.border_color = C_BORDER; n.set_corner_radius_all(4)
 	btn.add_theme_stylebox_override("normal", n)
-	var h = StyleBoxFlat.new(); h.bg_color = Color(C_SURFACE.r+0.06,C_SURFACE.g+0.06,C_SURFACE.b+0.06)
-	h.set_border_width_all(1); h.border_color = color; h.set_corner_radius_all(3)
+	var h = StyleBoxFlat.new(); h.bg_color = Color(C_SURFACE.r+0.07,C_SURFACE.g+0.07,C_SURFACE.b+0.07)
+	h.set_border_width_all(1); h.border_color = color; h.set_corner_radius_all(4)
 	btn.add_theme_stylebox_override("hover", h)
+	var p = h.duplicate(); p.bg_color = Color(C_SURFACE.r+0.03,C_SURFACE.g+0.03,C_SURFACE.b+0.03)
+	btn.add_theme_stylebox_override("pressed", p)
 	btn.pressed.connect(cb); return btn
 
 func _make_flat_button(text: String, min_size: Vector2) -> Button:
 	var btn = Button.new(); btn.text = text; btn.custom_minimum_size = min_size
 	btn.focus_mode = Control.FOCUS_NONE; btn.add_theme_font_size_override("font_size", 11)
+	btn.add_theme_color_override("font_hover_color", C_ACCENT.lightened(0.3))
 	var n = StyleBoxFlat.new(); n.bg_color = C_SURFACE
-	n.set_border_width_all(1); n.border_color = C_BORDER; n.set_corner_radius_all(3)
+	n.set_border_width_all(1); n.border_color = C_BORDER; n.set_corner_radius_all(4)
 	btn.add_theme_stylebox_override("normal", n)
-	var h = StyleBoxFlat.new(); h.bg_color = Color(C_SURFACE.r+0.06,C_SURFACE.g+0.06,C_SURFACE.b+0.06)
-	h.set_border_width_all(1); h.border_color = C_ACCENT; h.set_corner_radius_all(3)
-	btn.add_theme_stylebox_override("hover", h); return btn
+	var h = StyleBoxFlat.new(); h.bg_color = Color(C_SURFACE.r+0.07,C_SURFACE.g+0.07,C_SURFACE.b+0.07)
+	h.set_border_width_all(1); h.border_color = C_ACCENT; h.set_corner_radius_all(4)
+	btn.add_theme_stylebox_override("hover", h)
+	var p = h.duplicate(); p.bg_color = Color(C_SURFACE.r+0.03,C_SURFACE.g+0.03,C_SURFACE.b+0.03)
+	btn.add_theme_stylebox_override("pressed", p)
+	return btn
 
 func _drawer_col(parent: HBoxContainer, title: String) -> VBoxContainer:
 	var col = VBoxContainer.new(); col.add_theme_constant_override("separation", 8); parent.add_child(col)
