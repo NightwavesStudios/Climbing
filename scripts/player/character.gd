@@ -466,7 +466,10 @@ func handle_input() -> void:
 	if not _input_enabled:
 		return
 
-	if Input.is_action_just_pressed("ui_cancel") or Input.is_action_just_pressed("restart"):
+	# Only the dedicated "restart" action resets the climb. "ui_cancel" (Esc /
+	# controller Start) is handled by the pause menu, so it must NOT reset the
+	# climb here — otherwise pausing would also restart the run.
+	if Input.is_action_just_pressed("restart"):
 		var main = get_tree().current_scene
 		if main and main.has_method("on_player_reset"):
 			main.on_player_reset()
@@ -1148,16 +1151,16 @@ func _rope_state() -> int:
 	return rs.catch_state if rs != null else -1
 
 
-## Active fall pose: arms thrown up and out, legs splayed — a climber reaching
-## for the wall. Replaces the dead straight-down hang during the fall.
+## Active fall pose: a free-fall sprawl — arms out to the sides, legs split
+## wide. Clearly falling, never reads as hanging or pinned on the rope.
 func _apply_falling_posture() -> void:
 	var spd := 0.22
 	for s in _hands:
 		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
 		var shoulder  = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
 		var sx        = -1.0 if s.is_left else 1.0
-		var tgt_elbow = shoulder + Vector2(sx * 20.0, -ARM_UPPER_LENGTH * 0.45)
-		var tgt_hand  = tgt_elbow + Vector2(sx * 26.0, -ARM_LOWER_LENGTH * 0.5)
+		var tgt_elbow = shoulder + Vector2(sx * 22.0, -ARM_UPPER_LENGTH * 0.15)
+		var tgt_hand  = tgt_elbow + Vector2(sx * 30.0, ARM_LOWER_LENGTH * 0.15)
 		s.joint.global_position = s.joint.global_position.lerp(tgt_elbow, spd)
 		s.node.global_position  = s.node.global_position.lerp(tgt_hand,  spd)
 		s.reset_velocity()
@@ -1165,8 +1168,8 @@ func _apply_falling_posture() -> void:
 		if s.hold != null or s in selected_limbs or s.is_grabbing: continue
 		var hip      = s.origin(global_position, SHOULDER_OFFSET, HIP_OFFSET, HIP_DOWN)
 		var sx       = -1.0 if s.is_left else 1.0
-		var tgt_knee = hip + Vector2(sx * 18.0, LEG_UPPER_LENGTH * 0.65)
-		var tgt_foot = tgt_knee + Vector2(sx * 12.0, LEG_LOWER_LENGTH * 0.75)
+		var tgt_knee = hip + Vector2(sx * 20.0, LEG_UPPER_LENGTH * 0.55)
+		var tgt_foot = tgt_knee + Vector2(sx * 26.0, LEG_LOWER_LENGTH * 0.55)
 		s.joint.global_position = s.joint.global_position.lerp(tgt_knee, spd)
 		s.node.global_position  = s.node.global_position.lerp(tgt_foot, spd)
 		s.reset_velocity()

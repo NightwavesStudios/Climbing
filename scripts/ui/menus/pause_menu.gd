@@ -20,6 +20,14 @@ func _ready() -> void:
 	_backdrop = get_node_or_null("Backdrop") as ColorRect
 	_menu = get_node_or_null("Menu") as Control
 
+## Safety net: if this node leaves the scene tree (e.g. transitioning to a
+## menu while a [code]hide_pause_menu()[/code] call early-returned mid-animation),
+## make sure the global pause flag is never left stuck on. Otherwise the next
+## scene (a menu) would load already frozen.
+func _exit_tree() -> void:
+	if get_tree():
+		get_tree().paused = false
+
 func show_pause_menu() -> void:
 	if _is_animating or not pausing_enabled:
 		return
